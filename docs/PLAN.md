@@ -77,20 +77,20 @@ Everything below the UI, tested, with no external dependencies. At the end, a ci
 netlist, the mock engine "simulates" it on a worker thread, and the scope and multimeter produce
 frames and readings that tests check against analytic values.
 
-**M0.1 Repository skeleton and build.** *(done locally 2026-10-20, CI pending M0.3)* CMake project and presets: `windows-msvc-debug`,
+**M0.1 Repository skeleton and build.** *(done 2026-10-20)* CMake project and presets: `windows-msvc-debug`,
 `windows-msvc-release`, `linux-clang-asan` (ASan + UBSan), `linux-clang-tsan`. Warning flags
 (`/W4 /permissive-` on MSVC, `-Wall -Wextra -Wpedantic` on clang) and warnings-as-errors in CI.
 `.clang-format`, `.editorconfig`, `.gitignore`. One placeholder library with one test.
 *Done when:* `cmake --preset windows-msvc-debug`, build and `ctest --preset windows-msvc-debug`
 pass, and the CLAUDE.md "Build and test" section lists these commands.
 
-**M0.2 Test harness.** *(done locally 2026-10-20, CI pending M0.3)* `tests/support`: test registration macro, `CHECK`, `CHECK_EQ`,
+**M0.2 Test harness.** *(done 2026-10-20)* `tests/support`: test registration macro, `CHECK`, `CHECK_EQ`,
 `CHECK_NEAR(value, expected, tolerance)` with a readable failure message, non-zero exit code on
 failure, one executable per module registered with CTest.
 *Done when:* harness self-tests pass, and a deliberately failing test is shown to fail with file,
 line and both values printed.
 
-**M0.3 CI.** GitHub Actions workflow: Windows job (configure, build, test, Qt-free for now) and
+**M0.3 CI.** *(done 2026-10-20)* GitHub Actions workflow: Windows job (configure, build, test, Qt-free for now) and
 Linux job (`linux-clang-asan` and `linux-clang-tsan`, Qt not installed).
 *Done when:* both jobs are green on a pull request.
 
