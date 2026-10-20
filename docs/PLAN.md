@@ -110,7 +110,7 @@ significant digits, 4.5-digit (19999-count) meter display, overload text.
 *Done when:* unit tests pass, and a two-thread stress test (10^6 items, order and count checked)
 passes under TSan.
 
-**M0.6 schematic: units and Circuit.** SPICE number parsing and formatting with SPICE quirks
+**M0.6 schematic: units and Circuit.** *(done 2026-10-21)* SPICE number parsing and formatting with SPICE quirks
 (`m` milli, `meg` mega, case-insensitive, trailing units ignored as in `10uF`). `Circuit` with
 `ComponentKind` resistor, capacitor, inductor, DC voltage source, DC current source, ground;
 opaque `Fragment` lines from instruments.
