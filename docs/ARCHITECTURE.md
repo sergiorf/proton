@@ -213,6 +213,8 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
 - **Integration test** (`tests/integration`): circuit -> netlist -> worker thread -> scope and
   multimeter, with the mock engine, on every commit.
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
+  CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
+  (`linux-clang-asan`, `linux-clang-tsan`) with no Qt installed, all with warnings as errors.
 - **Next:** the same RC circuit through ngspice compared against the analytic answer (M1); UI is
   covered by smoke tests only: logic belongs below the UI, where it is testable.
 
