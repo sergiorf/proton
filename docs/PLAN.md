@@ -94,7 +94,7 @@ line and both values printed.
 Linux job (`linux-clang-asan` and `linux-clang-tsan`, Qt not installed).
 *Done when:* both jobs are green on a pull request.
 
-**M0.4 Contributor docs and ADRs.** `CONTRIBUTING.md` (layer rules from ARCHITECTURE.md section 2,
+**M0.4 Contributor docs and ADRs.** *(done 2026-10-20)* `CONTRIBUTING.md` (layer rules from ARCHITECTURE.md section 2,
 style, test rules, CLA requirement for outside contributions), `docs/LICENSING.md` (Proton under
 AGPL-3.0-only with a commercial option; the dependency rule from D2 with a table of every
 dependency and its license; Qt under LGPL with dynamic linking; ngspice license; original
