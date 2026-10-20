@@ -116,7 +116,7 @@ passes under TSan.
 opaque `Fragment` lines from instruments.
 *Done when:* a table-driven test covers every SI prefix, the `m`/`meg` trap and invalid input.
 
-**M0.7 schematic: validate().** Diagnostics for: no ground; duplicate designators across components
+**M0.7 schematic: validate().** *(done 2026-10-21)* Diagnostics for: no ground; duplicate designators across components
 and fragments, case-insensitive; unparsable or zero values; nets with a single connection; nets
 with no DC path to ground (capacitors treated as open), which ngspice would otherwise report as a
 singular matrix.
