@@ -186,9 +186,18 @@ sources (nets `{positive, negative}` as in SPICE) and ground (one net, which bec
 rotations and symbols belong to the editor's own scene model, which is *converted* into a `Circuit`.
 This keeps the model serialisable and testable without a GUI.
 
-`validate()` returns diagnostics for the mistakes beginners make most (no ground, duplicate
-designators, zero or unparsable values, floating nodes) *before* the simulator turns them into
-cryptic errors. `buildNetlist()` is a pure function: same circuit, same text.
+`validate()` returns diagnostics for the mistakes beginners make most *before* the simulator turns
+them into cryptic errors: no ground, invalid or duplicate designators (across components and
+fragments, ignoring case as SPICE does), unconnected terminals, zero or unparsable values, nets
+with a single connection (a warning), and nets with no DC path to ground, which ngspice reports as
+a singular matrix. Each `Diagnostic` carries a severity, a stable code, the element or net it is
+about, and a sentence for the student; any error means the circuit is not simulated. Net names are
+compared ignoring case; ground is node `0` plus every net a ground symbol sits on. For the DC path,
+resistors, inductors and voltage sources conduct, capacitors and current sources do not. Fragment
+lines are read only far enough for these checks (element name and two nodes, R/C/L/V/I elements);
+any other line is itself a diagnostic, so a new instrument element must extend `validate()`.
+
+`buildNetlist()` is a pure function: same circuit, same text.
 
 SPICE numbers (`units.h`) follow ngspice: scale factors `t g meg k mil m u n p f`,
 case-insensitive, and trailing letters ignored as units. Hence the traps: `M` is milli (`meg` is

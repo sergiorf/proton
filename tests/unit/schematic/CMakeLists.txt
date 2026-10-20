@@ -2,6 +2,7 @@
 add_executable(proton_schematic_tests
     test_circuit.cpp
     test_units.cpp
+    test_validate.cpp
 )
 target_link_libraries(proton_schematic_tests
     PRIVATE proton::schematic proton::test_support proton_warnings)

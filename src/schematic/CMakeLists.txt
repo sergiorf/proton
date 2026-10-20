@@ -2,6 +2,7 @@
 add_library(proton_schematic
     src/circuit.cpp
     src/units.cpp
+    src/validate.cpp
 )
 add_library(proton::schematic ALIAS proton_schematic)
 
