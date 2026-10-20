@@ -122,7 +122,7 @@ with no DC path to ground (capacitors treated as open), which ngspice would othe
 singular matrix.
 *Done when:* one test per diagnostic, plus a clean circuit producing none.
 
-**M0.8 schematic: buildNetlist().** Pure function from `Circuit` to netlist text: stable element
+**M0.8 schematic: buildNetlist().** *(done 2026-10-21)* Pure function from `Circuit` to netlist text: stable element
 order, fragments appended, no analysis line (the engine adds `.tran` / `.op`).
 *Done when:* golden-file tests in `tests/golden` pass, and building the same circuit twice gives
 byte-identical text.
