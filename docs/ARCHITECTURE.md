@@ -215,6 +215,8 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
   CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
   (`linux-clang-asan`, `linux-clang-tsan`) with no Qt installed, all with warnings as errors.
+- **Repository checks** run as CTest tests on every preset: `spdx_headers`
+  (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.
 - **Next:** the same RC circuit through ngspice compared against the analytic answer (M1); UI is
   covered by smoke tests only: logic belongs below the UI, where it is testable.
 
