@@ -179,14 +179,22 @@ the threshold.
 ## 7. Circuit model and netlist
 
 `Circuit` holds components (kind, reference designator, nets, value string) and opaque `Fragment`s
-(pre-rendered SPICE lines from instruments). It deliberately contains no UI data: positions,
+(pre-rendered SPICE lines from instruments, under the instrument's instance name), both in the
+order they were added. Component kinds: resistor, capacitor, inductor, DC voltage and current
+sources (nets `{positive, negative}` as in SPICE) and ground (one net, which becomes SPICE node
+`0`). It is plain data compared by value. It deliberately contains no UI data: positions,
 rotations and symbols belong to the editor's own scene model, which is *converted* into a `Circuit`.
 This keeps the model serialisable and testable without a GUI.
 
 `validate()` returns diagnostics for the mistakes beginners make most (no ground, duplicate
 designators, zero or unparsable values, floating nodes) *before* the simulator turns them into
-cryptic errors. `buildNetlist()` is a pure function: same circuit, same text. SPICE number parsing
-follows SPICE quirks (`m` is milli, `meg` is mega).
+cryptic errors. `buildNetlist()` is a pure function: same circuit, same text.
+
+SPICE numbers (`units.h`) follow ngspice: scale factors `t g meg k mil m u n p f`,
+case-insensitive, and trailing letters ignored as units. Hence the traps: `M` is milli (`meg` is
+mega), and `10F` is 10 femto, not 10 farad. Parsing is locale-free and rounds the written decimal
+once to the nearest double; `formatSpiceNumber` writes the shortest mantissa that parses back to
+the same double ("4.7k", "1meg", "2.2u"), so format then parse is exact.
 
 ## 8. Simulation backends
 
