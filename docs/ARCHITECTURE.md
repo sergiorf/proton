@@ -80,7 +80,10 @@ data is the instrument's job, exactly as a real ADC does.
 | ngspice background thread | internal to libngspice | Only with `NgspiceEngine`; its data callback blocks when the consumer lags |
 
 Exactly one thing crosses a thread boundary: `SpscRing<SimChunk>`, a lock-free single-producer /
-single-consumer queue. Sample data never travels through Qt signals between threads. Changing a
+single-consumer queue (`proton/core/spsc_ring.h`: power-of-two capacity fixed at construction,
+move-only elements, release/acquire on the two indices, non-blocking `tryPush` / `tryPop`; a full
+`tryPush` leaves its argument untouched so the producer can wait and retry). Sample data never
+travels through Qt signals between threads. Changing a
 knob (time/div, trigger level) is a call on the UI thread; changing the *circuit* stops the worker,
 rebuilds the netlist, reloads the engine and restarts.
 
@@ -213,6 +216,7 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
 - **Integration test** (`tests/integration`): circuit -> netlist -> worker thread -> scope and
   multimeter, with the mock engine, on every commit.
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
+  The `SpscRing` stress test (two threads, 10^6 items, order and count checked) runs under TSan.
   CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
   (`linux-clang-asan`, `linux-clang-tsan`) with no Qt installed, all with warnings as errors.
 - **Repository checks** run as CTest tests on every preset: `spdx_headers`
