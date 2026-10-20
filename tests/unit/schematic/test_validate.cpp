@@ -99,7 +99,7 @@ TEST(node_zero_is_ground_without_a_ground_symbol)
 
 TEST(invalid_designator)
 {
-    const char* designators[] = {"", "R 1", "X1", "C1x"};
+    const char* designators[] = {"", "R 1", "X1", "C1x", "R(1)", "R1="};
     for (const char* designator : designators) {
         Circuit circuit = lowPass();
         circuit.components[1].designator = designator;
@@ -158,6 +158,27 @@ TEST(invalid_terminals)
     Circuit groundWithoutNet = lowPass();
     groundWithoutNet.components.push_back({ComponentKind::Ground, "GND2", {}, ""});
     CHECK_EQ(codes(groundWithoutNet), "InvalidTerminals");
+}
+
+TEST(invalid_net_name)
+{
+    const char* names[] = {"my net", "a(b)", "x=1", "n,1", "v\xC2\xB5"};
+    for (const char* name : names) {
+        Circuit circuit = lowPass();
+        circuit.components[1].nets[1] = name;
+        circuit.components[2].nets[0] = name;
+        const std::vector<Diagnostic> diagnostics = validate(circuit);
+        CHECK_EQ(codes(diagnostics), "InvalidNetName"); // once, though two terminals use it
+        CHECK_EQ(diagnostics.front().net, name);
+    }
+    Circuit allowed = lowPass();
+    allowed.components[1].nets[1] = "V+_out-2.a";
+    allowed.components[2].nets[0] = "v+_OUT-2.A";
+    CHECK_EQ(codes(allowed), "");
+
+    Circuit fragment = lowPass();
+    fragment.fragments = {{"gen1", {"Vgen1 a(1) gnd 1", "Rgen1 a(1) in 50"}}};
+    CHECK_EQ(codes(fragment), "InvalidNetName");
 }
 
 TEST(invalid_value)

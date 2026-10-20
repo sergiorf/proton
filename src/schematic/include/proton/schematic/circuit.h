@@ -50,8 +50,8 @@ struct Fragment
     friend bool operator==(const Fragment&, const Fragment&) = default;
 };
 
-// The circuit to simulate: plain data, in the order the components and fragments were added,
-// which is the order the netlist keeps.
+// The circuit to simulate: plain data, in the order the components and fragments were added.
+// The netlist does not depend on that order (see buildNetlist).
 struct Circuit
 {
     std::vector<Component> components;

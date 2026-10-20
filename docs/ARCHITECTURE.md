@@ -188,16 +188,22 @@ This keeps the model serialisable and testable without a GUI.
 
 `validate()` returns diagnostics for the mistakes beginners make most *before* the simulator turns
 them into cryptic errors: no ground, invalid or duplicate designators (across components and
-fragments, ignoring case as SPICE does), unconnected terminals, zero or unparsable values, nets
-with a single connection (a warning), and nets with no DC path to ground, which ngspice reports as
-a singular matrix. Each `Diagnostic` carries a severity, a stable code, the element or net it is
+fragments, ignoring case as SPICE does), unconnected terminals, zero or unparsable values, net names
+that are not one SPICE token (letters, digits, `_ - + .`), nets with a single connection (a
+warning), and nets with no DC path to ground, which ngspice reports as a singular matrix. Each
+`Diagnostic` carries a severity, a stable code, the element or net it is
 about, and a sentence for the student; any error means the circuit is not simulated. Net names are
 compared ignoring case; ground is node `0` plus every net a ground symbol sits on. For the DC path,
 resistors, inductors and voltage sources conduct, capacitors and current sources do not. Fragment
 lines are read only far enough for these checks (element name and two nodes, R/C/L/V/I elements);
 any other line is itself a diagnostic, so a new instrument element must extend `validate()`.
 
-`buildNetlist()` is a pure function: same circuit, same text.
+`buildNetlist()` is a pure function: same circuit, same text, byte for byte. Components are written
+sorted by designator in natural order (R2 before R10) and fragments sorted by name, so the text
+does not depend on the order things were added in the editor. Ground nets become node `0`, in
+fragment lines too; values are normalised through `formatSpiceNumber` (`10uF` becomes `10u`), so
+ngspice never reads a student's spelling; sources are `DC <value>`. The text is the title line and
+the elements only: the engine appends the analysis line (`.tran` / `.op`) and `.end`.
 
 SPICE numbers (`units.h`) follow ngspice: scale factors `t g meg k mil m u n p f`,
 case-insensitive, and trailing letters ignored as units. Hence the traps: `M` is milli (`meg` is
@@ -229,7 +235,9 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
   `TEST`, non-fatal `CHECK` / `CHECK_EQ` / `CHECK_NEAR` that print file, line and both values).
 - **Analytic checks** instead of eyeballing: RC corner is exactly -3 dB, true RMS of a sine is
   0.7071, ADC steps are exact multiples of the LSB, the one-pole filter matches its closed form.
-- **Golden netlists** for the schematic layer.
+- **Golden netlists** for the schematic layer: `tests/golden/netlist/*.cir`, compared byte for byte
+  and kept LF on every platform by `.gitattributes`. A mismatch writes the actual text to
+  `golden-actual/` in the test's build directory.
 - **Integration test** (`tests/integration`): circuit -> netlist -> worker thread -> scope and
   multimeter, with the mock engine, on every commit.
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.

@@ -16,9 +16,10 @@ enum class Severity {
 
 enum class DiagnosticCode {
     NoGround,            // no Ground component and no element on node 0
-    InvalidDesignator,   // empty, contains whitespace, or not starting with the kind's letter
+    InvalidDesignator,   // empty, not a valid name, or not starting with the kind's letter
     DuplicateDesignator, // same element name twice, components and fragments, ignoring case
     InvalidTerminals,    // wrong number of nets, or an empty net name
+    InvalidNetName,      // a net name SPICE would not read as one node name
     InvalidValue,        // empty or not a SPICE number
     ZeroValue,           // a resistor, capacitor or inductor of zero
     InvalidFragmentLine, // a fragment line validate() cannot read (see validate)
@@ -44,8 +45,9 @@ struct Diagnostic
 // cryptic errors. The result is empty for a clean circuit and is deterministic: checks run in the
 // order of the codes above, and within a check in circuit order (components, then fragments).
 //
-// Names follow SPICE, which ignores case: `R1` and `r1` are the same element, and nets `Out` and
-// `out` are the same net. Ground is node `0` together with every net a Ground component is on.
+// Designators and net names may only contain letters, digits and `_ - + .`, so each is one SPICE
+// token. Names follow SPICE, which ignores case: `R1` and `r1` are the same element, and nets `Out`
+// and `out` are the same net. Ground is node `0` together with every net a Ground component is on.
 // Ground components are not SPICE elements, so their designators and values are not checked.
 //
 // Fragment lines are read as `<name> <node> <node> ...`. The element letter must be R, C, L, V or

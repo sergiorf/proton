@@ -2,10 +2,12 @@
 #include "proton/schematic/validate.h"
 
 #include "proton/schematic/units.h"
+#include "spice_line.h"
 
 #include <cstddef>
 #include <map>
 #include <optional>
+#include <set>
 #include <utility>
 
 namespace proton::schematic {
@@ -22,67 +24,12 @@ struct Element
     bool netsValid = false;
 };
 
-char toLower(char c)
-{
-    return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
-}
-
-char toUpper(char c)
-{
-    return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
-}
-
-bool isSpace(char c)
-{
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v';
-}
-
-std::string lower(std::string_view text)
-{
-    std::string result(text);
-    for (char& c : result) {
-        c = toLower(c);
-    }
-    return result;
-}
-
-std::vector<std::string_view> splitWhitespace(std::string_view line)
-{
-    std::vector<std::string_view> tokens;
-    std::size_t pos = 0;
-    while (pos < line.size()) {
-        while (pos < line.size() && isSpace(line[pos])) {
-            ++pos;
-        }
-        const std::size_t start = pos;
-        while (pos < line.size() && !isSpace(line[pos])) {
-            ++pos;
-        }
-        if (pos > start) {
-            tokens.push_back(line.substr(start, pos - start));
-        }
-    }
-    return tokens;
-}
-
-char spiceLetter(ComponentKind kind)
-{
-    switch (kind) {
-    case ComponentKind::Resistor:
-        return 'R';
-    case ComponentKind::Capacitor:
-        return 'C';
-    case ComponentKind::Inductor:
-        return 'L';
-    case ComponentKind::VoltageSource:
-        return 'V';
-    case ComponentKind::CurrentSource:
-        return 'I';
-    case ComponentKind::Ground:
-        return 0;
-    }
-    return 0;
-}
+using detail::isBlankOrComment;
+using detail::isValidName;
+using detail::lower;
+using detail::parseElementLine;
+using detail::spiceLetter;
+using detail::toUpper;
 
 std::string_view kindName(ComponentKind kind)
 {
@@ -103,11 +50,6 @@ std::string_view kindName(ComponentKind kind)
     return "component";
 }
 
-bool isTwoTerminalLetter(char letter)
-{
-    return letter == 'R' || letter == 'C' || letter == 'L' || letter == 'V' || letter == 'I';
-}
-
 // Capacitors are open at DC and current sources are ideal, so neither gives a DC path.
 bool conductsDc(char letter)
 {
@@ -126,6 +68,8 @@ bool hasValidNets(const std::vector<std::string>& nets, std::size_t count)
     }
     return true;
 }
+
+constexpr const char* kNameCharacters = "letters, digits and _ - + .";
 
 std::string describe(const Element& element)
 {
@@ -197,6 +141,7 @@ public:
         checkDesignators();
         checkDuplicates();
         checkTerminals();
+        checkNetNames();
         checkValues();
         checkFragmentLines();
         checkConnectivity();
@@ -226,19 +171,18 @@ private:
         }
         for (const Fragment& fragment : circuit_.fragments) {
             for (const std::string& line : fragment.lines) {
-                const std::vector<std::string_view> tokens = splitWhitespace(line);
-                if (tokens.empty() || tokens.front().front() == '*') {
+                if (isBlankOrComment(line)) {
                     continue;
                 }
-                const char letter = toUpper(tokens.front().front());
-                if (!isTwoTerminalLetter(letter) || tokens.size() < 3) {
+                const std::optional<detail::ElementLine> parsed = parseElementLine(line);
+                if (!parsed) {
                     badFragmentLines_.emplace_back(&fragment, &line);
                     continue;
                 }
-                elements_.push_back({std::string(tokens[0]),
+                elements_.push_back({std::string(parsed->name),
                                      fragment.name,
-                                     letter,
-                                     {std::string(tokens[1]), std::string(tokens[2])},
+                                     parsed->letter,
+                                     {std::string(parsed->nodes[0]), std::string(parsed->nodes[1])},
                                      true});
             }
         }
@@ -275,16 +219,12 @@ private:
             }
             const std::string& name = component.designator;
             const char letter = spiceLetter(component.kind);
-            bool hasSpace = false;
-            for (const char c : name) {
-                hasSpace = hasSpace || isSpace(c);
-            }
             if (name.empty()) {
                 report(Severity::Error, DiagnosticCode::InvalidDesignator, name, {},
                        "A " + std::string(kindName(component.kind)) + " has no designator.");
-            } else if (hasSpace) {
+            } else if (!isValidName(name)) {
                 report(Severity::Error, DiagnosticCode::InvalidDesignator, name, {},
-                       "Designator '" + name + "' contains a space.");
+                       "Designator '" + name + "' may only contain " + kNameCharacters + ".");
             } else if (toUpper(name.front()) != letter) {
                 report(Severity::Error, DiagnosticCode::InvalidDesignator, name, {},
                        "Designator '" + name + "' of a " + std::string(kindName(component.kind)) +
@@ -321,6 +261,30 @@ private:
             }
             report(Severity::Error, DiagnosticCode::InvalidTerminals, component.designator, {},
                    who + " has an unconnected terminal.");
+        }
+    }
+
+    // Empty net names are already InvalidTerminals; each bad name is reported once.
+    void checkNetNames()
+    {
+        std::set<std::string> reported;
+        const auto check = [&](const std::string& element, const std::string& net) {
+            if (net.empty() || isValidName(net) || !reported.insert(lower(net)).second) {
+                return;
+            }
+            report(Severity::Error, DiagnosticCode::InvalidNetName, element, net,
+                   "Net name '" + net + "' may only contain " + kNameCharacters + ".");
+        };
+        for (const Component& component : circuit_.components) {
+            for (const std::string& net : component.nets) {
+                check(component.designator, net);
+            }
+        }
+        for (const Element& element : elements_) {
+            if (!element.fragment.empty()) {
+                check(element.name, element.nets[0]);
+                check(element.name, element.nets[1]);
+            }
         }
     }
 
@@ -427,6 +391,8 @@ std::string_view codeName(DiagnosticCode code)
         return "DuplicateDesignator";
     case DiagnosticCode::InvalidTerminals:
         return "InvalidTerminals";
+    case DiagnosticCode::InvalidNetName:
+        return "InvalidNetName";
     case DiagnosticCode::InvalidValue:
         return "InvalidValue";
     case DiagnosticCode::ZeroValue:
