@@ -84,7 +84,7 @@ frames and readings that tests check against analytic values.
 *Done when:* `cmake --preset windows-msvc-debug`, build and `ctest --preset windows-msvc-debug`
 pass, and the CLAUDE.md "Build and test" section lists these commands.
 
-**M0.2 Test harness.** `tests/support`: test registration macro, `CHECK`, `CHECK_EQ`,
+**M0.2 Test harness.** *(done locally 2026-10-20, CI pending M0.3)* `tests/support`: test registration macro, `CHECK`, `CHECK_EQ`,
 `CHECK_NEAR(value, expected, tolerance)` with a readable failure message, non-zero exit code on
 failure, one executable per module registered with CTest.
 *Done when:* harness self-tests pass, and a deliberately failing test is shown to fail with file,

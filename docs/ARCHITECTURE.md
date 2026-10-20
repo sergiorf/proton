@@ -205,7 +205,8 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
 
 ## 10. Testing strategy
 
-- **Unit tests** per module, with a dependency-free harness (`tests/support`).
+- **Unit tests** per module, one executable each, with a dependency-free harness (`tests/support`:
+  `TEST`, non-fatal `CHECK` / `CHECK_EQ` / `CHECK_NEAR` that print file, line and both values).
 - **Analytic checks** instead of eyeballing: RC corner is exactly -3 dB, true RMS of a sine is
   0.7071, ADC steps are exact multiples of the LSB, the one-pole filter matches its closed form.
 - **Golden netlists** for the schematic layer.

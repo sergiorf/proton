@@ -26,7 +26,8 @@ warning-free (`/W4 /permissive-`, `-Wall -Wextra -Wpedantic`).
 <!-- TODO (M0.15): run the headless demo -->
 
 New test executables: one per module under `tests/unit/<module>/`, registered with `add_test`,
-linking `proton_warnings` privately like every Proton target.
+linking `proton::test_support` (the harness in `tests/support`: `TEST`, `CHECK`, `CHECK_EQ`,
+`CHECK_NEAR`, provides `main`) and `proton_warnings` privately like every Proton target.
 
 ## Hard rules
 
