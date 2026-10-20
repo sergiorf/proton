@@ -1,0 +1,14 @@
+* Proton netlist
+C1 out 0 10u
+I1 0 mid DC 500u
+L1 out 0 10m
+R2 in mid 1k
+R3 mid 0 1meg
+R10 Mid out 4.7k
+V1 in 0 DC 12
+* gen1
+Vgen1 gen1_int 0 SIN(0 1 1k)
+Rgen1 gen1_int in 50
+* gen2
+Vgen2 gen2_int 0   PULSE(0 1 0 1u 1u 0.5m 1m)
+Rgen2 gen2_int out 50

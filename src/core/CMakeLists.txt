@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_library(proton_core
+    src/format.cpp
     src/version.cpp
 )
 add_library(proton::core ALIAS proton_core)

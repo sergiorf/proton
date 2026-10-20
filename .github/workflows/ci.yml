@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Windows: MSVC build and tests (Qt-free until M2.1 adds the app).
+# Linux: clang with sanitizers; Qt is not installed, which enforces "no Qt below src/app".
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows MSVC (${{ matrix.preset }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [windows-msvc-debug, windows-msvc-release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  linux:
+    name: Linux clang (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-clang-asan, linux-clang-tsan]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang ninja-build
+      # The runner's default ASLR entropy (32 bits) breaks the sanitizers' shadow memory
+      # mappings ("unexpected memory mapping"); 28 bits is what they support.
+      - name: Lower ASLR entropy for sanitizers
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Check that Qt is not installed
+        run: |
+          if find /usr /opt -name 'Qt6Config.cmake' -print -quit 2>/dev/null | grep -q .; then
+            echo "Qt found on the Linux runner; this job must build without Qt" >&2
+            exit 1
+          fi
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}

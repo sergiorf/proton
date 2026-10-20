@@ -80,7 +80,10 @@ data is the instrument's job, exactly as a real ADC does.
 | ngspice background thread | internal to libngspice | Only with `NgspiceEngine`; its data callback blocks when the consumer lags |
 
 Exactly one thing crosses a thread boundary: `SpscRing<SimChunk>`, a lock-free single-producer /
-single-consumer queue. Sample data never travels through Qt signals between threads. Changing a
+single-consumer queue (`proton/core/spsc_ring.h`: power-of-two capacity fixed at construction,
+move-only elements, release/acquire on the two indices, non-blocking `tryPush` / `tryPop`; a full
+`tryPush` leaves its argument untouched so the producer can wait and retry). Sample data never
+travels through Qt signals between threads. Changing a
 knob (time/div, trigger level) is a call on the UI thread; changing the *circuit* stops the worker,
 rebuilds the netlist, reloads the engine and restarts.
 
@@ -176,14 +179,37 @@ the threshold.
 ## 7. Circuit model and netlist
 
 `Circuit` holds components (kind, reference designator, nets, value string) and opaque `Fragment`s
-(pre-rendered SPICE lines from instruments). It deliberately contains no UI data: positions,
+(pre-rendered SPICE lines from instruments, under the instrument's instance name), both in the
+order they were added. Component kinds: resistor, capacitor, inductor, DC voltage and current
+sources (nets `{positive, negative}` as in SPICE) and ground (one net, which becomes SPICE node
+`0`). It is plain data compared by value. It deliberately contains no UI data: positions,
 rotations and symbols belong to the editor's own scene model, which is *converted* into a `Circuit`.
 This keeps the model serialisable and testable without a GUI.
 
-`validate()` returns diagnostics for the mistakes beginners make most (no ground, duplicate
-designators, zero or unparsable values, floating nodes) *before* the simulator turns them into
-cryptic errors. `buildNetlist()` is a pure function: same circuit, same text. SPICE number parsing
-follows SPICE quirks (`m` is milli, `meg` is mega).
+`validate()` returns diagnostics for the mistakes beginners make most *before* the simulator turns
+them into cryptic errors: no ground, invalid or duplicate designators (across components and
+fragments, ignoring case as SPICE does), unconnected terminals, zero or unparsable values, net names
+that are not one SPICE token (letters, digits, `_ - + .`), nets with a single connection (a
+warning), and nets with no DC path to ground, which ngspice reports as a singular matrix. Each
+`Diagnostic` carries a severity, a stable code, the element or net it is
+about, and a sentence for the student; any error means the circuit is not simulated. Net names are
+compared ignoring case; ground is node `0` plus every net a ground symbol sits on. For the DC path,
+resistors, inductors and voltage sources conduct, capacitors and current sources do not. Fragment
+lines are read only far enough for these checks (element name and two nodes, R/C/L/V/I elements);
+any other line is itself a diagnostic, so a new instrument element must extend `validate()`.
+
+`buildNetlist()` is a pure function: same circuit, same text, byte for byte. Components are written
+sorted by designator in natural order (R2 before R10) and fragments sorted by name, so the text
+does not depend on the order things were added in the editor. Ground nets become node `0`, in
+fragment lines too; values are normalised through `formatSpiceNumber` (`10uF` becomes `10u`), so
+ngspice never reads a student's spelling; sources are `DC <value>`. The text is the title line and
+the elements only: the engine appends the analysis line (`.tran` / `.op`) and `.end`.
+
+SPICE numbers (`units.h`) follow ngspice: scale factors `t g meg k mil m u n p f`,
+case-insensitive, and trailing letters ignored as units. Hence the traps: `M` is milli (`meg` is
+mega), and `10F` is 10 femto, not 10 farad. Parsing is locale-free and rounds the written decimal
+once to the nearest double; `formatSpiceNumber` writes the shortest mantissa that parses back to
+the same double ("4.7k", "1meg", "2.2u"), so format then parse is exact.
 
 ## 8. Simulation backends
 
@@ -209,10 +235,17 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
   `TEST`, non-fatal `CHECK` / `CHECK_EQ` / `CHECK_NEAR` that print file, line and both values).
 - **Analytic checks** instead of eyeballing: RC corner is exactly -3 dB, true RMS of a sine is
   0.7071, ADC steps are exact multiples of the LSB, the one-pole filter matches its closed form.
-- **Golden netlists** for the schematic layer.
+- **Golden netlists** for the schematic layer: `tests/golden/netlist/*.cir`, compared byte for byte
+  and kept LF on every platform by `.gitattributes`. A mismatch writes the actual text to
+  `golden-actual/` in the test's build directory.
 - **Integration test** (`tests/integration`): circuit -> netlist -> worker thread -> scope and
   multimeter, with the mock engine, on every commit.
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
+  The `SpscRing` stress test (two threads, 10^6 items, order and count checked) runs under TSan.
+  CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
+  (`linux-clang-asan`, `linux-clang-tsan`) with no Qt installed, all with warnings as errors.
+- **Repository checks** run as CTest tests on every preset: `spdx_headers`
+  (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.
 - **Next:** the same RC circuit through ngspice compared against the analytic answer (M1); UI is
   covered by smoke tests only: logic belongs below the UI, where it is testable.
 

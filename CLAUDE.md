@@ -20,8 +20,9 @@ ctest --preset windows-msvc-debug          # run all tests
 ```
 
 Linux (clang + Ninja, Qt-free): `linux-clang-asan` (ASan + UBSan) and `linux-clang-tsan`, same
-three commands. CI adds `-DPROTON_WARNINGS_AS_ERRORS=ON` at configure time; keep builds
-warning-free (`/W4 /permissive-`, `-Wall -Wextra -Wpedantic`).
+three commands. CI (`.github/workflows/ci.yml`) runs both Windows presets and both Linux presets
+on every push to main and every pull request, adding `-DPROTON_WARNINGS_AS_ERRORS=ON` at configure
+time; keep builds warning-free (`/W4 /permissive-`, `-Wall -Wextra -Wpedantic`).
 
 <!-- TODO (M0.15): run the headless demo -->
 
