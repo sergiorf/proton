@@ -11,7 +11,22 @@ Read before non-trivial work:
 
 ## Build and test
 
-<!-- TODO: configure, build, run tests, run the headless demo -->
+CMake presets; build trees go to `build/<preset>`.
+
+```
+cmake --preset windows-msvc-debug          # configure (also: windows-msvc-release)
+cmake --build --preset windows-msvc-debug  # build
+ctest --preset windows-msvc-debug          # run all tests
+```
+
+Linux (clang + Ninja, Qt-free): `linux-clang-asan` (ASan + UBSan) and `linux-clang-tsan`, same
+three commands. CI adds `-DPROTON_WARNINGS_AS_ERRORS=ON` at configure time; keep builds
+warning-free (`/W4 /permissive-`, `-Wall -Wextra -Wpedantic`).
+
+<!-- TODO (M0.15): run the headless demo -->
+
+New test executables: one per module under `tests/unit/<module>/`, registered with `add_test`,
+linking `proton_warnings` privately like every Proton target.
 
 ## Hard rules
 

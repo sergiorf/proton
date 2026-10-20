@@ -10,6 +10,9 @@ says in what order things get built and how each step is known to be done.
   a milestone; a task may only rely on tasks before it.
 - Every task ends with a **Done when** line. A task is done when that holds, its tests pass in CI,
   and ARCHITECTURE.md / ROADMAP.md still describe the code (update them in the same change).
+- When a task is done, append a marker to its heading: *(done YYYY-MM-DD)*. If everything holds
+  except a CI check that a later task sets up, mark it *(done locally YYYY-MM-DD, CI pending
+  M0.x)* and update the marker once that CI run is green.
 - Each milestone ends with an exit check: something you can run and see, not only tests.
 - Decisions are marked **Decision** and listed in the table at the end. Open ones have a proposed
   default, so work is never blocked; confirm or change it before the task starts.
@@ -74,7 +77,7 @@ Everything below the UI, tested, with no external dependencies. At the end, a ci
 netlist, the mock engine "simulates" it on a worker thread, and the scope and multimeter produce
 frames and readings that tests check against analytic values.
 
-**M0.1 Repository skeleton and build.** CMake project and presets: `windows-msvc-debug`,
+**M0.1 Repository skeleton and build.** *(done locally 2026-10-20, CI pending M0.3)* CMake project and presets: `windows-msvc-debug`,
 `windows-msvc-release`, `linux-clang-asan` (ASan + UBSan), `linux-clang-tsan`. Warning flags
 (`/W4 /permissive-` on MSVC, `-Wall -Wextra -Wpedantic` on clang) and warnings-as-errors in CI.
 `.clang-format`, `.editorconfig`, `.gitignore`. One placeholder library with one test.
