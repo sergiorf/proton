@@ -104,7 +104,7 @@ source file starts with `// SPDX-License-Identifier: AGPL-3.0-only`.
 *Done when:* the CLAUDE.md links to these files resolve, and a CI check fails on a source file
 without the SPDX line.
 
-**M0.5 core.** `SpscRing<T>`: fixed power-of-two capacity, move-only elements, acquire/release
+**M0.5 core.** *(done 2026-10-20)* `SpscRing<T>`: fixed power-of-two capacity, move-only elements, acquire/release
 ordering, `tryPush` / `tryPop`. Formatting: engineering notation with SI prefixes, fixed
 significant digits, 4.5-digit (19999-count) meter display, overload text.
 *Done when:* unit tests pass, and a two-thread stress test (10^6 items, order and count checked)
