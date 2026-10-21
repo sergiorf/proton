@@ -256,10 +256,23 @@ Parsing is locale-free and rounds the written decimal once to the nearest double
 
 ## 8. Simulation backends
 
-`ISimEngine` is a pull interface: `load(netlist)`, `advance(duration) -> SimChunk`, `reset()`.
+`ISimEngine` (`proton/sim/sim_engine.h`) is a pull interface: `load(netlist) -> bool`,
+`advance(duration) -> SimChunk`, `reset()`, plus `signalNames()` and `error()`. `load` takes the
+netlist as `buildNetlist()` writes it and prepares a transient run from t = 0; on failure nothing is
+loaded and `error()` says why (no exceptions, section 9). Each `advance` returns the points in the
+next `duration` seconds, t = 0 included in the first, with one signal per name. `SimChunk`
+(`time[]`, `signals[s][i]`) is move-only, since it travels between threads by move.
+`indexOfSignal(names, name)` finds a signal ignoring ASCII case, as SPICE does (`V(Out)` finds
+`v(out)`).
 
-- **`MockEngine`**: deterministic sine and RC low-pass on an irregular grid. Used by tests, the
-  headless demo and CI, so the whole pipeline is exercised without any external dependency.
+- **`MockEngine`** (done, M0): deterministic sine and RC low-pass on an irregular grid. Used by
+  tests, the headless demo and CI, so the whole pipeline is exercised without any external
+  dependency. It ignores the netlist's elements (a blank netlist is a load error) and always gives
+  `v(in)`, the sine, and `v(out)`, the RC output, starting from the DC operating point. Steps are
+  drawn between `minStep` and `maxStep` from a fixed integer pseudo-random sequence that restarts
+  at `load` and `reset`, so the grid does not depend on how the run is chunked and two runs are
+  bit-identical. `v(out)` is advanced with the exact RC response to an input linear across each
+  step; it matches the analytic answer to within that linearisation (second order in the step).
 - **`NgspiceEngine`**: libngspice shared-library API, streaming accepted time points through a
   callback into a bounded queue. Constraints (global state, one instance per process, backpressure
   by blocking the callback) are in `docs/adr/0002-simulation-backend.md`. Loaded at runtime, so
