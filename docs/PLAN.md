@@ -157,7 +157,7 @@ gives no frame when the level is outside the signal and Auto does; Single stops 
 grid.
 *Done when:* the mock's RC output matches the analytic answer, and two runs are bit-identical.
 
-**M0.14 sim: SimWorker.** Simulation thread owning the engine, pushing `SimChunk`s into an
+**M0.14 sim: SimWorker.** *(done 2026-10-22)* Simulation thread owning the engine, pushing `SimChunk`s into an
 `SpscRing`, waiting when full (backpressure), clean stop and restart, errors reported through
 `error()`.
 *Done when:* stop/restart in a loop (1000 times) passes under TSan, and an engine error reaches
