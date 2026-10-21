@@ -54,8 +54,8 @@ too; outside contributions need a Contributor License Agreement.
 
 ```
 CMakeLists.txt, CMakePresets.json, cmake/      build, warnings, sanitizer options
-src/core/          SpscRing, formatting
-src/schematic/     Circuit, Scene (M4), units, validate, buildNetlist
+src/core/          SpscRing, formatting, SPICE numbers
+src/schematic/     Circuit, Scene (M4), validate, buildNetlist
 src/instruments/   Scope, Multimeter, FunctionGenerator, PowerSupply, DSP helpers
 src/sim/           ISimEngine, SimChunk, MockEngine, NgspiceEngine, SimWorker
 src/bench/         Bench model (M3)

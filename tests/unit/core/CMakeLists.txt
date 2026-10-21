@@ -3,6 +3,7 @@ find_package(Threads REQUIRED)
 
 add_executable(proton_core_tests
     test_format.cpp
+    test_spice_number.cpp
     test_spsc_ring.cpp
     test_version.cpp
 )

@@ -34,8 +34,8 @@ flowchart TB
   tools["tools/proton-spike: headless demo"]
   sim["src/sim: ISimEngine, MockEngine,<br/>NgspiceEngine, SimWorker"]
   ins["src/instruments: Scope, Multimeter,<br/>FunctionGenerator, resampler, filters, ADC"]
-  sch["src/schematic: Circuit, validate(),<br/>buildNetlist(), SPICE units"]
-  core["src/core: SpscRing, formatting"]
+  sch["src/schematic: Circuit, validate(),<br/>buildNetlist()"]
+  core["src/core: SpscRing, formatting,<br/>SPICE numbers"]
   app --> bench
   tools --> bench
   bench --> sim & ins & sch
@@ -107,10 +107,18 @@ An instrument is a class that:
 |---|---|---|
 | `Scope` | measures | planned (M0): 2 channels, see section 6 |
 | `Multimeter` | measures | planned: DC V, AC V (true RMS), auto/fixed range, 4.5 digits (M0); DC current and resistance (M3) |
-| `FunctionGenerator` | sources | planned (M0): sine/square/triangle/DC, output impedance |
+| `FunctionGenerator` | sources | model done (M0): sine/square/triangle/DC, output impedance; faceplate planned (M2) |
 | DC power supply | sources | planned (M3); CC/CV after the MVP |
 | Bode plotter | measures | planned, after the MVP (ngspice AC analysis) |
 | Spectrum analyzer, VNA | measures | planned, RF (see ROADMAP) |
+
+The function generator is an ideal source behind a series output resistor (50 ohm by default; 0
+writes no resistor), between an output net and a reference net. Amplitude is peak volts and, like
+the offset, an open-circuit value, so a 50 ohm load sees half; amplitude plus offset stays within
+10 V either way. Sine is a SPICE `SIN`; square and triangle are `PULSE` sources whose corners take a
+thousandth of a period (ngspice reads a pulse width of 0 as the whole run, so the triangle dwells
+that long at each peak). `SpiceFragment` is the instruments' own type; the bench copies its lines
+into a schematic `Fragment`, so neither library depends on the other.
 
 ### 5.1 The bench model (planned, milestone M3)
 
@@ -205,11 +213,12 @@ fragment lines too; values are normalised through `formatSpiceNumber` (`10uF` be
 ngspice never reads a student's spelling; sources are `DC <value>`. The text is the title line and
 the elements only: the engine appends the analysis line (`.tran` / `.op`) and `.end`.
 
-SPICE numbers (`units.h`) follow ngspice: scale factors `t g meg k mil m u n p f`,
-case-insensitive, and trailing letters ignored as units. Hence the traps: `M` is milli (`meg` is
-mega), and `10F` is 10 femto, not 10 farad. Parsing is locale-free and rounds the written decimal
-once to the nearest double; `formatSpiceNumber` writes the shortest mantissa that parses back to
-the same double ("4.7k", "1meg", "2.2u"), so format then parse is exact.
+SPICE numbers (`proton/core/spice_number.h`, in `core` so instruments can write them too) follow
+ngspice: scale factors `t g meg k mil m u n p f`, case-insensitive, and trailing letters ignored as
+units. Hence the traps: `M` is milli (`meg` is mega), and `10F` is 10 femto, not 10 farad.
+Parsing is locale-free and rounds the written decimal once to the nearest double;
+`formatSpiceNumber` writes the shortest mantissa that parses back to the same double ("4.7k",
+"1meg", "2.2u"), so format then parse is exact.
 
 ## 8. Simulation backends
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/schematic/validate.h"
 
-#include "proton/schematic/units.h"
+#include "proton/core/spice_number.h"
 #include "spice_line.h"
 
 #include <cstddef>
@@ -24,6 +24,7 @@ struct Element
     bool netsValid = false;
 };
 
+using core::parseSpiceNumber;
 using detail::isBlankOrComment;
 using detail::isValidName;
 using detail::lower;

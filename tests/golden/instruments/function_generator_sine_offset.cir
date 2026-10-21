@@ -1,0 +1,3 @@
+* function generator gen1
+Vgen1 gen1_int 0 SIN(-1.5 250m 50)
+Rgen1 gen1_int out 600

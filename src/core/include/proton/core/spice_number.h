@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace proton::schematic {
+namespace proton::core {
 
 // Parses a SPICE number the way ngspice reads element values: an optional sign, a decimal
 // mantissa, an optional exponent (`e3`, `E-6`), an optional scale factor, then any letters, which
@@ -40,4 +40,4 @@ std::optional<double> parseSpiceNumber(std::string_view text);
 // parseSpiceNumber rejects. Does not depend on the C locale.
 std::string formatSpiceNumber(double value);
 
-} // namespace proton::schematic
+} // namespace proton::core
