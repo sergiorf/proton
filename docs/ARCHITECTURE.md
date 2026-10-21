@@ -308,8 +308,19 @@ failure, and reports the engine's message. A failing simulation never takes down
 - **Golden netlists** for the schematic layer: `tests/golden/netlist/*.cir`, compared byte for byte
   and kept LF on every platform by `.gitattributes`. A mismatch writes the actual text to
   `golden-actual/` in the test's build directory.
-- **Integration test** (`tests/integration`): circuit -> netlist -> worker thread -> scope and
-  multimeter, with the mock engine, on every commit.
+- **Integration test** (`tests/integration`, done in M0): circuit -> netlist -> worker thread ->
+  scope and multimeter, with the mock engine, on every commit. It runs the RC example (1 kHz sine,
+  1 V around 0.5 V, into 1 k and 100 n) through `proton::spike::run`, the same pipeline code
+  `proton-spike` uses (`tools/proton-spike`, a small library plus the executable), and checks:
+  the netlist against `tests/golden/integration/`; DMM DC 0.5 V and AC `0.8467 / sqrt(2)` V;
+  every frame triggered on a whole period to a fraction of a sample, with CH2 the analytic steady
+  state (gain 0.8467, -32.1 degrees); identical results across runs and across chunk durations and
+  queue capacities; errors from `validate()` and from the engine. The pump feeds only points up
+  to the run's duration and pops after every chunk, so chunks must stay shorter than a frame and
+  a gate. The mock does not read the netlist, so the pipeline sets it up from the same generator,
+  R and C settings, with a sine generator of output impedance 0. `proton-spike [--duration s]`
+  prints the netlist and readings as `#` comments and the last frame as CSV
+  (`t_rel_s,ch1_v_in,ch2_v_out`); CTest also runs it (`proton_spike_runs`).
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
   The `SpscRing` stress test (two threads, 10^6 items, order and count checked) runs under TSan.
   CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
