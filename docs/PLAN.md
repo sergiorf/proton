@@ -163,13 +163,13 @@ grid.
 *Done when:* stop/restart in a loop (1000 times) passes under TSan, and an engine error reaches
 `error()` without crashing.
 
-**M0.15 Integration test and headless demo.** `tests/integration`: circuit -> netlist -> mock engine
+**M0.15 Integration test and headless demo.** *(done 2026-10-22)* `tests/integration`: circuit -> netlist -> mock engine
 -> worker -> scope and multimeter. `tools/proton-spike`: runs that pipeline and prints readings and
 a frame as CSV.
 *Done when:* the integration test passes on both CI jobs, and `proton-spike` output plotted in any
 tool shows the expected RC response.
 
-**M0 exit check:** `proton-spike` prints a correct DMM reading and a stable, triggered scope frame
+**M0 exit check:** *(met 2026-10-22)* `proton-spike` prints a correct DMM reading and a stable, triggered scope frame
 for the RC example.
 
 ## M1 ngspice: real simulation
