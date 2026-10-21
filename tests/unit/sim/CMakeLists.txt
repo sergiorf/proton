@@ -2,6 +2,7 @@
 add_executable(proton_sim_tests
     test_mock_engine.cpp
     test_sim_chunk.cpp
+    test_sim_worker.cpp
 )
 target_link_libraries(proton_sim_tests PRIVATE proton::sim proton::test_support proton_warnings)
 

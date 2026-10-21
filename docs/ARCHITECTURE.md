@@ -87,6 +87,16 @@ travels through Qt signals between threads. Changing a
 knob (time/div, trigger level) is a call on the UI thread; changing the *circuit* stops the worker,
 rebuilds the netlist, reloads the engine and restarts.
 
+`SimWorker` (`proton/sim/sim_worker.h`, done in M0) owns the engine and a `std::jthread`. The
+thread advances the engine one chunk (`chunkDuration`, 1 ms of simulation time by default) at a
+time and pushes it into the ring (64 chunks by default). When the ring is full it keeps the chunk
+and retries, with a few yields and then 100 us sleeps, checking for a stop each time: nothing is
+dropped, and the wait never touches simulation time. `start(netlist)` stops any run, drops the
+chunks it left, loads the engine on the calling thread and starts the thread; `stop()` requests a
+stop and joins. Thread start and join order the engine's use between the two threads. Besides
+the ring, only control state crosses threads: the stop request, and a failure flag stored with
+release order after the error text, which is not written again until the thread is joined.
+
 Latency from circuit to pixel is roughly `chunkDuration + queue wait + frame cadence`. The defaults
 (1 ms chunks, 16 ms UI tick) are a starting point to be measured in milestone M1.
 
@@ -259,7 +269,8 @@ Parsing is locale-free and rounds the written decimal once to the nearest double
 `ISimEngine` (`proton/sim/sim_engine.h`) is a pull interface: `load(netlist) -> bool`,
 `advance(duration) -> SimChunk`, `reset()`, plus `signalNames()` and `error()`. `load` takes the
 netlist as `buildNetlist()` writes it and prepares a transient run from t = 0; on failure nothing is
-loaded and `error()` says why (no exceptions, section 9). Each `advance` returns the points in the
+loaded and `error()` says why (no exceptions, section 9). A run that fails in `advance` returns the
+points before the failure, sets `error()`, and gives empty chunks until `load` or `reset`. Each `advance` returns the points in the
 next `duration` seconds, t = 0 included in the first, with one signal per name. `SimChunk`
 (`time[]`, `signals[s][i]`) is move-only, since it travels between threads by move.
 `indexOfSignal(names, name)` finds a signal ignoring ASCII case, as SPICE does (`V(Out)` finds
@@ -273,6 +284,7 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
   at `load` and `reset`, so the grid does not depend on how the run is chunked and two runs are
   bit-identical. `v(out)` is advanced with the exact RC response to an input linear across each
   step; it matches the analytic answer to within that linearisation (second order in the step).
+  For error-handling tests, `failAt` makes the run fail when it passes that simulation time.
 - **`NgspiceEngine`**: libngspice shared-library API, streaming accepted time points through a
   callback into a bounded queue. Constraints (global state, one instance per process, backpressure
   by blocking the callback) are in `docs/adr/0002-simulation-backend.md`. Loaded at runtime, so
@@ -283,7 +295,9 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
 ## 9. Error handling
 
 No exceptions across threads. Static problems surface as `Diagnostic`s; engine problems as
-`load()` errors or `SimWorker::error()`. A failing simulation never takes down the UI.
+`load()` errors or `SimWorker::error()`: `start()` returns false when the netlist does not load,
+and a run that fails in the engine ends its thread, keeps every chunk produced before the
+failure, and reports the engine's message. A failing simulation never takes down the UI.
 
 ## 10. Testing strategy
 

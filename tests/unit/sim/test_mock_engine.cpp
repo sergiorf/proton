@@ -277,3 +277,41 @@ TEST(settings_are_sanitised)
     CHECK_EQ(fixed.minStep, 1e-3);
     CHECK_EQ(fixed.maxStep, 1e-3);
 }
+
+TEST(the_run_fails_after_fail_at)
+{
+    Config config;
+    config.failAt = 2.5e-3;
+    MockEngine engine(config);
+    load(engine);
+    CHECK(!engine.advance(1e-3).empty());
+    CHECK(!engine.advance(1e-3).empty());
+    CHECK(engine.error().empty());
+    // The third chunk crosses failAt: it holds the points up to it, then the run has failed.
+    const SimChunk last = engine.advance(1e-3);
+    CHECK(!last.empty());
+    CHECK(last.time.back() <= 2.5e-3);
+    CHECK_EQ(engine.error(), std::string(MockEngine::kFailure));
+    CHECK(engine.advance(1e-3).empty());
+    CHECK(engine.advance(1e-3).empty());
+
+    // reset() starts the run again, as does load().
+    engine.reset();
+    CHECK(engine.error().empty());
+    CHECK_EQ(engine.advance(1e-3).time.front(), 0.0);
+    runFor(engine, 1e-3, 3);
+    CHECK(!engine.error().empty());
+    load(engine);
+    CHECK(engine.error().empty());
+    CHECK(!engine.advance(1e-3).empty());
+}
+
+TEST(fail_at_is_sanitised)
+{
+    Config config;
+    CHECK(std::isinf(config.failAt));
+    config.failAt = kNaN;
+    CHECK(std::isinf(MockEngine::sanitise(config).failAt));
+    config.failAt = -1.0;
+    CHECK_EQ(MockEngine::sanitise(config).failAt, 0.0);
+}

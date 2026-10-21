@@ -55,6 +55,7 @@ MockEngine::Config MockEngine::sanitise(const Config& config)
     result.minStep = clampFinite(config.minStep, defaults.minStep, kMinStep, kMaxStep);
     result.maxStep =
         std::max(result.minStep, clampFinite(config.maxStep, defaults.maxStep, kMinStep, kMaxStep));
+    result.failAt = std::isnan(config.failAt) ? defaults.failAt : std::max(config.failAt, 0.0);
     return result;
 }
 
@@ -80,7 +81,7 @@ bool MockEngine::load(std::string_view netlist)
 SimChunk MockEngine::advance(double duration)
 {
     SimChunk chunk;
-    if (!loaded_ || !std::isfinite(duration) || !(duration > 0.0)) {
+    if (!loaded_ || failed_ || !std::isfinite(duration) || !(duration > 0.0)) {
         return chunk;
     }
     chunk.signals.resize(names_.size());
@@ -88,7 +89,8 @@ SimChunk MockEngine::advance(double duration)
     std::vector<double>& out = chunk.signals[1];
 
     end_ += duration;
-    while (nextTime_ <= end_) {
+    const double limit = std::min(end_, config_.failAt);
+    while (nextTime_ <= limit) {
         const double t = nextTime_;
         const double x = input(t);
         if (started_) {
@@ -102,6 +104,10 @@ SimChunk MockEngine::advance(double duration)
         out.push_back(x + lag_);
         nextTime_ = t + nextStep();
     }
+    if (end_ > config_.failAt) {
+        failed_ = true;
+        error_ = kFailure;
+    }
     return chunk;
 }
 
@@ -114,6 +120,10 @@ void MockEngine::reset()
     lastInput_ = 0.0;
     lag_ = 0.0; // the DC operating point: v(out) = v(in)
     random_ = kSeed;
+    if (loaded_) {
+        failed_ = false;
+        error_.clear();
+    }
 }
 
 double MockEngine::input(double t) const

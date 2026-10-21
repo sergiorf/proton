@@ -13,7 +13,8 @@ namespace proton::sim {
 // above src/sim talks to this interface, so engines are interchangeable.
 //
 // An engine is used from one thread at a time (the SimWorker's). It reports errors as values,
-// never by throwing: load() returns false and error() says why.
+// never by throwing: load() returns false, a failing advance() stops the run, and error() says
+// why.
 class ISimEngine
 {
 public:
@@ -27,7 +28,8 @@ public:
     // loaded before. On failure nothing is loaded, it returns false and error() says why.
     virtual bool load(std::string_view netlist) = 0;
 
-    // Why the last load() failed; empty after a successful one.
+    // Why the last load() failed, or why the run stopped in advance(). Empty while all is well:
+    // a successful load() clears it, and so does reset() of a loaded circuit.
     virtual const std::string& error() const = 0;
 
     // Names of the signals in every chunk, in order, as SPICE names them ("v(out)"). Empty when
@@ -37,7 +39,8 @@ public:
     // Simulates the next `duration` seconds and returns the points in them: the first call after
     // load() or reset() includes t = 0, later calls continue after the previous one. The chunk
     // has one signal per name, and is empty when nothing is loaded or `duration` is not a
-    // positive number.
+    // positive number. If the run fails, the chunk holds the points before the failure and
+    // error() says why; later calls give empty chunks until load() or reset().
     virtual SimChunk advance(double duration) = 0;
 
     // Goes back to t = 0 with the loaded circuit.

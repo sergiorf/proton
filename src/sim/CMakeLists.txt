@@ -2,8 +2,11 @@
 add_library(proton_sim
     src/mock_engine.cpp
     src/sim_chunk.cpp
+    src/sim_worker.cpp
 )
 add_library(proton::sim ALIAS proton_sim)
 
 target_include_directories(proton_sim PUBLIC include)
-target_link_libraries(proton_sim PRIVATE proton_warnings)
+find_package(Threads REQUIRED)
+# Public: SimWorker holds an SpscRing and a std::jthread.
+target_link_libraries(proton_sim PUBLIC proton::core Threads::Threads PRIVATE proton_warnings)
