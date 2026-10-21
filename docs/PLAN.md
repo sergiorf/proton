@@ -146,13 +146,13 @@ resampling to the sample clock `fs = N / (10 x time/div)`; clipping to the scree
 step response on a random irregular grid; a sine above Nyquist aliases to the expected frequency;
 quantised samples are exact multiples of the LSB when quantisation is on.
 
-**M0.12 instruments: Scope trigger and record.** Edge trigger (source channel, level, slope,
+**M0.12 instruments: Scope trigger and record.** *(done 2026-10-21)* Edge trigger (source channel, level, slope,
 hysteresis, sub-sample position), pre/post-trigger record with the trigger at screen centre,
 Auto / Normal / Single, dead time between acquisitions, output `ScopeFrame`.
 *Done when:* a triggered sine is stable to sub-sample accuracy across 100 frames; Normal mode
 gives no frame when the level is outside the signal and Auto does; Single stops after one frame.
 
-**M0.13 sim: engine interface and MockEngine.** `ISimEngine` (`load`, `advance`, `reset`),
+**M0.13 sim: engine interface and MockEngine.** *(done 2026-10-21)* `ISimEngine` (`load`, `advance`, `reset`),
 `SimChunk`, `indexOfSignal`. `MockEngine`: deterministic sine and RC low-pass on an irregular time
 grid.
 *Done when:* the mock's RC output matches the analytic answer, and two runs are bit-identical.
