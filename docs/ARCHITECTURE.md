@@ -106,7 +106,7 @@ An instrument is a class that:
 | Instrument | Role | State |
 |---|---|---|
 | `Scope` | measures | planned (M0): 2 channels, see section 6 |
-| `Multimeter` | measures | planned: DC V, AC V (true RMS), auto/fixed range, 4.5 digits (M0); DC current and resistance (M3) |
+| `Multimeter` | measures | done (M0): DC V, AC V (true RMS), auto/fixed range, 4.5 digits; planned: DC current and resistance (M3) |
 | `FunctionGenerator` | sources | model done (M0): sine/square/triangle/DC, output impedance; faceplate planned (M2) |
 | DC power supply | sources | planned (M3); CC/CV after the MVP |
 | Bode plotter | measures | planned, after the MVP (ngspice AC analysis) |
@@ -119,6 +119,14 @@ the offset, an open-circuit value, so a 50 ohm load sees half; amplitude plus of
 thousandth of a period (ngspice reads a pulse width of 0 as the whole run, so the triangle dwells
 that long at each peak). `SpiceFragment` is the instruments' own type; the bench copies its lines
 into a schematic `Fragment`, so neither library depends on the other.
+
+The multimeter reads one probe voltage. It integrates over a gate of simulation time (100 ms by
+default) and gives one `DmmReading` per gate, taking the signal as linear between the points it is
+fed, so the integrals are exact on SPICE's irregular grid and do not depend on how the data is
+chunked. DC V is the mean; AC V is the true RMS with the mean removed. Ranges run from 200 mV to
+200 V on a 19999-count display; auto-range goes up on overload and down below 1800 counts, so
+readings between the two stay on their range. `popReading()` returns only the newest reading, as
+a display would.
 
 ### 5.1 The bench model (planned, milestone M3)
 

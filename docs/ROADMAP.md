@@ -18,7 +18,7 @@ saturates at its rails and a diode drops about 0.6 V, otherwise circuits teach t
 | DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | planned (M3) |
 | Function generator | sine, square, triangle, DC, offset, output impedance | model done (M0), UI planned (M2) |
 | Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | planned (M0, UI in M2) |
-| Multimeter | DC V, AC V (true RMS), auto/fixed range | planned (M0, UI in M2) |
+| Multimeter | DC V, AC V (true RMS), auto/fixed range | model done (M0), UI planned (M2) |
 | Multimeter | DC current | planned (M3) |
 | Multimeter | resistance | planned (M3) |
 
