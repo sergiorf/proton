@@ -2,6 +2,7 @@
 add_executable(proton_instruments_tests
     test_function_generator.cpp
     test_multimeter.cpp
+    test_scope.cpp
     test_scope_front_end.cpp
 )
 # schematic only to check that fragments pass validate(); the library itself does not use it.

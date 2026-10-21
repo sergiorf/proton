@@ -105,7 +105,7 @@ An instrument is a class that:
 
 | Instrument | Role | State |
 |---|---|---|
-| `Scope` | measures | front end done (M0): 2 channels, coupling, bandwidth limit, sampling, ADC; planned: trigger and record (M0), see section 6 |
+| `Scope` | measures | done (M0): 2 channels, coupling, bandwidth limit, sampling, ADC, edge trigger, Auto / Normal / Single, see section 6; UI planned (M2) |
 | `Multimeter` | measures | done (M0): DC V, AC V (true RMS), auto/fixed range, 4.5 digits; planned: DC current and resistance (M3) |
 | `FunctionGenerator` | sources | model done (M0): sine/square/triangle/DC, output impedance; faceplate planned (M2) |
 | DC power supply | sources | planned (M3); CC/CV after the MVP |
@@ -200,6 +200,19 @@ interval is `10 x time/div / 1000`, counted from the first point fed. The screen
 centred on the channel offset (the voltage at screen centre); samples beyond it clip to its edge,
 and with quantisation on a sample is `offset + code x LSB` with `LSB = 8 div / 2^bits`. Samples
 are in volts at the probe tip.
+
+`Scope` adds the last two boxes on the front end's samples. An acquisition first fills the
+pre-trigger half of the record (500 samples), and only then arms the trigger. For a rising edge
+the trigger arms when the source channel goes below `level - hysteresis` (hysteresis in divisions
+of that channel) and fires at the first sample at or above `level`; falling is the mirror image.
+The trigger time is interpolated linearly between that sample and the one before, and a
+`ScopeFrame` carries it with the time of its first sample relative to it, so a periodic trace
+stands still to a fraction of a sample. After the post-trigger half the frame is ready
+(`popFrame()` keeps only the newest), and the next acquisition starts after the dead time
+(simulation time, rounded up to whole samples, 0 by default). Normal gives frames only on a
+trigger; Auto forces an untriggered frame when no trigger comes within two screens of simulation
+time after arming (a real scope times out in wall-clock time, which Proton never uses); Single is
+Normal that stops after one frame until `configure()`.
 
 Known simplification: triggering runs on the post-ADC samples (a *digital* trigger). With
 quantisation off this is identical to an analog trigger; with it on, it can differ slightly near
