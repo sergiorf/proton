@@ -138,7 +138,7 @@ DC removed); auto and fixed ranges; 4.5-digit display with overload.
 *Done when:* analytic tests pass: DC of a known ramp, true RMS of a sine is A/sqrt(2) and of a
 square is A; auto-range picks the expected range and changes range at the expected thresholds.
 
-**M0.11 instruments: Scope front end.** Two channels sharing timebase and trigger from the start.
+**M0.11 instruments: Scope front end.** *(done 2026-10-21)* Two channels sharing timebase and trigger from the start.
 Per channel: V/div, offset, DC/AC coupling (one-pole high-pass in closed form on irregular
 steps); optional one-pole bandwidth limit and optional ADC quantisation, both **off by default**;
 resampling to the sample clock `fs = N / (10 x time/div)`; clipping to the screen range.
@@ -146,30 +146,30 @@ resampling to the sample clock `fs = N / (10 x time/div)`; clipping to the scree
 step response on a random irregular grid; a sine above Nyquist aliases to the expected frequency;
 quantised samples are exact multiples of the LSB when quantisation is on.
 
-**M0.12 instruments: Scope trigger and record.** Edge trigger (source channel, level, slope,
+**M0.12 instruments: Scope trigger and record.** *(done 2026-10-21)* Edge trigger (source channel, level, slope,
 hysteresis, sub-sample position), pre/post-trigger record with the trigger at screen centre,
 Auto / Normal / Single, dead time between acquisitions, output `ScopeFrame`.
 *Done when:* a triggered sine is stable to sub-sample accuracy across 100 frames; Normal mode
 gives no frame when the level is outside the signal and Auto does; Single stops after one frame.
 
-**M0.13 sim: engine interface and MockEngine.** `ISimEngine` (`load`, `advance`, `reset`),
+**M0.13 sim: engine interface and MockEngine.** *(done 2026-10-21)* `ISimEngine` (`load`, `advance`, `reset`),
 `SimChunk`, `indexOfSignal`. `MockEngine`: deterministic sine and RC low-pass on an irregular time
 grid.
 *Done when:* the mock's RC output matches the analytic answer, and two runs are bit-identical.
 
-**M0.14 sim: SimWorker.** Simulation thread owning the engine, pushing `SimChunk`s into an
+**M0.14 sim: SimWorker.** *(done 2026-10-22)* Simulation thread owning the engine, pushing `SimChunk`s into an
 `SpscRing`, waiting when full (backpressure), clean stop and restart, errors reported through
 `error()`.
 *Done when:* stop/restart in a loop (1000 times) passes under TSan, and an engine error reaches
 `error()` without crashing.
 
-**M0.15 Integration test and headless demo.** `tests/integration`: circuit -> netlist -> mock engine
+**M0.15 Integration test and headless demo.** *(done 2026-10-22)* `tests/integration`: circuit -> netlist -> mock engine
 -> worker -> scope and multimeter. `tools/proton-spike`: runs that pipeline and prints readings and
 a frame as CSV.
 *Done when:* the integration test passes on both CI jobs, and `proton-spike` output plotted in any
 tool shows the expected RC response.
 
-**M0 exit check:** `proton-spike` prints a correct DMM reading and a stable, triggered scope frame
+**M0 exit check:** *(met 2026-10-22)* `proton-spike` prints a correct DMM reading and a stable, triggered scope frame
 for the RC example.
 
 ## M1 ngspice: real simulation

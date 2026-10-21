@@ -87,6 +87,16 @@ travels through Qt signals between threads. Changing a
 knob (time/div, trigger level) is a call on the UI thread; changing the *circuit* stops the worker,
 rebuilds the netlist, reloads the engine and restarts.
 
+`SimWorker` (`proton/sim/sim_worker.h`, done in M0) owns the engine and a `std::jthread`. The
+thread advances the engine one chunk (`chunkDuration`, 1 ms of simulation time by default) at a
+time and pushes it into the ring (64 chunks by default). When the ring is full it keeps the chunk
+and retries, with a few yields and then 100 us sleeps, checking for a stop each time: nothing is
+dropped, and the wait never touches simulation time. `start(netlist)` stops any run, drops the
+chunks it left, loads the engine on the calling thread and starts the thread; `stop()` requests a
+stop and joins. Thread start and join order the engine's use between the two threads. Besides
+the ring, only control state crosses threads: the stop request, and a failure flag stored with
+release order after the error text, which is not written again until the thread is joined.
+
 Latency from circuit to pixel is roughly `chunkDuration + queue wait + frame cadence`. The defaults
 (1 ms chunks, 16 ms UI tick) are a starting point to be measured in milestone M1.
 
@@ -105,7 +115,7 @@ An instrument is a class that:
 
 | Instrument | Role | State |
 |---|---|---|
-| `Scope` | measures | planned (M0): 2 channels, see section 6 |
+| `Scope` | measures | done (M0): 2 channels, coupling, bandwidth limit, sampling, ADC, edge trigger, Auto / Normal / Single, see section 6; UI planned (M2) |
 | `Multimeter` | measures | done (M0): DC V, AC V (true RMS), auto/fixed range, 4.5 digits; planned: DC current and resistance (M3) |
 | `FunctionGenerator` | sources | model done (M0): sine/square/triangle/DC, output impedance; faceplate planned (M2) |
 | DC power supply | sources | planned (M3); CC/CV after the MVP |
@@ -188,6 +198,32 @@ delayed timebase; non-edge triggers; sin(x)/x display interpolation.
 **Out of scope:** noise and probe or input impedance loading. The scope is an ideal, non-loading
 voltmeter, so a reading is a benchmark of the circuit, not of the measurement setup.
 
+The front end (`ScopeFrontEnd`) covers the first three boxes. Each filter is a one-pole
+low-pass `z` of the input `x`, tracked as its error `e = z - x` and advanced exactly over every
+step (`e' = -e / tau - dx / dt` for a linear input): AC coupling (fixed 10 Hz corner) is `-e_ac`,
+the bandwidth limit is `x + e_bw`, and both together reduce by partial fractions to
+`a (e_bw - e_ac) / (a - b)` with `a`, `b` the time constants. The bandwidth limit is kept at least
+100 times above the AC corner so the two never meet. The filters start in steady state at the
+first value fed. Each sample is evaluated from the state at the last point before it, so samples
+between simulator points are exact too, and the output does not depend on chunking. A sample
+interval is `10 x time/div / 1000`, counted from the first point fed. The screen is 8 divisions
+centred on the channel offset (the voltage at screen centre); samples beyond it clip to its edge,
+and with quantisation on a sample is `offset + code x LSB` with `LSB = 8 div / 2^bits`. Samples
+are in volts at the probe tip.
+
+`Scope` adds the last two boxes on the front end's samples. An acquisition first fills the
+pre-trigger half of the record (500 samples), and only then arms the trigger. For a rising edge
+the trigger arms when the source channel goes below `level - hysteresis` (hysteresis in divisions
+of that channel) and fires at the first sample at or above `level`; falling is the mirror image.
+The trigger time is interpolated linearly between that sample and the one before, and a
+`ScopeFrame` carries it with the time of its first sample relative to it, so a periodic trace
+stands still to a fraction of a sample. After the post-trigger half the frame is ready
+(`popFrame()` keeps only the newest), and the next acquisition starts after the dead time
+(simulation time, rounded up to whole samples, 0 by default). Normal gives frames only on a
+trigger; Auto forces an untriggered frame when no trigger comes within two screens of simulation
+time after arming (a real scope times out in wall-clock time, which Proton never uses); Single is
+Normal that stops after one frame until `configure()`.
+
 Known simplification: triggering runs on the post-ADC samples (a *digital* trigger). With
 quantisation off this is identical to an analog trigger; with it on, it can differ slightly near
 the threshold.
@@ -230,10 +266,25 @@ Parsing is locale-free and rounds the written decimal once to the nearest double
 
 ## 8. Simulation backends
 
-`ISimEngine` is a pull interface: `load(netlist)`, `advance(duration) -> SimChunk`, `reset()`.
+`ISimEngine` (`proton/sim/sim_engine.h`) is a pull interface: `load(netlist) -> bool`,
+`advance(duration) -> SimChunk`, `reset()`, plus `signalNames()` and `error()`. `load` takes the
+netlist as `buildNetlist()` writes it and prepares a transient run from t = 0; on failure nothing is
+loaded and `error()` says why (no exceptions, section 9). A run that fails in `advance` returns the
+points before the failure, sets `error()`, and gives empty chunks until `load` or `reset`. Each `advance` returns the points in the
+next `duration` seconds, t = 0 included in the first, with one signal per name. `SimChunk`
+(`time[]`, `signals[s][i]`) is move-only, since it travels between threads by move.
+`indexOfSignal(names, name)` finds a signal ignoring ASCII case, as SPICE does (`V(Out)` finds
+`v(out)`).
 
-- **`MockEngine`**: deterministic sine and RC low-pass on an irregular grid. Used by tests, the
-  headless demo and CI, so the whole pipeline is exercised without any external dependency.
+- **`MockEngine`** (done, M0): deterministic sine and RC low-pass on an irregular grid. Used by
+  tests, the headless demo and CI, so the whole pipeline is exercised without any external
+  dependency. It ignores the netlist's elements (a blank netlist is a load error) and always gives
+  `v(in)`, the sine, and `v(out)`, the RC output, starting from the DC operating point. Steps are
+  drawn between `minStep` and `maxStep` from a fixed integer pseudo-random sequence that restarts
+  at `load` and `reset`, so the grid does not depend on how the run is chunked and two runs are
+  bit-identical. `v(out)` is advanced with the exact RC response to an input linear across each
+  step; it matches the analytic answer to within that linearisation (second order in the step).
+  For error-handling tests, `failAt` makes the run fail when it passes that simulation time.
 - **`NgspiceEngine`**: libngspice shared-library API, streaming accepted time points through a
   callback into a bounded queue. Constraints (global state, one instance per process, backpressure
   by blocking the callback) are in `docs/adr/0002-simulation-backend.md`. Loaded at runtime, so
@@ -244,7 +295,9 @@ Parsing is locale-free and rounds the written decimal once to the nearest double
 ## 9. Error handling
 
 No exceptions across threads. Static problems surface as `Diagnostic`s; engine problems as
-`load()` errors or `SimWorker::error()`. A failing simulation never takes down the UI.
+`load()` errors or `SimWorker::error()`: `start()` returns false when the netlist does not load,
+and a run that fails in the engine ends its thread, keeps every chunk produced before the
+failure, and reports the engine's message. A failing simulation never takes down the UI.
 
 ## 10. Testing strategy
 
@@ -255,8 +308,19 @@ No exceptions across threads. Static problems surface as `Diagnostic`s; engine p
 - **Golden netlists** for the schematic layer: `tests/golden/netlist/*.cir`, compared byte for byte
   and kept LF on every platform by `.gitattributes`. A mismatch writes the actual text to
   `golden-actual/` in the test's build directory.
-- **Integration test** (`tests/integration`): circuit -> netlist -> worker thread -> scope and
-  multimeter, with the mock engine, on every commit.
+- **Integration test** (`tests/integration`, done in M0): circuit -> netlist -> worker thread ->
+  scope and multimeter, with the mock engine, on every commit. It runs the RC example (1 kHz sine,
+  1 V around 0.5 V, into 1 k and 100 n) through `proton::spike::run`, the same pipeline code
+  `proton-spike` uses (`tools/proton-spike`, a small library plus the executable), and checks:
+  the netlist against `tests/golden/integration/`; DMM DC 0.5 V and AC `0.8467 / sqrt(2)` V;
+  every frame triggered on a whole period to a fraction of a sample, with CH2 the analytic steady
+  state (gain 0.8467, -32.1 degrees); identical results across runs and across chunk durations and
+  queue capacities; errors from `validate()` and from the engine. The pump feeds only points up
+  to the run's duration and pops after every chunk, so chunks must stay shorter than a frame and
+  a gate. The mock does not read the netlist, so the pipeline sets it up from the same generator,
+  R and C settings, with a sine generator of output impedance 0. `proton-spike [--duration s]`
+  prints the netlist and readings as `#` comments and the last frame as CSV
+  (`t_rel_s,ch1_v_in,ch2_v_out`); CTest also runs it (`proton_spike_runs`).
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
   The `SpscRing` stress test (two threads, 10^6 items, order and count checked) runs under TSan.
   CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
