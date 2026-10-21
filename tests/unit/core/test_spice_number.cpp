@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include "proton/schematic/units.h"
-
+#include "proton/core/spice_number.h"
 #include "proton/test/test.h"
 
 #include <limits>
 #include <string>
 #include <string_view>
 
-using proton::schematic::formatSpiceNumber;
-using proton::schematic::parseSpiceNumber;
+using proton::core::formatSpiceNumber;
+using proton::core::parseSpiceNumber;
 
 namespace {
 

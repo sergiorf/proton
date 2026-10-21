@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include "proton/schematic/units.h"
+#include "proton/core/spice_number.h"
 
 #include <array>
 #include <charconv>
 #include <cmath>
 #include <system_error>
 
-namespace proton::schematic {
+namespace proton::core {
 
 namespace {
 
@@ -230,4 +230,4 @@ std::string formatSpiceNumber(double value)
     return text;
 }
 
-} // namespace proton::schematic
+} // namespace proton::core

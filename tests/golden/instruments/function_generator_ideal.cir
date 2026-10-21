@@ -1,0 +1,2 @@
+* function generator gen1
+Vgen1 out 0 SIN(0 1 1k)

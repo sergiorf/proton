@@ -54,8 +54,8 @@ too; outside contributions need a Contributor License Agreement.
 
 ```
 CMakeLists.txt, CMakePresets.json, cmake/      build, warnings, sanitizer options
-src/core/          SpscRing, formatting
-src/schematic/     Circuit, Scene (M4), units, validate, buildNetlist
+src/core/          SpscRing, formatting, SPICE numbers
+src/schematic/     Circuit, Scene (M4), validate, buildNetlist
 src/instruments/   Scope, Multimeter, FunctionGenerator, PowerSupply, DSP helpers
 src/sim/           ISimEngine, SimChunk, MockEngine, NgspiceEngine, SimWorker
 src/bench/         Bench model (M3)
@@ -127,7 +127,7 @@ order, fragments appended, no analysis line (the engine adds `.tran` / `.op`).
 *Done when:* golden-file tests in `tests/golden` pass, and building the same circuit twice gives
 byte-identical text.
 
-**M0.9 instruments: FunctionGenerator.** `Config` (waveform sine / square / triangle / DC,
+**M0.9 instruments: FunctionGenerator.** *(done 2026-10-21)* `Config` (waveform sine / square / triangle / DC,
 frequency, amplitude, offset, output impedance 50 ohm default), sanitising of impossible values,
 `toSpice()` as a source plus a series resistor (`SIN`, `PULSE` with finite edges for square and
 triangle).

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/schematic/netlist.h"
 
-#include "proton/schematic/units.h"
+#include "proton/core/spice_number.h"
 #include "spice_line.h"
 
 #include <algorithm>
@@ -15,6 +15,8 @@ namespace proton::schematic {
 
 namespace {
 
+using core::formatSpiceNumber;
+using core::parseSpiceNumber;
 using detail::isBlankOrComment;
 using detail::isSpace;
 using detail::lower;

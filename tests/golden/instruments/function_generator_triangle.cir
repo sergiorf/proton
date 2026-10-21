@@ -1,0 +1,3 @@
+* function generator gen1
+Vgen1 gen1_int 0 PULSE(-1 1 0 499u 499u 1u 1m)
+Rgen1 gen1_int out 50
