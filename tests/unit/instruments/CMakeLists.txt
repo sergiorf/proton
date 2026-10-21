@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_executable(proton_instruments_tests
     test_function_generator.cpp
+    test_multimeter.cpp
 )
 # schematic only to check that fragments pass validate(); the library itself does not use it.
 target_link_libraries(proton_instruments_tests

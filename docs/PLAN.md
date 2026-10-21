@@ -133,7 +133,7 @@ frequency, amplitude, offset, output impedance 50 ohm default), sanitising of im
 triangle).
 *Done when:* golden fragment tests pass for each waveform.
 
-**M0.10 instruments: Multimeter (voltage).** DC V (mean over the gate time) and AC V (true RMS,
+**M0.10 instruments: Multimeter (voltage).** *(done 2026-10-21)* DC V (mean over the gate time) and AC V (true RMS,
 DC removed); auto and fixed ranges; 4.5-digit display with overload.
 *Done when:* analytic tests pass: DC of a known ramp, true RMS of a sine is A/sqrt(2) and of a
 square is A; auto-range picks the expected range and changes range at the expected thresholds.
