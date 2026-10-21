@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace proton::sim {
@@ -50,7 +51,9 @@ public:
     // The settings as the worker would apply them.
     static Config sanitise(const Config& config);
 
-    explicit SimWorker(std::unique_ptr<ISimEngine> engine, const Config& config = Config{});
+    explicit SimWorker(std::unique_ptr<ISimEngine> engine) : SimWorker(std::move(engine), Config{})
+    {}
+    SimWorker(std::unique_ptr<ISimEngine> engine, const Config& config);
     ~SimWorker(); // stops the run
 
     SimWorker(const SimWorker&) = delete;
