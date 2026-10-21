@@ -138,7 +138,7 @@ DC removed); auto and fixed ranges; 4.5-digit display with overload.
 *Done when:* analytic tests pass: DC of a known ramp, true RMS of a sine is A/sqrt(2) and of a
 square is A; auto-range picks the expected range and changes range at the expected thresholds.
 
-**M0.11 instruments: Scope front end.** Two channels sharing timebase and trigger from the start.
+**M0.11 instruments: Scope front end.** *(done 2026-10-21)* Two channels sharing timebase and trigger from the start.
 Per channel: V/div, offset, DC/AC coupling (one-pole high-pass in closed form on irregular
 steps); optional one-pole bandwidth limit and optional ADC quantisation, both **off by default**;
 resampling to the sample clock `fs = N / (10 x time/div)`; clipping to the screen range.
