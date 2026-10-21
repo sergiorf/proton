@@ -2,6 +2,7 @@
 add_library(proton_instruments
     src/function_generator.cpp
     src/multimeter.cpp
+    src/scope_front_end.cpp
 )
 add_library(proton::instruments ALIAS proton_instruments)
 

@@ -105,7 +105,7 @@ An instrument is a class that:
 
 | Instrument | Role | State |
 |---|---|---|
-| `Scope` | measures | planned (M0): 2 channels, see section 6 |
+| `Scope` | measures | front end done (M0): 2 channels, coupling, bandwidth limit, sampling, ADC; planned: trigger and record (M0), see section 6 |
 | `Multimeter` | measures | done (M0): DC V, AC V (true RMS), auto/fixed range, 4.5 digits; planned: DC current and resistance (M3) |
 | `FunctionGenerator` | sources | model done (M0): sine/square/triangle/DC, output impedance; faceplate planned (M2) |
 | DC power supply | sources | planned (M3); CC/CV after the MVP |
@@ -187,6 +187,19 @@ delayed timebase; non-edge triggers; sin(x)/x display interpolation.
 
 **Out of scope:** noise and probe or input impedance loading. The scope is an ideal, non-loading
 voltmeter, so a reading is a benchmark of the circuit, not of the measurement setup.
+
+The front end (`ScopeFrontEnd`) covers the first three boxes. Each filter is a one-pole
+low-pass `z` of the input `x`, tracked as its error `e = z - x` and advanced exactly over every
+step (`e' = -e / tau - dx / dt` for a linear input): AC coupling (fixed 10 Hz corner) is `-e_ac`,
+the bandwidth limit is `x + e_bw`, and both together reduce by partial fractions to
+`a (e_bw - e_ac) / (a - b)` with `a`, `b` the time constants. The bandwidth limit is kept at least
+100 times above the AC corner so the two never meet. The filters start in steady state at the
+first value fed. Each sample is evaluated from the state at the last point before it, so samples
+between simulator points are exact too, and the output does not depend on chunking. A sample
+interval is `10 x time/div / 1000`, counted from the first point fed. The screen is 8 divisions
+centred on the channel offset (the voltage at screen centre); samples beyond it clip to its edge,
+and with quantisation on a sample is `offset + code x LSB` with `LSB = 8 div / 2^bits`. Samples
+are in volts at the probe tip.
 
 Known simplification: triggering runs on the post-ADC samples (a *digital* trigger). With
 quantisation off this is identical to an analog trigger; with it on, it can differ slightly near
