@@ -37,7 +37,7 @@ linking `proton::test_support` (the harness in `tests/support`: `TEST`, `CHECK`,
   ARCHITECTURE.md / ROADMAP.md still match the code.
 - On completion, append `*(done YYYY-MM-DD)*` to the task heading in PLAN.md
   (or `*(done locally YYYY-MM-DD, CI pending M0.x)*` if a later CI task is needed).
-- Resolve open decisions (D3, D5) with me before starting the task that needs them.
+- Resolve open decisions in the PLAN.md Decisions table with me before starting the task that needs them.
 - One branch per task, named like `m1.2-ngspice-engine`. Commit only when Done-when holds.
 
 ## Hard rules
