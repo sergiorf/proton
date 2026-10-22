@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The whole M0 pipeline on the RC example: circuit -> netlist -> MockEngine on the worker
-// thread -> scope and multimeters, checked against the analytic answers.
+// The whole pipeline on the RC example: circuit -> netlist -> engine on the worker thread ->
+// scope and multimeters, checked against the analytic answers. Built twice: on MockEngine, and on
+// NgspiceEngine when PROTON_TEST_NGSPICE is defined (M1.3); the checks and tolerances are the same.
 #include "proton/sim/mock_engine.h"
 #include "proton/spike/pipeline.h"
 #include "proton/test/test.h"
@@ -63,7 +64,11 @@ PipelineResult runDefault(const PipelineSettings& settings)
 
 PipelineSettings defaults()
 {
-    return proton::spike::defaultSettings(RcExample{});
+    PipelineSettings settings = proton::spike::defaultSettings(RcExample{});
+#ifdef PROTON_TEST_NGSPICE
+    settings.engine = PipelineSettings::Engine::Ngspice;
+#endif
+    return settings;
 }
 
 // Distance from `t` to the nearest whole number of periods (1 ms).
@@ -200,6 +205,19 @@ TEST(an_invalid_circuit_stops_at_validate)
     CHECK(result.frames.empty());
 }
 
+#ifdef PROTON_TEST_NGSPICE
+TEST(ngspice_simulates_the_netlist_whatever_the_generator)
+{
+    RcExample example;
+    example.generator.waveform = proton::instruments::FunctionGenerator::Waveform::Square;
+    example.generator.outputImpedance = 50.0;
+    const PipelineResult result = proton::spike::run(example, defaults());
+    CHECK(result.ok());
+    CHECK(result.netlist.find("PULSE(") != std::string::npos);
+    CHECK(!result.frames.empty());
+}
+#else
+// The mock does not read the netlist, and only it can be made to fail on purpose.
 TEST(only_a_sine_generator_runs_on_the_mock)
 {
     RcExample example;
@@ -227,6 +245,8 @@ TEST(an_engine_failure_ends_the_run_and_keeps_what_came_before)
         CHECK(failed.frames[i].values == full.frames[i].values);
     }
 }
+
+#endif
 
 TEST(csv_has_a_header_and_one_row_per_sample_that_reads_back_exactly)
 {

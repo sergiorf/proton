@@ -15,4 +15,6 @@ target_link_libraries(proton_sim PUBLIC proton::core Threads::Threads PRIVATE pr
 if(PROTON_NGSPICE_FOUND)
     target_sources(proton_sim PRIVATE src/ngspice_engine.cpp)
     target_link_libraries(proton_sim PRIVATE proton::ngspice_headers)
+    # Public: code above src/sim offers ngspice only when this build has it.
+    target_compile_definitions(proton_sim PUBLIC PROTON_HAVE_NGSPICE)
 endif()

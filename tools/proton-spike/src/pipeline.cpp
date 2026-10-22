@@ -4,6 +4,9 @@
 #include "proton/core/spice_number.h"
 #include "proton/schematic/netlist.h"
 #include "proton/sim/mock_engine.h"
+#ifdef PROTON_HAVE_NGSPICE
+#include "proton/sim/ngspice_engine.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -92,6 +95,42 @@ private:
     PipelineResult& result_;
 };
 
+// The engine `settings` choose, or nullptr with `error` saying why there is none.
+std::unique_ptr<sim::ISimEngine> makeEngine(const RcExample& example,
+                                            const PipelineSettings& settings, std::string& error)
+{
+    if (settings.engine == PipelineSettings::Engine::Ngspice) {
+#ifdef PROTON_HAVE_NGSPICE
+        sim::NgspiceEngine::Config config;
+        // A chunk past the duration, so the chunk that reaches the duration is never cut short
+        // by the end of the run.
+        const double chunk = sim::SimWorker::sanitise(settings.worker).chunkDuration;
+        config.stopTime = settings.duration + chunk;
+        config.maxStep = settings.maxStep;
+        return std::make_unique<sim::NgspiceEngine>(config);
+#else
+        error = "this build has no ngspice";
+        return nullptr;
+#endif
+    }
+
+    // The mock engine simulates the same circuit, set up from the same settings.
+    const FunctionGenerator::Config generator = FunctionGenerator::sanitise(example.generator);
+    if (generator.waveform != FunctionGenerator::Waveform::Sine) {
+        error = "the mock engine simulates only a sine generator";
+        return nullptr;
+    }
+    sim::MockEngine::Config mock;
+    mock.amplitude = generator.amplitude;
+    mock.offset = generator.offset;
+    mock.frequency = generator.frequency;
+    // validate() passed, so both values parse.
+    mock.resistance = core::parseSpiceNumber(example.resistance).value_or(mock.resistance);
+    mock.capacitance = core::parseSpiceNumber(example.capacitance).value_or(mock.capacitance);
+    mock.failAt = settings.failAt;
+    return std::make_unique<sim::MockEngine>(mock);
+}
+
 } // namespace
 
 PipelineSettings defaultSettings(const RcExample& example)
@@ -137,22 +176,11 @@ PipelineResult run(const RcExample& example, const PipelineSettings& settings)
     }
     result.netlist = schematic::buildNetlist(circuit);
 
-    // The mock engine simulates the same circuit, set up from the same settings.
-    const FunctionGenerator::Config generator = FunctionGenerator::sanitise(example.generator);
-    if (generator.waveform != FunctionGenerator::Waveform::Sine) {
-        result.error = "the mock engine simulates only a sine generator";
+    std::unique_ptr<sim::ISimEngine> engine = makeEngine(example, settings, result.error);
+    if (!engine) {
         return result;
     }
-    sim::MockEngine::Config mock;
-    mock.amplitude = generator.amplitude;
-    mock.offset = generator.offset;
-    mock.frequency = generator.frequency;
-    // validate() passed, so both values parse.
-    mock.resistance = core::parseSpiceNumber(example.resistance).value_or(mock.resistance);
-    mock.capacitance = core::parseSpiceNumber(example.capacitance).value_or(mock.capacitance);
-    mock.failAt = settings.failAt;
-
-    sim::SimWorker worker(std::make_unique<sim::MockEngine>(mock), settings.worker);
+    sim::SimWorker worker(std::move(engine), settings.worker);
     if (!worker.start(result.netlist)) {
         result.error = worker.error();
         return result;
@@ -211,7 +239,9 @@ std::string report(const RcExample& example, const PipelineSettings& settings,
     text << "# proton-spike: RC low-pass (R1 " << example.resistance << ", C1 "
          << example.capacitance << ") driven by " << kGenerator << ", sine "
          << number(generator.frequency) << " Hz, " << number(generator.amplitude) << " V around "
-         << number(generator.offset) << " V; mock engine, " << number(settings.duration) << " s\n";
+         << number(generator.offset) << " V; "
+         << (settings.engine == PipelineSettings::Engine::Ngspice ? "ngspice" : "mock engine")
+         << ", " << number(settings.duration) << " s\n";
     if (!result.netlist.empty()) {
         text << "# netlist:\n";
         std::istringstream lines(result.netlist);

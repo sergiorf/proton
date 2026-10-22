@@ -344,8 +344,14 @@ failure, and reports the engine's message. A failing simulation never takes down
   state (gain 0.8467, -32.1 degrees); identical results across runs and across chunk durations and
   queue capacities; errors from `validate()` and from the engine. The pump feeds only points up
   to the run's duration and pops after every chunk, so chunks must stay shorter than a frame and
-  a gate. The mock does not read the netlist, so the pipeline sets it up from the same generator,
-  R and C settings, with a sine generator of output impedance 0. `proton-spike [--duration s]`
+  a gate. `PipelineSettings::engine` picks `Mock` (the default) or `Ngspice`; `proton::sim`
+  defines `PROTON_HAVE_NGSPICE` for its users when the build has ngspice, and without it choosing
+  ngspice is an error. The mock does not read the netlist, so the pipeline sets it up from the
+  same generator, R and C settings, with a sine generator of output impedance 0. ngspice reads the
+  netlist, runs with a 10 us maximum step and stops one chunk after the duration. The same test
+  source is built a second time on ngspice (`integration_ngspice`, M1.3) with the same checks and
+  tolerances, less the two mock-only tests (a square generator refused, a failure injected) and
+  plus one that ngspice runs a square generator behind 50 ohm. `proton-spike [--duration s]`
   prints the netlist and readings as `#` comments and the last frame as CSV
   (`t_rel_s,ch1_v_in,ch2_v_out`); CTest also runs it (`proton_spike_runs`).
 - **Sanitizers** (ASan/UBSan and TSan) in CI because the threading code is the riskiest code.
@@ -359,12 +365,20 @@ failure, and reports the engine's message. A failing simulation never takes down
   formula, broken and unsolvable netlists are load errors after which a valid one runs, the run
   ends at its stop time, `reset()` repeats a run exactly, a one-point queue with a slow consumer
   gives the same points (backpressure), `load()` halts a run blocked on a full queue, a second
-  instance is refused, and the engine runs under `SimWorker`. They are built only when ngspice was
+  instance is refused, and the engine runs under `SimWorker`. `ngspice_validation` (M1.3) checks
+  ngspice against analytic answers, each with a tolerance stated in the test (about ten times what
+  ngspice 46 gives; resistive circuits are exact to rounding): an RC step follows
+  `1 - exp(-t / tau)` pointwise to 30 uV and crosses `1 - 1/e` at tau to 3e-5; an RC low-pass
+  driven at its corner by a generator fragment is -3.0103 dB to 2e-4 dB and -45 degrees to
+  0.001 degree, measured by a single-frequency DFT over whole periods of steady state; a 10 V
+  divider over 1 k and 3 k gives 7.5 V and `i(v1)` = -2.5 mA; a generator fragment behind 50 ohm
+  gives a resistive load its share of the open-circuit sine and DC at every point, and `i(vgen1)`
+  is minus the load current. They are built only when ngspice was
   fetched; the Windows CI jobs fetch it (cached)
   and configure with `PROTON_REQUIRE_NGSPICE=ON`, so they cannot silently skip them.
 - **Repository checks** run as CTest tests on every preset: `spdx_headers`
   (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.
-- **Next:** the same RC circuit through ngspice compared against the analytic answer (M1); UI is
+- **Next:** ngspice robustness after fatal errors and over many runs (M1.4); UI is
   covered by smoke tests only: logic belongs below the UI, where it is testable.
 
 ## 11. Planned UI architecture (Qt, `src/app`)

@@ -15,7 +15,8 @@
 namespace proton::spike {
 
 // The whole M0 pipeline, headless (ARCHITECTURE.md section 3): circuit -> validate ->
-// netlist -> MockEngine on a SimWorker thread -> scope and multimeters on the calling thread.
+// netlist -> MockEngine or NgspiceEngine on a SimWorker thread -> scope and multimeters on the
+// calling thread.
 // It is the temporary glue that src/bench replaces in M3, shared by proton-spike and the
 // integration test so the test checks exactly what the demo runs.
 
@@ -25,7 +26,8 @@ namespace proton::spike {
 //
 // The mock engine does not read the netlist: it is set up from these same settings. So that the
 // netlist and the mock describe the same circuit, the generator must be a sine and its output
-// impedance is not modelled by the mock; it is 0 by default, which writes no resistor.
+// impedance is not modelled by the mock; it is 0 by default, which writes no resistor. ngspice
+// simulates the netlist, so it takes any generator settings.
 struct RcExample
 {
     instruments::FunctionGenerator::Config generator{
@@ -43,13 +45,23 @@ struct RcExample
 
 struct PipelineSettings
 {
+    // The simulator. ngspice is available only in builds that have it (PROTON_HAVE_NGSPICE);
+    // elsewhere choosing it makes run() fail with an error.
+    enum class Engine {
+        Mock,    // MockEngine, set up from the example's settings
+        Ngspice, // NgspiceEngine, reading the netlist
+    };
+
+    Engine engine = Engine::Mock;
     double duration = 0.35; // s of simulation time; points after it are not fed
+    double maxStep = 1e-5;  // s, the longest step ngspice may take: 100 per period of 1 kHz
     sim::SimWorker::Config worker;
     // Both channels at 1 V/div, 200 us/div (two periods of 1 kHz on the screen), Normal mode,
     // triggered by CH1 rising through the generator's offset; see defaultSettings().
     instruments::Scope::Config scope;
     double gateTime = 0.1; // s, for both multimeters: 100 periods of 1 kHz
-    // For tests of error handling: the mock engine fails after this simulation time.
+    // For tests of error handling: the mock engine fails after this simulation time. Ignored by
+    // ngspice.
     double failAt = std::numeric_limits<double>::infinity();
 };
 
