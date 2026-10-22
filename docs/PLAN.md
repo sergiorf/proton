@@ -193,7 +193,7 @@ process: RC step response (time constant), RC low-pass driven by a sine at the c
 *Done when:* all match the analytic answers within a stated tolerance, and the integration test
 also runs with ngspice.
 
-**M1.4 Robustness.** ngspice can call its exit callback on fatal errors. Handle it: mark the
+**M1.4 Robustness.** *(done 2026-10-22)* ngspice can call its exit callback on fatal errors. Handle it: mark the
 engine dead, unload and reload the DLL, report through `SimWorker::error()`. Run 1000 load/reset
 cycles and watch memory.
 *Done when:* a netlist that makes ngspice fail fatally leaves the process running and a following
