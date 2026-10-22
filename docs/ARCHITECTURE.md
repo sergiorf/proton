@@ -289,6 +289,10 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
   callback into a bounded queue. Constraints (global state, one instance per process, backpressure
   by blocking the callback) are in `docs/adr/0002-simulation-backend.md`. Loaded at runtime, so
   the app runs on the mock engine without it and can reload it after a fatal error. Milestone M1.
+  The pinned release (ngspice 46) is fetched by `tools/fetch-ngspice.ps1` into
+  `third_party/ngspice` (Windows only, done in M1.1); `cmake/ProtonNgspice.cmake` provides the
+  header (`proton::ngspice_headers`) and copies the DLLs next to a binary
+  (`proton_copy_ngspice_dlls`). Without a fetch the build has no ngspice and everything else works.
 - **RF**: ngspice is weak at harmonic balance and S-parameters, so a spectrum analyzer starts as an
   FFT of transient data and a VNA as a dedicated small-signal solver. Decided when RF work begins.
 
@@ -325,6 +329,10 @@ failure, and reports the engine's message. A failing simulation never takes down
   The `SpscRing` stress test (two threads, 10^6 items, order and count checked) runs under TSan.
   CI (`.github/workflows/ci.yml`): a Windows MSVC job (Debug and Release) and a Linux clang job
   (`linux-clang-asan`, `linux-clang-tsan`) with no Qt installed, all with warnings as errors.
+- **ngspice tests** run one executable per process because libngspice keeps process-wide state.
+  `ngspice_dll` (M1.1) checks that the fetched DLL loads next to the test, exports the API and runs
+  a command. They are built only when ngspice was fetched; the Windows CI jobs fetch it (cached)
+  and configure with `PROTON_REQUIRE_NGSPICE=ON`, so they cannot silently skip them.
 - **Repository checks** run as CTest tests on every preset: `spdx_headers`
   (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.
 - **Next:** the same RC circuit through ngspice compared against the analytic answer (M1); UI is

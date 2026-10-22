@@ -14,6 +14,7 @@ set(PROTON_SANITIZE "" CACHE STRING "Sanitizers to enable: address, address;unde
 
 include(ProtonWarnings)
 include(ProtonSanitizers)
+include(ProtonNgspice)
 
 enable_testing()
 

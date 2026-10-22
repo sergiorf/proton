@@ -42,7 +42,8 @@ Shipped with Proton:
 | Dependency | Used for | License | How it is used | Status |
 |---|---|---|---|---|
 | Qt 6 (Core, Gui, Widgets) | UI in `src/app` | LGPL-3.0-only (open-source option) | Dynamically linked DLLs, deployed with `windeployqt` | planned, M2.1 |
-| ngspice | Circuit simulation in `src/sim` | Modified BSD (BSD-3-Clause) for most of the code; see below | Shared library loaded at runtime (`LoadLibrary`) | planned, M1.1 |
+| ngspice 46 | Circuit simulation in `src/sim` | Modified BSD (BSD-3-Clause) for most of the code; see below | Shared library loaded at runtime (`LoadLibrary`) | fetched by `tools/fetch-ngspice.ps1` (M1.1) |
+| LLVM OpenMP runtime (`libomp140.x86_64.dll`) | Required by `ngspice.dll` | Visual Studio redistributable terms (LLVM-based) | DLL shipped next to `ngspice.dll`, from the same ngspice archive | fetched with ngspice (M1.1) |
 | Microsoft C++ runtime | Runtime of MSVC-built binaries | Visual Studio redistributable terms | System library DLLs | planned, M5.5 |
 
 Build, test and CI only (not shipped):
@@ -54,6 +55,7 @@ Build, test and CI only (not shipped):
 | clang / LLVM, including the sanitizer runtimes | Linux CI compiler, ASan, UBSan, TSan | Apache-2.0 WITH LLVM-exception |
 | Ninja | Linux CI build tool | Apache-2.0 |
 | GitHub Actions: `actions/checkout` | CI | MIT |
+| GitHub Actions: `actions/cache` | Caching the ngspice download in CI | MIT |
 | GitHub Actions: `jurplel/install-qt-action` | Installing Qt in CI | MIT (planned, M2.1) |
 
 Proton's test harness (`tests/support`) is Proton's own code, so the tests have no third-party
@@ -79,9 +81,15 @@ of Qt Charts (ADR 0004, M2.3). Check a module's license on qt.io before using it
 Most of ngspice is under the modified BSD license (BSD-3-Clause), which is permissive. Some parts
 of its source tree come from other projects under other licenses, listed in the `COPYING` file of
 each release. Proton loads the official shared library at runtime and does not modify it, which
-also keeps the boundary between Proton and ngspice clear. When the release is pinned (M1.1),
-ADR 0002 records its version and the review of its `COPYING` file; if any part of that build is
-not permissive or LGPL, it must not be shipped. The package ships ngspice's license texts.
+also keeps the boundary between Proton and ngspice clear.
+
+[ADR 0002](adr/0002-simulation-backend.md) pins ngspice 46 and records the review of its `COPYING`
+file. Compiled into `ngspice.dll` besides the BSD code: MIT-style and public-domain parts, KLU and
+numparam (LGPL, fine through dynamic loading), and OSDI (MPL-2.0, file-level copyleft, accepted
+for the same unmodified, dynamically loaded library). The XSPICE code model `table.cm` is GPL: it
+is a separate file, and `tools/fetch-ngspice.ps1` keeps no code models at all, so it is never
+shipped. Only `ngspice.dll` and the `libomp140.x86_64.dll` it needs are shipped. The package ships
+ngspice's `COPYING` and says where the ngspice 46 source can be obtained.
 
 ## Component models
 
@@ -98,5 +106,6 @@ A Proton package (M5.5) contains:
 
 - the AGPL-3.0 text and a note on the commercial license;
 - the license text of every shipped dependency in the table above;
+- for ngspice: its `COPYING` file and where its source can be obtained;
 - for Qt: the LGPL-3.0 text, the Qt version and where its source can be obtained, and the Qt DLLs
   as separate, replaceable files.

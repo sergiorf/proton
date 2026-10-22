@@ -19,6 +19,9 @@ cmake --build --preset windows-msvc-debug  # build
 ctest --preset windows-msvc-debug          # run all tests
 ```
 
+On Windows, `powershell -ExecutionPolicy Bypass -File tools/fetch-ngspice.ps1` once before
+configuring fetches the pinned ngspice into `third_party/ngspice`; without it the build skips ngspice.
+
 Linux (clang + Ninja, Qt-free): `linux-clang-asan` (ASan + UBSan) and `linux-clang-tsan`, same
 three commands. CI (`.github/workflows/ci.yml`) runs both Windows presets and both Linux presets
 on every push to main and every pull request, adding `-DPROTON_WARNINGS_AS_ERRORS=ON` at configure
