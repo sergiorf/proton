@@ -368,7 +368,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M3.5 | One process per ngspice test; D4 for resistance |
-| Restarting on every knob turn feels sluggish | M1.5, M2.5, M4.7 | Measured early in M1.5, before any UI depends on it |
+| Restarting on every knob turn feels sluggish | M1.5, M2.5, M4.7 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.6 with the alter prototype |
 | ngspice memory growth over many runs | M1.4 | Measured in M1.4: about 1 KiB per run, accepted (ADR 0002). Reloading the DLL does not give it back; a helper process would |
 | Convergence failures on student circuits | M4, M5 | `validate()` catches the common causes first; ngspice errors shown as diagnostics, never a crash |
 | Scope too slow to draw at 60 fps | M2.3 | Draw decimated min/max columns; `QRhi` only if still too slow (ADR 0004) |
@@ -379,6 +379,6 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|---|---|
 | D1 | Hosting and CI | GitHub, GitHub Actions | decided | M0.3 |
 | D2 | Proton's own license | AGPL-3.0-only plus a commercial license; dependencies permissive or LGPL only | decided | M0.4 |
-| D3 | Restart or `alter` for live changes | Decided from measurements | open | M1.5 |
+| D3 | Restart or `alter` for live changes | Restart: both fit far under 100 ms, restart is simpler (ADR 0005) | decided | M1.5 |
 | D4 | Resistance while the circuit is powered | Only with sources off; otherwise "power off to measure" | decided | M3.5 |
 | D5 | Generic op-amp values | Proposed: 100 dB gain, 1 MHz GBW, rails within 1 V | open | M5.3 |

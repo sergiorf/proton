@@ -3,6 +3,7 @@
 
 #include "proton/sim/sim_engine.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
@@ -29,6 +30,15 @@ namespace proton::sim {
 // Signal names follow SPICE: node `out` is "v(out)", the current through voltage source `V1` is
 // "i(v1)", all lower case, in ngspice's order.
 //
+// Halting. ngspice's own `bg_halt` sleeps 100 ms on Windows before it looks at its thread (ADR
+// 0002), so the engine does not use it to stop a run. It adds a voltage source of its own to every
+// netlist, `Vproton_halt proton_halt 0 DC 0 EXTERNAL`, on a node of its own, and a breakpoint
+// `stop when v(proton_halt) > 0.5`. To halt, it raises that source through ngspice's external
+// source callback: ngspice stops at its next accepted point and its thread ends, in well under a
+// millisecond (ADR 0005). The node touches nothing else, so the points of the circuit are the
+// same as without it; its two vectors are left out of the signals. `bg_halt` remains the fallback
+// if the thread does not stop within kHaltTimeout.
+//
 // A run ends at stopTime: advance() gives the points up to it, then error() is "... reached its
 // stop time ..." and the run is over. A run that ngspice abandons (a singular matrix, a time step
 // too small) gives the points before the failure and ngspice's error message.
@@ -49,6 +59,9 @@ public:
     static constexpr double kMaxMaxStep = 1.0;
     static constexpr std::size_t kMinQueueCapacity = 1; // points
     static constexpr std::size_t kMaxQueueCapacity = std::size_t{1} << 20;
+    // The source and node the engine adds to halt ngspice: no netlist may use these names.
+    static constexpr const char* kHaltSource = "Vproton_halt";
+    static constexpr const char* kHaltNode = "proton_halt";
 
     struct Config
     {
@@ -78,12 +91,21 @@ public:
     SimChunk advance(double duration) override;
     void reset() override;
 
+    // A live change in place, the prototype measured for decision D3, which chose restarting
+    // instead (ADR 0005), so nothing uses it yet. Pauses the run at its next point, runs
+    // ngspice's `alter <change>` (for example "@vgen1[sin] = [ 500m 1 2k ]") and resumes it. The
+    // run goes on from where it was with the new value: advance() loses and repeats no point.
+    // Returns an empty string if it worked, otherwise why not; the run goes on either way, unless
+    // it had already ended.
+    std::string alter(std::string_view change);
+
     // The data callbacks of ngspice's thread; called only from the .cpp file.
     struct Callbacks;
 
 private:
     bool start();
     void halt();
+    void stopThread();
     void unload();
     bool recover();
     std::string firstError() const;
@@ -103,6 +125,7 @@ private:
     std::mutex mutex_;
     std::condition_variable changed_;
     std::vector<double> queue_;         // stride 1 + names_.size(): time, then each signal
+    std::size_t slots_ = 0;             // points queue_ holds; queueCapacity unless it grew
     std::size_t head_ = 0;              // first queued point
     std::size_t count_ = 0;             // queued points
     std::vector<int> columns_;          // ngspice vector index for time, then for each signal
@@ -110,10 +133,14 @@ private:
     bool initialised_ = false;          // the first point of this run set columns_ and runNames_
     bool running_ = false;              // ngspice's background thread runs
     bool halting_ = false;              // drop points and do not block: the run is being halted
-    bool haveTime_ = false;             // queuedTime_ holds the time of the last queued point
+    bool pausing_ = false;  // keep points without blocking, growing the queue: alter() pauses
+    bool haveTime_ = false; // queuedTime_ holds the time of the last queued point
     double queuedTime_ = 0.0;
     std::string output_;  // ngspice's stderr since the run started
     bool exited_ = false; // ngspice asked to exit; it is unusable until recover() reloads it
+
+    // Read by ngspice's thread on every evaluation of the halt source, so not under mutex_.
+    std::atomic<bool> haltSource_{false};
 };
 
 } // namespace proton::sim

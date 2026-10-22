@@ -79,7 +79,8 @@ What is known about the library and the releases:
   starts and `true` when it ends, the opposite of what the header says.
 - **`bg_halt` waits** for the background thread to stop before it returns ("Background thread
   stopped with timeout = 1"); how long that takes is measured with the live-change latency in
-  M1.5.
+  M1.5. (M1.5: it sleeps 100 ms on Windows before it looks; the engine now halts through a halt
+  source of its own instead, ADR 0005.)
 
 ### Fatal errors and memory (M1.4)
 
@@ -118,7 +119,8 @@ by scratch probes calling the DLL directly.
   back by ending the process.
 - **`bg_halt` takes about 114 ms**, nearly all of it a sleep inside ngspice (it polls its thread
   in 100 ms steps); a run's first point takes about 17 ms. Halting is part of every `load()` of a
-  running engine, so this goes into the latency budget of M1.5.
+  running engine, so this goes into the latency budget of M1.5. (M1.5, ADR 0005: halting through
+  the halt source takes well under 1 ms, and each load leaks about 0.9 KiB with it.)
 
 ## Alternatives considered
 

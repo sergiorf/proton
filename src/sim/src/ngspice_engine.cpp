@@ -28,6 +28,7 @@ namespace {
 struct Api
 {
     decltype(ngSpice_Init)* init = nullptr;
+    decltype(ngSpice_Init_Sync)* initSync = nullptr;
     decltype(ngSpice_Command)* command = nullptr;
     decltype(ngSpice_Circ)* circ = nullptr;
     decltype(ngSpice_Reset)* reset = nullptr;
@@ -35,6 +36,12 @@ struct Api
 
 // How long recover() waits for ngspice's thread to end after an exit on it.
 constexpr std::chrono::seconds kThreadEndTimeout{2};
+
+// How long a halt waits for ngspice to stop at the halt source before it falls back to bg_halt.
+// ngspice stops at its next accepted point, so only a step that takes this long falls back.
+constexpr std::chrono::seconds kHaltTimeout{1};
+
+int g_ident = 0; // ngspice's id for the one instance, passed to ngSpice_Init_Sync
 
 HMODULE g_module = nullptr;             // the loaded DLL, while g_api is set
 std::optional<Api> g_api;               // used only by the engine that owns ngspice
@@ -110,6 +117,14 @@ int command(const Api& api, std::string_view text)
     return api.command(buf.data());
 }
 
+// The vectors of the halt source, which are not signals.
+bool isHaltVector(std::string_view vector)
+{
+    const std::string name = toLower(vector);
+    return name == toLower(NgspiceEngine::kHaltNode) ||
+           name == toLower(NgspiceEngine::kHaltSource) + "#branch";
+}
+
 } // namespace
 
 // ngspice calls these on its own thread (data, background thread state) or on the thread that
@@ -134,6 +149,19 @@ struct NgspiceEngine::Callbacks
     }
 
     static int sendStat(char* /*text*/, int /*id*/, void* /*user*/) { return 0; }
+
+    // The value of an EXTERNAL source. The only one is the halt source: 1 V asks ngspice to stop.
+    static int sourceValue(double* value, double /*time*/, char* /*name*/, int /*id*/,
+                           void* /*user*/)
+    {
+        NgspiceEngine* engine = g_engine.load(std::memory_order_acquire);
+        if (value != nullptr) {
+            const bool halt =
+                engine != nullptr && engine->haltSource_.load(std::memory_order_relaxed);
+            *value = halt ? 1.0 : 0.0;
+        }
+        return 0;
+    }
 
     // The vector names come with the first point too (sendData), so this has nothing to do.
     static int sendInitData(pvecinfoall /*all*/, int /*id*/, void* /*user*/) { return 0; }
@@ -175,22 +203,24 @@ struct NgspiceEngine::Callbacks
         }
         if (!e.initialised_) {
             // The first point of the run sets the signals: the scale vector is time, every other
-            // vector is a signal, in ngspice's order.
+            // vector but the halt source's is a signal, in ngspice's order.
             e.columns_.assign(1, -1);
             e.runNames_.clear();
             for (int i = 0; i < count; ++i) {
                 const vecvalues& v = *all->vecsa[i];
+                const std::string_view name = v.name != nullptr ? v.name : "";
                 if (v.is_scale) {
                     e.columns_[0] = i;
-                } else {
+                } else if (!isHaltVector(name)) {
                     e.columns_.push_back(i);
-                    e.runNames_.push_back(signalName(v.name != nullptr ? v.name : ""));
+                    e.runNames_.push_back(signalName(name));
                 }
             }
             if (e.columns_[0] < 0) {
                 return 0; // not a transient run: nothing to stream
             }
-            e.queue_.assign(e.config_.queueCapacity * e.columns_.size(), 0.0);
+            e.slots_ = e.config_.queueCapacity;
+            e.queue_.assign(e.slots_ * e.columns_.size(), 0.0);
             e.initialised_ = true;
         }
         if (static_cast<std::size_t>(count) < e.columns_.size()) {
@@ -200,12 +230,24 @@ struct NgspiceEngine::Callbacks
         if (e.haveTime_ && !(time > e.queuedTime_)) {
             return 0; // keep time strictly increasing
         }
-        e.changed_.wait(lock, [&] { return e.halting_ || e.count_ < e.config_.queueCapacity; });
+        e.changed_.wait(
+            lock, [&] { return e.halting_ || e.pausing_ || e.count_ < e.config_.queueCapacity; });
         if (e.halting_) {
             return 0;
         }
         const std::size_t stride = e.columns_.size();
-        const std::size_t slot = (e.head_ + e.count_) % e.config_.queueCapacity;
+        if (e.count_ == e.slots_) {
+            // Pausing: ngspice gives a point or two more before it stops, and none may be lost.
+            std::vector<double> grown(e.slots_ * 2 * stride, 0.0);
+            for (std::size_t k = 0; k < e.count_; ++k) {
+                const double* from = e.queue_.data() + ((e.head_ + k) % e.slots_) * stride;
+                std::copy(from, from + stride, grown.data() + k * stride);
+            }
+            e.queue_ = std::move(grown);
+            e.slots_ *= 2;
+            e.head_ = 0;
+        }
+        const std::size_t slot = (e.head_ + e.count_) % e.slots_;
         double* point = e.queue_.data() + slot * stride;
         for (std::size_t c = 0; c < stride; ++c) {
             point[c] = all->vecsa[e.columns_[c]]->creal;
@@ -295,8 +337,9 @@ bool NgspiceEngine::load(std::string_view netlist)
         api.command = resolve<decltype(ngSpice_Command)>(module, "ngSpice_Command");
         api.circ = resolve<decltype(ngSpice_Circ)>(module, "ngSpice_Circ");
         api.reset = resolve<decltype(ngSpice_Reset)>(module, "ngSpice_Reset");
+        api.initSync = resolve<decltype(ngSpice_Init_Sync)>(module, "ngSpice_Init_Sync");
         if (api.init == nullptr || api.command == nullptr || api.circ == nullptr ||
-            api.reset == nullptr) {
+            api.reset == nullptr || api.initSync == nullptr) {
             FreeLibrary(module);
             error_ = "ngspice: " + toUtf8(path) + " does not export the shared-library API";
             return false;
@@ -306,6 +349,8 @@ bool NgspiceEngine::load(std::string_view netlist)
         api.init(&Callbacks::sendChar, &Callbacks::sendStat, &Callbacks::controlledExit,
                  &Callbacks::sendData, &Callbacks::sendInitData, &Callbacks::backgroundThread,
                  nullptr);
+        // The halt source is EXTERNAL: without a callback for it ngspice would exit.
+        api.initSync(&Callbacks::sourceValue, nullptr, nullptr, &g_ident, nullptr);
         g_module = module;
         g_api = api;
     }
@@ -322,7 +367,7 @@ bool NgspiceEngine::load(std::string_view netlist)
 
 bool NgspiceEngine::start()
 {
-    // The netlist line by line, then the analysis.
+    // The netlist line by line, then the halt source and the analysis.
     std::vector<std::string> lines;
     std::string_view rest = netlist_;
     while (!rest.empty()) {
@@ -334,6 +379,7 @@ bool NgspiceEngine::start()
         }
         lines.emplace_back(line);
     }
+    lines.push_back(std::string(kHaltSource) + " " + kHaltNode + " 0 DC 0 EXTERNAL");
     const std::string step = core::formatSpiceNumber(config_.maxStep);
     lines.push_back(".tran " + step + " " + core::formatSpiceNumber(config_.stopTime) + " 0 " +
                     step);
@@ -351,6 +397,7 @@ bool NgspiceEngine::start()
         count_ = 0;
         initialised_ = false;
         halting_ = false;
+        pausing_ = false;
         haveTime_ = false;
         runNames_.clear();
         running_ = true; // until ngspice's thread says it ended
@@ -358,6 +405,7 @@ bool NgspiceEngine::start()
     finished_ = false;
     end_ = 0.0;
     lastTime_ = 0.0;
+    haltSource_.store(false, std::memory_order_relaxed);
 
     // A fatal error in the netlist makes ngspice call controlledExit() from inside circ(), on this
     // thread, and circ() then fails.
@@ -370,6 +418,8 @@ bool NgspiceEngine::start()
             return false;
         }
     }
+    // ngspice stops at the first accepted point after the engine raises the halt source.
+    command(*g_api, std::string("stop when v(") + kHaltNode + ") > 0.5");
     if (command(*g_api, "bg_run") != 0) {
         const std::lock_guard lock(mutex_);
         running_ = false;
@@ -400,9 +450,68 @@ void NgspiceEngine::halt()
         halting_ = true; // a callback blocked on a full queue returns, and later ones drop
         changed_.notify_all();
     }
+    stopThread();
+}
+
+void NgspiceEngine::stopThread()
+{
+    // Called with halting_ or pausing_ set, so no callback blocks on a full queue.
+    haltSource_.store(true, std::memory_order_relaxed);
+    {
+        std::unique_lock lock(mutex_);
+        changed_.wait_for(lock, kHaltTimeout, [&] { return !running_ || exited_; });
+        if (exited_) {
+            haltSource_.store(false, std::memory_order_relaxed);
+            return; // after an exit ngspice takes no commands; recover() waits for its thread
+        }
+    }
+    // Joins the thread that stopped at the halt source, at once; or, if it did not stop, halts it
+    // the slow way (ADR 0002).
     command(*g_api, "bg_halt");
     std::unique_lock lock(mutex_);
     changed_.wait(lock, [&] { return !running_ || exited_; });
+    haltSource_.store(false, std::memory_order_relaxed);
+}
+
+std::string NgspiceEngine::alter(std::string_view change)
+{
+    if (!loaded_ || finished_ || !g_api || !owner_) {
+        return "ngspice: no run to change";
+    }
+    {
+        const std::lock_guard lock(mutex_);
+        if (!running_ || exited_) {
+            return "ngspice: the run has ended";
+        }
+        pausing_ = true; // a callback blocked on a full queue returns, keeping its point
+        changed_.notify_all();
+    }
+    stopThread();
+    {
+        const std::lock_guard lock(mutex_);
+        if (exited_) {
+            return "ngspice: the run has ended"; // advance() reports the fatal error
+        }
+        output_.clear();
+    }
+    command(*g_api, "alter " + std::string(change));
+    std::string why;
+    {
+        const std::lock_guard lock(mutex_);
+        if (reportsError(output_)) {
+            why = "ngspice: " + firstError();
+        }
+        output_.clear(); // a later failure of the run reports its own error, not this one
+        pausing_ = false;
+        running_ = true; // until ngspice's thread says it ended
+    }
+    if (command(*g_api, "bg_resume") != 0) {
+        const std::lock_guard lock(mutex_);
+        running_ = false;
+        changed_.notify_all();
+        return "ngspice: the run did not resume: " + firstError();
+    }
+    return why;
 }
 
 void NgspiceEngine::unload()
@@ -471,7 +580,7 @@ SimChunk NgspiceEngine::advance(double duration)
                 chunk.signals[s - 1].push_back(point[s]);
             }
             lastTime_ = point[0];
-            head_ = (head_ + 1) % config_.queueCapacity;
+            head_ = (head_ + 1) % slots_;
             --count_;
             popped = true;
         }

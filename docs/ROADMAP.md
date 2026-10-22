@@ -42,9 +42,8 @@ All models are generic and original, never vendor models (see `docs/LICENSING.md
 | Op-amp | one generic model: finite gain, gain-bandwidth product, rail saturation; optional "ideal" mode |
 | Switches | SPST switch (voltage-controlled switch in SPICE) |
 
-The potentiometer and the switch are the elements a student changes while the circuit runs. Whether
-that restarts the run or alters the value in place is the open question in ARCHITECTURE.md
-section 13.
+The potentiometer and the switch are the elements a student changes while the circuit runs. Like
+the generator's knobs, a change restarts the run with the new netlist (decision D3, ADR 0005).
 
 ### Done when
 

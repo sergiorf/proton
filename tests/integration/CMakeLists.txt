@@ -28,4 +28,11 @@ if(PROTON_NGSPICE_FOUND)
         proton::sim proton::schematic proton::instruments proton::test_support proton_warnings)
     proton_copy_ngspice_dlls(proton_ngspice_validation_tests)
     add_test(NAME ngspice_validation COMMAND proton_ngspice_validation_tests)
+
+    # Circuit-to-frame latency and live changes (M1.5, ADR 0005).
+    add_executable(proton_ngspice_latency_tests test_ngspice_latency.cpp)
+    target_link_libraries(proton_ngspice_latency_tests
+        PRIVATE proton::spike_pipeline proton::test_support proton_warnings)
+    proton_copy_ngspice_dlls(proton_ngspice_latency_tests)
+    add_test(NAME ngspice_latency COMMAND proton_ngspice_latency_tests)
 endif()
