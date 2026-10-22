@@ -28,8 +28,9 @@ src/app (Qt)  ->  src/bench (M3)  ->  src/sim, src/instruments, src/schematic  -
 - **`instruments` never depends on `sim`.** Instruments consume plain `(time, values)` arrays.
 - **`schematic` never depends on `instruments`.** Instrument contributions to the netlist arrive as
   plain `Fragment` data.
-- **Only `SpscRing<SimChunk>` crosses threads.** Instruments live on the UI thread and have no
-  locks.
+- **Only `SpscRing<SimChunk>` crosses from the simulation thread to the UI thread.** Instruments
+  live on the UI thread and have no locks. ngspice's own thread hands points to the engine through
+  a queue private to `NgspiceEngine`.
 - **Determinism.** The same circuit and settings give the same netlist text and the same frames.
 - **Simulation time only.** Instruments never read the wall clock.
 - Logic goes below the UI, where it is testable. The UI is a thin view.

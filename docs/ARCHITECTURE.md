@@ -79,11 +79,11 @@ data is the instrument's job, exactly as a real ADC does.
 | Simulation thread (`SimWorker`) | the `ISimEngine` | Produces `SimChunk`s, waits when the queue is full (backpressure) |
 | ngspice background thread | internal to libngspice | Only with `NgspiceEngine`; its data callback blocks when the consumer lags |
 
-Exactly one thing crosses a thread boundary: `SpscRing<SimChunk>`, a lock-free single-producer /
-single-consumer queue (`proton/core/spsc_ring.h`: power-of-two capacity fixed at construction,
-move-only elements, release/acquire on the two indices, non-blocking `tryPush` / `tryPop`; a full
-`tryPush` leaves its argument untouched so the producer can wait and retry). Sample data never
-travels through Qt signals between threads. Changing a
+Exactly one thing crosses from the simulation thread to the UI thread: `SpscRing<SimChunk>`, a
+lock-free single-producer / single-consumer queue (`proton/core/spsc_ring.h`: power-of-two
+capacity fixed at construction, move-only elements, release/acquire on the two indices,
+non-blocking `tryPush` / `tryPop`; a full `tryPush` leaves its argument untouched so the producer
+can wait and retry). Sample data never travels through Qt signals between threads. Changing a
 knob (time/div, trigger level) is a call on the UI thread; changing the *circuit* stops the worker,
 rebuilds the netlist, reloads the engine and restarts.
 
@@ -96,6 +96,14 @@ chunks it left, loads the engine on the calling thread and starts the thread; `s
 stop and joins. Thread start and join order the engine's use between the two threads. Besides
 the ring, only control state crosses threads: the stop request, and a failure flag stored with
 release order after the error text, which is not written again until the thread is joined.
+
+With `NgspiceEngine` the simulation thread does not compute anything itself: ngspice runs the
+analysis on its own thread, and the engine's data callback copies each accepted time point into
+a bounded queue private to the engine (a mutex and a condition variable, so neither side polls).
+The callback waits while the queue is full, which holds ngspice back; `advance()` waits until a
+point past the chunk's end arrives or the run ends. Halting sets a flag under the mutex first, so
+a callback waiting on a full queue returns and later ones drop their point, then waits for
+ngspice's thread to end.
 
 Latency from circuit to pixel is roughly `chunkDuration + queue wait + frame cadence`. The defaults
 (1 ms chunks, 16 ms UI tick) are a starting point to be measured in milestone M1.
@@ -285,11 +293,26 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
   bit-identical. `v(out)` is advanced with the exact RC response to an input linear across each
   step; it matches the analytic answer to within that linearisation (second order in the step).
   For error-handling tests, `failAt` makes the run fail when it passes that simulation time.
-- **`NgspiceEngine`**: libngspice shared-library API, streaming accepted time points through a
-  callback into a bounded queue. Constraints (global state, one instance per process, backpressure
-  by blocking the callback) are in `docs/adr/0002-simulation-backend.md`. Loaded at runtime, so
-  the app runs on the mock engine without it and can reload it after a fatal error. Milestone M1.
-  The pinned release (ngspice 46) is fetched by `tools/fetch-ngspice.ps1` into
+- **`NgspiceEngine`** (`proton/sim/ngspice_engine.h`, done in M1.2, Windows only and built only
+  when ngspice was fetched): libngspice's shared-library API, streaming accepted time points
+  through a callback into a bounded queue (`queueCapacity`, 4096 points by default; section 4).
+  The first `load()` loads `ngspice.dll` from the executable's directory with `LoadLibraryExW`,
+  resolves the API with `GetProcAddress` and calls `ngSpice_Init` with the callbacks; the DLL then
+  stays loaded, so a program that never loads this engine does not need it, and a missing DLL is a
+  `load()` error. `load()` halts any run, frees the old circuit and plots (`remcirc`,
+  `destroy all`), sends the netlist line by line plus `.tran maxStep stopTime 0 maxStep` and
+  `.end` (`ngSpice_Circ`), and starts `bg_run`; it returns once the first point (the operating
+  point at t = 0) is queued. A netlist ngspice reports an error for is a load error, and so is a
+  line it ignores with a warning (`R1 in`), since simulating the circuit without it would be
+  wrong; so is a circuit whose operating point ngspice cannot find. Signal names come from the
+  first point: node `out` is `v(out)`, branch `v1#branch` is `i(v1)`, lower case, in ngspice's
+  order. A point whose time is not after the previous one is dropped. The run ends at `stopTime`
+  (10 s by default; `maxStep` 1 us): `advance()` gives the points up to it and then reports "the run
+  reached its stop time" through `error()`, so `SimWorker` ends cleanly; endless runs are revisited
+  with memory in M1.4 and latency in M1.5. `reset()` loads the same netlist again. Only one engine
+  may exist per process: while one does, every other one fails to load. Constraints (global state,
+  backpressure by blocking the callback, fatal errors) are in `docs/adr/0002-simulation-backend.md`.
+  A `ControlledExit` marks ngspice unusable until reloaded, which M1.4 adds. The pinned release (ngspice 46) is fetched by `tools/fetch-ngspice.ps1` into
   `third_party/ngspice` (Windows only, done in M1.1); `cmake/ProtonNgspice.cmake` provides the
   header (`proton::ngspice_headers`) and copies the DLLs next to a binary
   (`proton_copy_ngspice_dlls`). Without a fetch the build has no ngspice and everything else works.
@@ -331,7 +354,13 @@ failure, and reports the engine's message. A failing simulation never takes down
   (`linux-clang-asan`, `linux-clang-tsan`) with no Qt installed, all with warnings as errors.
 - **ngspice tests** run one executable per process because libngspice keeps process-wide state.
   `ngspice_dll` (M1.1) checks that the fetched DLL loads next to the test, exports the API and runs
-  a command. They are built only when ngspice was fetched; the Windows CI jobs fetch it (cached)
+  a command. `ngspice_engine` (M1.2) runs the RC example through `NgspiceEngine`: chunks hold
+  strictly increasing times within their own slice and start at t = 0, the source matches its
+  formula, broken and unsolvable netlists are load errors after which a valid one runs, the run
+  ends at its stop time, `reset()` repeats a run exactly, a one-point queue with a slow consumer
+  gives the same points (backpressure), `load()` halts a run blocked on a full queue, a second
+  instance is refused, and the engine runs under `SimWorker`. They are built only when ngspice was
+  fetched; the Windows CI jobs fetch it (cached)
   and configure with `PROTON_REQUIRE_NGSPICE=ON`, so they cannot silently skip them.
 - **Repository checks** run as CTest tests on every preset: `spdx_headers`
   (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.

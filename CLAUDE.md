@@ -48,7 +48,9 @@ linking `proton::test_support` (the harness in `tests/support`: `TEST`, `CHECK`,
 - No Qt below `src/app`. Everything else builds and tests without Qt (CI enforces it).
 - `instruments` never depends on `sim`; it consumes plain `(time, values)` arrays.
 - `schematic` never depends on `instruments`; instrument contributions arrive as `Fragment` data.
-- Only `SpscRing<SimChunk>` crosses threads. Instruments live on the UI thread and have no locks.
+- Only `SpscRing<SimChunk>` crosses from the simulation thread to the UI thread. Instruments live
+  on the UI thread and have no locks. ngspice's own thread hands points to the engine through a
+  queue private to `NgspiceEngine`.
 - Determinism: same circuit and settings give the same netlist text and the same frames.
 - Instruments use simulation time only, never wall-clock time.
 - Component models are generic and original. Never copy a vendor model.

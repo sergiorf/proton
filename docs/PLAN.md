@@ -180,7 +180,7 @@ finds the header and copies the DLL next to binaries. ADR 0002 records the versi
 loading, and the constraints below.
 *Done when:* a fresh clone plus the script plus a build gives a working DLL next to the tests.
 
-**M1.2 NgspiceEngine.** Runtime loading via `LoadLibrary` / `GetProcAddress`; init with callbacks;
+**M1.2 NgspiceEngine.** *(done 2026-10-22)* Runtime loading via `LoadLibrary` / `GetProcAddress`; init with callbacks;
 load the netlist line by line plus `.tran`; run in ngspice's background thread; the data callback
 streams accepted time points into a bounded queue and blocks when it is full; vector names map to
 signal names; halt and reset. A guard enforces one instance per process.
