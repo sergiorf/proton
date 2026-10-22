@@ -187,7 +187,7 @@ signal names; halt and reset. A guard enforces one instance per process.
 *Done when:* an RC netlist streams chunks whose time points are strictly increasing, and loading a
 broken netlist returns an error instead of crashing.
 
-**M1.3 Validation against analytic answers.** *(done locally 2026-10-22, CI pending)* ngspice tests, each test executable in its own
+**M1.3 Validation against analytic answers.** *(done 2026-10-22)* ngspice tests, each test executable in its own
 process: RC step response (time constant), RC low-pass driven by a sine at the corner (-3 dB,
 -45 degrees), voltage divider, generator fragment driving a load through its output impedance.
 *Done when:* all match the analytic answers within a stated tolerance, and the integration test
