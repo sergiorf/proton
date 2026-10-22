@@ -64,6 +64,23 @@ What is known about the library and the releases:
   is redistributable with Visual Studio. Packages (M5.5) ship ngspice's `COPYING` and say where its
   source is.
 
+### Found while writing the engine (M1.2)
+
+- **No way to skip init files.** `ngSpice_nospinit()` and `ngSpice_nospiceinit()` are exported,
+  and the header says to call them before `ngSpice_Init()`, but in ngspice 46 both crash there
+  (they set a variable before `ngSpice_Init()` has set up ngspice's state). The engine does not
+  call them, so ngspice reads `spinit` (not shipped: it warns that it cannot find it) and a user's
+  `.spiceinit` if there is one. This is a hole in determinism on a machine that has a
+  `.spiceinit`; revisit with the next ngspice pin.
+- **Ignored lines.** ngspice drops a netlist line it cannot read with a warning ("'r1 in' is not
+  a valid resistor instance line, ignored!") and simulates the rest. The engine treats that
+  warning as a load error, like an `Error` line.
+- **`BGThreadRunning` is inverted.** ngspice 46 calls it with `false` when its background thread
+  starts and `true` when it ends, the opposite of what the header says.
+- **`bg_halt` waits** for the background thread to stop before it returns ("Background thread
+  stopped with timeout = 1"); how long that takes is measured with the live-change latency in
+  M1.5.
+
 ## Alternatives considered
 
 - **ngspice-47 plus `sndfile.dll` and `samplerate.dll` from the full package.** Newest release, but

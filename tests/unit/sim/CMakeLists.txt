@@ -8,7 +8,8 @@ target_link_libraries(proton_sim_tests PRIVATE proton::sim proton::test_support 
 
 add_test(NAME sim COMMAND proton_sim_tests)
 
-# The fetched ngspice DLL (M1.1). Its own executable: ngspice keeps process-wide state.
+# The fetched ngspice DLL (M1.1) and NgspiceEngine (M1.2). Each is its own executable: ngspice
+# keeps process-wide state.
 if(PROTON_NGSPICE_FOUND)
     add_executable(proton_ngspice_dll_tests test_ngspice_dll.cpp)
     target_link_libraries(proton_ngspice_dll_tests
@@ -17,4 +18,10 @@ if(PROTON_NGSPICE_FOUND)
         PRIVATE PROTON_NGSPICE_VERSION="${PROTON_NGSPICE_VERSION}")
     proton_copy_ngspice_dlls(proton_ngspice_dll_tests)
     add_test(NAME ngspice_dll COMMAND proton_ngspice_dll_tests)
+
+    add_executable(proton_ngspice_engine_tests test_ngspice_engine.cpp)
+    target_link_libraries(proton_ngspice_engine_tests
+        PRIVATE proton::sim proton::test_support proton_warnings)
+    proton_copy_ngspice_dlls(proton_ngspice_engine_tests)
+    add_test(NAME ngspice_engine COMMAND proton_ngspice_engine_tests)
 endif()
