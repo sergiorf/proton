@@ -30,6 +30,16 @@ New test executables: one per module under `tests/unit/<module>/`, registered wi
 linking `proton::test_support` (the harness in `tests/support`: `TEST`, `CHECK`, `CHECK_EQ`,
 `CHECK_NEAR`, provides `main`) and `proton_warnings` privately like every Proton target.
 
+## Working on PLAN.md tasks
+
+- One task per session. Never start the next task.
+- A task is done only when its "Done when" line holds, tests pass in CI, and
+  ARCHITECTURE.md / ROADMAP.md still match the code.
+- On completion, append `*(done YYYY-MM-DD)*` to the task heading in PLAN.md
+  (or `*(done locally YYYY-MM-DD, CI pending M0.x)*` if a later CI task is needed).
+- Resolve open decisions (D3, D5) with me before starting the task that needs them.
+- One branch per task, named like `m1.2-ngspice-engine`. Commit only when Done-when holds.
+
 ## Hard rules
 
 - No Qt below `src/app`. Everything else builds and tests without Qt (CI enforces it).
