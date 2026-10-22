@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Windows: MSVC build and tests (Qt-free until M2.1 adds the app).
+# Windows: MSVC build and tests (Qt-free until M2.1 adds the app), with the pinned ngspice.
 # Linux: clang with sanitizers; Qt is not installed, which enforces "no Qt below src/app".
 name: CI
 
@@ -26,8 +26,16 @@ jobs:
         preset: [windows-msvc-debug, windows-msvc-release]
     steps:
       - uses: actions/checkout@v4
+      # The pin lives in the fetch script, so a new pin misses the cache.
+      - name: Cache ngspice
+        uses: actions/cache@v4
+        with:
+          path: third_party/ngspice
+          key: ngspice-${{ hashFiles('tools/fetch-ngspice.ps1') }}
+      - name: Fetch ngspice
+        run: ./tools/fetch-ngspice.ps1
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON -DPROTON_REQUIRE_NGSPICE=ON
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel
       - name: Test

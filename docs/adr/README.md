@@ -8,7 +8,7 @@ free number.
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-qt-free-layers.md) | Qt-free layers below the UI | accepted |
-| 0002 | Simulation backend: ngspice as a runtime-loaded shared library | planned, M1.1 |
+| [0002](0002-simulation-backend.md) | Simulation backend: ngspice as a runtime-loaded shared library | accepted |
 | [0003](0003-build-and-dependencies.md) | Build, toolchain and dependencies | accepted |
 | 0004 | Scope rendering with `QPainter`, no Qt Charts | planned, M2.3 |
 | 0005 | Live value changes: restart or `alter` (decision D3) | planned, M1.5 |

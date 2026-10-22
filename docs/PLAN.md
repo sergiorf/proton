@@ -174,7 +174,7 @@ for the RC example.
 
 ## M1 ngspice: real simulation
 
-**M1.1 ADR 0002 and fetching ngspice.** Pin an official ngspice Windows shared-library release;
+**M1.1 ADR 0002 and fetching ngspice.** *(done locally 2026-10-22, CI pending)* Pin an official ngspice Windows shared-library release;
 `tools/fetch-ngspice.ps1` downloads it into `third_party/ngspice` and checks its SHA-256; CMake
 finds the header and copies the DLL next to binaries. ADR 0002 records the version, runtime
 loading, and the constraints below.

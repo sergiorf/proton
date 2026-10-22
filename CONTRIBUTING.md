@@ -62,7 +62,8 @@ A change that needs to break one of these rules needs an ADR first.
 
 - Build and test with the CMake presets (see the "Build and test" section of
   [CLAUDE.md](CLAUDE.md)): `windows-msvc-debug` and `windows-msvc-release` on Windows,
-  `linux-clang-asan` and `linux-clang-tsan` on Linux.
+  `linux-clang-asan` and `linux-clang-tsan` on Linux. On Windows, run
+  `tools/fetch-ngspice.ps1` once before configuring to build the ngspice tests (ADR 0002).
 - One test executable per module under `tests/unit/<module>/`, registered with `add_test`, linking
   `proton::test_support` (`TEST`, `CHECK`, `CHECK_EQ`, `CHECK_NEAR`) and `proton_warnings`
   privately.
