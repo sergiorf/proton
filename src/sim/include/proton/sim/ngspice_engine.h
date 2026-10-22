@@ -33,6 +33,11 @@ namespace proton::sim {
 // stop time ..." and the run is over. A run that ngspice abandons (a singular matrix, a time step
 // too small) gives the points before the failure and ngspice's error message.
 //
+// Some errors are fatal to ngspice (a missing .include file, unmatched .subckt and .ends, a
+// .param it cannot evaluate): it calls its exit callback and its state is unusable until the DLL
+// is reloaded (ADR 0002). The load() or advance() that meets one fails with "ngspice: fatal
+// error: ..." and ngspice's message; the next load() frees the DLL and loads it afresh.
+//
 // Settings are sanitised: non-finite numbers become the default, numbers are clamped to the ranges
 // given by the constants below, and maxStep is at most stopTime.
 class NgspiceEngine final : public ISimEngine
@@ -51,7 +56,8 @@ public:
         double maxStep = 1e-6;            // s, the longest step ngspice may take
         std::size_t queueCapacity = 4096; // time points ngspice may run ahead of advance()
         // The DLL to load, UTF-8. Empty: ngspice.dll in the directory of the running executable.
-        // Only the first engine to load ngspice uses it: the DLL then stays for the process.
+        // Used when the DLL is not loaded yet: it then stays loaded for the process, until a
+        // fatal error unloads it.
         std::string libraryPath;
 
         friend bool operator==(const Config&, const Config&) = default;
@@ -79,7 +85,9 @@ private:
     bool start();
     void halt();
     void unload();
+    bool recover();
     std::string firstError() const;
+    std::string errorMessage() const;
 
     Config config_;
     bool owner_ = false; // this is the one instance
@@ -105,7 +113,7 @@ private:
     bool haveTime_ = false;             // queuedTime_ holds the time of the last queued point
     double queuedTime_ = 0.0;
     std::string output_;  // ngspice's stderr since the run started
-    bool exited_ = false; // ngspice asked to exit; it is unusable until reloaded (M1.4)
+    bool exited_ = false; // ngspice asked to exit; it is unusable until recover() reloads it
 };
 
 } // namespace proton::sim

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <optional>
@@ -21,15 +22,21 @@ namespace proton::sim {
 
 namespace {
 
-// The ngspice API, resolved from the DLL once per process. ngspice keeps its state in the DLL, so
-// it is initialised once too, with callbacks that reach the engine through g_engine.
+// The ngspice API, resolved when the DLL is loaded. ngspice keeps its state in the DLL, so it is
+// initialised on each load, with callbacks that reach the engine through g_engine. The DLL stays
+// loaded until a fatal error: then it is freed and loaded again, which gives ngspice fresh state.
 struct Api
 {
     decltype(ngSpice_Init)* init = nullptr;
     decltype(ngSpice_Command)* command = nullptr;
     decltype(ngSpice_Circ)* circ = nullptr;
+    decltype(ngSpice_Reset)* reset = nullptr;
 };
 
+// How long recover() waits for ngspice's thread to end after an exit on it.
+constexpr std::chrono::seconds kThreadEndTimeout{2};
+
+HMODULE g_module = nullptr;             // the loaded DLL, while g_api is set
 std::optional<Api> g_api;               // used only by the engine that owns ngspice
 std::atomic<bool> g_taken{false};       // an NgspiceEngine exists
 std::atomic<NgspiceEngine*> g_engine{}; // where ngspice's callbacks go
@@ -241,6 +248,7 @@ NgspiceEngine::~NgspiceEngine()
     }
     halt();
     unload();
+    recover();
     g_engine.store(nullptr, std::memory_order_release);
     g_taken.store(false, std::memory_order_release);
 }
@@ -263,12 +271,10 @@ bool NgspiceEngine::load(std::string_view netlist)
         error_ = "ngspice: the netlist is empty";
         return false;
     }
-    {
-        const std::lock_guard lock(mutex_);
-        if (exited_) {
-            error_ = "ngspice: exited after a fatal error and cannot run again";
-            return false;
-        }
+    if (!recover()) {
+        error_ = "ngspice: exited after a fatal error and its thread did not end, so it cannot be "
+                 "reloaded";
+        return false;
     }
     if (!g_api) {
         std::filesystem::path path = exeDir() / L"ngspice.dll";
@@ -288,7 +294,9 @@ bool NgspiceEngine::load(std::string_view netlist)
         api.init = resolve<decltype(ngSpice_Init)>(module, "ngSpice_Init");
         api.command = resolve<decltype(ngSpice_Command)>(module, "ngSpice_Command");
         api.circ = resolve<decltype(ngSpice_Circ)>(module, "ngSpice_Circ");
-        if (api.init == nullptr || api.command == nullptr || api.circ == nullptr) {
+        api.reset = resolve<decltype(ngSpice_Reset)>(module, "ngSpice_Reset");
+        if (api.init == nullptr || api.command == nullptr || api.circ == nullptr ||
+            api.reset == nullptr) {
             FreeLibrary(module);
             error_ = "ngspice: " + toUtf8(path) + " does not export the shared-library API";
             return false;
@@ -298,6 +306,7 @@ bool NgspiceEngine::load(std::string_view netlist)
         api.init(&Callbacks::sendChar, &Callbacks::sendStat, &Callbacks::controlledExit,
                  &Callbacks::sendData, &Callbacks::sendInitData, &Callbacks::backgroundThread,
                  nullptr);
+        g_module = module;
         g_api = api;
     }
     netlist_ = netlist;
@@ -350,26 +359,28 @@ bool NgspiceEngine::start()
     end_ = 0.0;
     lastTime_ = 0.0;
 
+    // A fatal error in the netlist makes ngspice call controlledExit() from inside circ(), on this
+    // thread, and circ() then fails.
     const bool parsed = g_api->circ(circuit.data()) == 0;
     {
         std::unique_lock lock(mutex_);
         if (!parsed || reportsError(output_)) {
             running_ = false;
-            error_ = "ngspice: " + firstError();
+            error_ = errorMessage();
             return false;
         }
     }
     if (command(*g_api, "bg_run") != 0) {
         const std::lock_guard lock(mutex_);
         running_ = false;
-        error_ = "ngspice: " + firstError();
+        error_ = errorMessage();
         return false;
     }
     // The run has started when its first point, the operating point at t = 0, is queued.
     std::unique_lock lock(mutex_);
     changed_.wait(lock, [&] { return count_ > 0 || !running_ || exited_; });
     if (count_ == 0) {
-        error_ = "ngspice: " + firstError();
+        error_ = errorMessage();
         return false;
     }
     names_ = runNames_;
@@ -383,8 +394,8 @@ void NgspiceEngine::halt()
     }
     {
         const std::lock_guard lock(mutex_);
-        if (!running_) {
-            return;
+        if (!running_ || exited_) {
+            return; // after an exit ngspice takes no commands; recover() waits for its thread
         }
         halting_ = true; // a callback blocked on a full queue returns, and later ones drop
         changed_.notify_all();
@@ -399,9 +410,42 @@ void NgspiceEngine::unload()
     if (!g_api || !owner_) {
         return;
     }
+    {
+        const std::lock_guard lock(mutex_);
+        if (exited_) {
+            return; // recover() frees the whole DLL instead
+        }
+    }
     // Frees the circuit and every stored plot, so repeated runs do not accumulate memory.
     command(*g_api, "remcirc");
     command(*g_api, "destroy all");
+}
+
+bool NgspiceEngine::recover()
+{
+    if (!g_api || !owner_) {
+        return true;
+    }
+    {
+        std::unique_lock lock(mutex_);
+        if (!exited_) {
+            return true;
+        }
+        // An exit on ngspice's own thread ends that thread. Freeing the DLL while it still runs
+        // would pull its code away under it, so ngspice stays dead if the thread does not end.
+        if (!changed_.wait_for(lock, kThreadEndTimeout, [&] { return !running_; })) {
+            return false;
+        }
+        exited_ = false;
+    }
+    // ngspice's C runtime allocates from the process heap, so freeing the DLL alone would leave
+    // its memory behind (about 125 KiB per reload); ngSpice_Reset() frees most of it first.
+    // Called without the reload, it crashes the next run. The next load() loads ngspice afresh.
+    g_api->reset();
+    FreeLibrary(g_module);
+    g_module = nullptr;
+    g_api.reset();
+    return true;
 }
 
 SimChunk NgspiceEngine::advance(double duration)
@@ -445,7 +489,7 @@ SimChunk NgspiceEngine::advance(double duration)
 
     finished_ = true;
     if (exited_) {
-        error_ = "ngspice: exited after a fatal error";
+        error_ = errorMessage();
     } else if (lastTime_ >= config_.stopTime * (1 - 1e-9)) {
         error_ = "ngspice: the run reached its stop time of " +
                  core::formatSpiceNumber(config_.stopTime) + "s";
@@ -494,6 +538,12 @@ std::string NgspiceEngine::firstError() const
         all.pop_back();
     }
     return all.empty() ? "no simulation output" : all;
+}
+
+std::string NgspiceEngine::errorMessage() const
+{
+    // Called with mutex_ held.
+    return (exited_ ? "ngspice: fatal error: " : "ngspice: ") + firstError();
 }
 
 } // namespace proton::sim

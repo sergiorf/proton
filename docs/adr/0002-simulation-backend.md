@@ -81,6 +81,45 @@ What is known about the library and the releases:
   stopped with timeout = 1"); how long that takes is measured with the live-change latency in
   M1.5.
 
+### Fatal errors and memory (M1.4)
+
+Measured with ngspice 46 on Windows 11, private committed memory of the process
+(`PrivateUsage`), by the `ngspice_soak` test (Debug and Release give the same within noise) and
+by scratch probes calling the DLL directly.
+
+- **What is fatal.** Errors found while ngspice reads the netlist: a missing `.include` or `.lib`
+  file, unmatched `.subckt` and `.ends`, a `.param` or expression it cannot evaluate, and a
+  `quit` in a `.control` block. ngspice prints "ngspice.dll cannot recover and awaits to be reset
+  or detached", calls `ControlledExit` (unload flag false) on the calling thread from inside
+  `ngSpice_Circ`, which then returns 1. No exit on ngspice's background thread was found, but the
+  engine handles one: it waits up to 2 s for the thread to end before freeing the DLL, and
+  otherwise leaves ngspice dead with an error instead of freeing code that still runs.
+  Proton's netlists (`schematic::buildNetlist()`) write none of these constructs.
+- **Recovery.** `ngSpice_Reset()`, then `FreeLibrary`, then `LoadLibrary` and `ngSpice_Init()`
+  again on the next `load()`. A scratch probe ran 480 exit-and-reload cycles over four kinds of
+  fatal netlist, each followed by a valid run, without a failure. `ngSpice_Reset()` alone,
+  without the reload, crashes the next run (access violation), so it is only a clean-up before
+  freeing the DLL.
+- **Memory per reload.** `ngspice.dll` links its C runtime statically, and that runtime allocates
+  from the process heap, so whatever ngspice has not freed stays when the DLL goes. Freeing the
+  DLL alone left about 125 KiB per reload; with `ngSpice_Reset()` first, 3 to 4.5 KiB per
+  fatal-error cycle (the reload and a valid run together).
+- **Memory per load.** Over 1000 load/reset cycles after 100 warm-up cycles, memory grows
+  linearly: 0.5 to 0.6 KiB per cycle when each run ends at its stop time, 1.1 KiB when each run is
+  halted with `bg_halt` (the probe). The growth does not depend on the netlist: 4 lines, 22 lines, or
+  4 KB of comments all give 0.5 KiB per `ngSpice_Circ` followed by `remcirc` and `destroy all`.
+  It is ngspice's own leak. Capping the command history (`set history`) does not change it, and a
+  reload every 100 loads only cuts it from 1.1 to 0.7 KiB per load, so the engine does not
+  reload periodically.
+- **Decision: accepted.** Growth is about 1 MiB per thousand runs: a run started every second for
+  four hours is about 15 MiB. The `ngspice_soak` test fails above 2 KiB per cycle and 16 KiB per
+  reload, which catches anything worse (such as plots no longer being freed). If live changes
+  restart runs far more often than that (D3, M1.5), the helper process below gives the memory
+  back by ending the process.
+- **`bg_halt` takes about 114 ms**, nearly all of it a sleep inside ngspice (it polls its thread
+  in 100 ms steps); a run's first point takes about 17 ms. Halting is part of every `load()` of a
+  running engine, so this goes into the latency budget of M1.5.
+
 ## Alternatives considered
 
 - **ngspice-47 plus `sndfile.dll` and `samplerate.dll` from the full package.** Newest release, but
@@ -92,8 +131,8 @@ What is known about the library and the releases:
 - **Linking `ngspice.lib` at build time.** Simpler calls, but the app would not start without the
   DLL and could not reload it after a fatal error (ADR 0003).
 - **Running ngspice in a helper process.** Survives every crash and allows several instances, but
-  needs inter-process streaming. Kept as the fallback if reloading the DLL turns out not to be
-  enough (PLAN.md risks, M1.4).
+  needs inter-process streaming. Reloading the DLL is enough to survive fatal errors (M1.4); kept
+  as the fallback for ngspice's per-load leak and for crashes that are not a controlled exit.
 
 ## Consequences
 
@@ -105,4 +144,5 @@ What is known about the library and the releases:
   pin invalidates it).
 - Updating ngspice means a new pin and SHA-256 in the script, a check that the DLL loads on its
   own, a new license review here, and the M1.3 validation tests passing.
-- Memory growth over repeated runs is measured in M1.4 and recorded here.
+- A process that runs ngspice grows by about 1 KiB per run and 4 KiB per fatal error (M1.4,
+  above).
