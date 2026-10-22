@@ -193,7 +193,7 @@ process: RC step response (time constant), RC low-pass driven by a sine at the c
 *Done when:* all match the analytic answers within a stated tolerance, and the integration test
 also runs with ngspice.
 
-**M1.4 Robustness.** ngspice can call its exit callback on fatal errors. Handle it: mark the
+**M1.4 Robustness.** *(done 2026-10-22)* ngspice can call its exit callback on fatal errors. Handle it: mark the
 engine dead, unload and reload the DLL, report through `SimWorker::error()`. Run 1000 load/reset
 cycles and watch memory.
 *Done when:* a netlist that makes ngspice fail fatally leaves the process running and a following
@@ -366,10 +366,10 @@ complete every circuit on the roadmap's list with the bench instruments.
 
 | Risk | Where | Mitigation |
 |---|---|---|
-| ngspice fatal errors end the library's state | M1.4 | Runtime loading lets the engine unload and reload the DLL; if that is not enough, run ngspice in a helper process (bigger change, ADR) |
+| ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M3.5 | One process per ngspice test; D4 for resistance |
 | Restarting on every knob turn feels sluggish | M1.5, M2.5, M4.7 | Measured early in M1.5, before any UI depends on it |
-| ngspice memory growth over many runs | M1.4 | Measured in M1.4; reload the DLL periodically if needed |
+| ngspice memory growth over many runs | M1.4 | Measured in M1.4: about 1 KiB per run, accepted (ADR 0002). Reloading the DLL does not give it back; a helper process would |
 | Convergence failures on student circuits | M4, M5 | `validate()` catches the common causes first; ngspice errors shown as diagnostics, never a crash |
 | Scope too slow to draw at 60 fps | M2.3 | Draw decimated min/max columns; `QRhi` only if still too slow (ADR 0004) |
 

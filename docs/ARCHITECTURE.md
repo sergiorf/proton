@@ -298,8 +298,8 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
   through a callback into a bounded queue (`queueCapacity`, 4096 points by default; section 4).
   The first `load()` loads `ngspice.dll` from the executable's directory with `LoadLibraryExW`,
   resolves the API with `GetProcAddress` and calls `ngSpice_Init` with the callbacks; the DLL then
-  stays loaded, so a program that never loads this engine does not need it, and a missing DLL is a
-  `load()` error. `load()` halts any run, frees the old circuit and plots (`remcirc`,
+  stays loaded until a fatal error, so a program that never loads this engine does not need it,
+  and a missing DLL is a `load()` error. `load()` halts any run, frees the old circuit and plots (`remcirc`,
   `destroy all`), sends the netlist line by line plus `.tran maxStep stopTime 0 maxStep` and
   `.end` (`ngSpice_Circ`), and starts `bg_run`; it returns once the first point (the operating
   point at t = 0) is queued. A netlist ngspice reports an error for is a load error, and so is a
@@ -309,10 +309,16 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
   order. A point whose time is not after the previous one is dropped. The run ends at `stopTime`
   (10 s by default; `maxStep` 1 us): `advance()` gives the points up to it and then reports "the run
   reached its stop time" through `error()`, so `SimWorker` ends cleanly; endless runs are revisited
-  with memory in M1.4 and latency in M1.5. `reset()` loads the same netlist again. Only one engine
+  with latency in M1.5. `reset()` loads the same netlist again. Only one engine
   may exist per process: while one does, every other one fails to load. Constraints (global state,
   backpressure by blocking the callback, fatal errors) are in `docs/adr/0002-simulation-backend.md`.
-  A `ControlledExit` marks ngspice unusable until reloaded, which M1.4 adds. The pinned release (ngspice 46) is fetched by `tools/fetch-ngspice.ps1` into
+  Some netlist errors are fatal to ngspice (a missing `.include`, unmatched `.subckt` and `.ends`,
+  a `.param` it cannot evaluate): it calls `ControlledExit` from inside `ngSpice_Circ` and is
+  unusable afterwards (done in M1.4). The `load()` or `advance()` that meets one fails with
+  "ngspice: fatal error: ..." and ngspice's message, which `SimWorker::error()` passes on; the next
+  `load()` calls `ngSpice_Reset()`, frees the DLL (after ngspice's thread has ended, if the exit
+  came on it) and loads it afresh. ngspice 46 leaks about 1 KiB per load, which only ending the
+  process gives back; the numbers are in ADR 0002. The pinned release (ngspice 46) is fetched by `tools/fetch-ngspice.ps1` into
   `third_party/ngspice` (Windows only, done in M1.1); `cmake/ProtonNgspice.cmake` provides the
   header (`proton::ngspice_headers`) and copies the DLLs next to a binary
   (`proton_copy_ngspice_dlls`). Without a fetch the build has no ngspice and everything else works.
@@ -365,7 +371,11 @@ failure, and reports the engine's message. A failing simulation never takes down
   formula, broken and unsolvable netlists are load errors after which a valid one runs, the run
   ends at its stop time, `reset()` repeats a run exactly, a one-point queue with a slow consumer
   gives the same points (backpressure), `load()` halts a run blocked on a full queue, a second
-  instance is refused, and the engine runs under `SimWorker`. `ngspice_validation` (M1.3) checks
+  instance is refused, and the engine runs under `SimWorker`; fatal netlist errors (M1.4) are load
+  errors, under `SimWorker` too, after which the reloaded ngspice runs the RC example exactly as
+  before. `ngspice_soak` (M1.4) measures private memory over 1000 load/reset cycles and over 200
+  fatal-error reloads, prints it, and fails above 2 KiB per cycle and 16 KiB per reload.
+  `ngspice_validation` (M1.3) checks
   ngspice against analytic answers, each with a tolerance stated in the test (about ten times what
   ngspice 46 gives; resistive circuits are exact to rounding): an RC step follows
   `1 - exp(-t / tau)` pointwise to 30 uV and crosses `1 - 1/e` at tau to 3e-5; an RC low-pass
@@ -378,7 +388,7 @@ failure, and reports the engine's message. A failing simulation never takes down
   and configure with `PROTON_REQUIRE_NGSPICE=ON`, so they cannot silently skip them.
 - **Repository checks** run as CTest tests on every preset: `spdx_headers`
   (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.
-- **Next:** ngspice robustness after fatal errors and over many runs (M1.4); UI is
+- **Next:** circuit-to-frame latency and live changes (M1.5); UI is
   covered by smoke tests only: logic belongs below the UI, where it is testable.
 
 ## 11. Planned UI architecture (Qt, `src/app`)

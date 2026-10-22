@@ -24,4 +24,11 @@ if(PROTON_NGSPICE_FOUND)
         PRIVATE proton::sim proton::test_support proton_warnings)
     proton_copy_ngspice_dlls(proton_ngspice_engine_tests)
     add_test(NAME ngspice_engine COMMAND proton_ngspice_engine_tests)
+
+    # Memory over many runs and fatal-error reloads (M1.4).
+    add_executable(proton_ngspice_soak_tests test_ngspice_soak.cpp)
+    target_link_libraries(proton_ngspice_soak_tests
+        PRIVATE proton::sim proton::test_support proton_warnings)
+    proton_copy_ngspice_dlls(proton_ngspice_soak_tests)
+    add_test(NAME ngspice_soak COMMAND proton_ngspice_soak_tests)
 endif()
