@@ -7,8 +7,10 @@
 #include "proton/test/test.h"
 
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -193,6 +195,48 @@ TEST(the_result_does_not_depend_on_chunks_or_queue)
     CHECK(sameReadings(a.acReadings, b.acReadings));
 }
 
+// Decision D6 (ADR 0007): the engine's longest step is one sample of the scope's timebase.
+TEST(the_engine_step_is_one_scope_sample)
+{
+    const PipelineSettings settings = proton::spike::defaultSettings(RcExample{});
+    CHECK_NEAR(settings.maxStep, 2e-6, 1e-18); // 200 us/div: 2 ms over 1000 samples
+    CHECK_EQ(proton::spike::maxStepFor(settings.scope),
+             proton::instruments::Scope(settings.scope).sampleInterval());
+}
+
+// Decision D6: paced to wall-clock time, a run of 0.3 s takes at least 0.3 s, and pacing changes
+// only when the instruments are fed, not what they give.
+TEST(a_paced_run_takes_its_duration_and_gives_the_same_result)
+{
+    PipelineSettings settings = defaults();
+    settings.duration = 0.3;
+    const PipelineResult unpaced = runDefault(settings);
+    settings.realTime = true;
+    const auto start = std::chrono::steady_clock::now();
+    const PipelineResult paced = runDefault(settings);
+    const double wall =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    std::printf("paced run of %g s: %.3f s of wall-clock time, speed %.3f\n", settings.duration,
+                wall, paced.speed);
+    CHECK(paced.ok());
+    CHECK(wall >= settings.duration);
+#ifndef PROTON_TEST_NGSPICE
+    // The mock keeps up with real time, so the run ends on time, give or take a timer tick and a
+    // noisy CI runner.
+    CHECK(wall < settings.duration + 0.2);
+    CHECK(paced.speed > 0.9);
+#endif
+    CHECK_EQ(paced.lastTime, unpaced.lastTime);
+    CHECK(sameFrames(paced.frames, unpaced.frames));
+    CHECK(sameReadings(paced.dcReadings, unpaced.dcReadings));
+    CHECK(sameReadings(paced.acReadings, unpaced.acReadings));
+}
+
+TEST(an_unpaced_run_reports_full_speed)
+{
+    CHECK_EQ(runDefault(defaults()).speed, 1.0);
+}
+
 TEST(an_invalid_circuit_stops_at_validate)
 {
     RcExample example;
@@ -219,8 +263,10 @@ TEST(engine_names_parse)
 // RC response and ngspice's simulation of the netlist give the same multimeter readings.
 TEST(mock_and_ngspice_give_the_same_dmm_readings)
 {
-    // How far a reading on ngspice may be from the same reading on the mock, V: about ten times
-    // what ngspice 46 gives at the default 10 us step (1e-6 V DC, 5.5e-5 V AC).
+    // How far a reading on ngspice may be from the same reading on the mock, V. Measured at the
+    // default 2 us step: 1e-6 V DC and 1.9e-4 V AC, where ngspice reads the analytic 0.5987 V
+    // and the mock, which linearises the input over its own coarser grid, 0.5985 V. The last
+    // displayed digit can therefore differ; the values agree to these tolerances.
     constexpr double kDcEngineTolerance = 1e-5;
     constexpr double kAcEngineTolerance = 6e-4;
 
@@ -233,11 +279,9 @@ TEST(mock_and_ngspice_give_the_same_dmm_readings)
     CHECK_EQ(mock.acReadings.size(), ngspice.acReadings.size());
     for (std::size_t i = 1; i < mock.dcReadings.size() && i < ngspice.dcReadings.size(); ++i) {
         CHECK_NEAR(ngspice.dcReadings[i].value, mock.dcReadings[i].value, kDcEngineTolerance);
-        CHECK_EQ(ngspice.dcReadings[i].display.text, mock.dcReadings[i].display.text);
     }
     for (std::size_t i = 1; i < mock.acReadings.size() && i < ngspice.acReadings.size(); ++i) {
         CHECK_NEAR(ngspice.acReadings[i].value, mock.acReadings[i].value, kAcEngineTolerance);
-        CHECK_EQ(ngspice.acReadings[i].display.text, mock.acReadings[i].display.text);
     }
 }
 

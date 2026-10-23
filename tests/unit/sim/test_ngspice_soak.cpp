@@ -110,3 +110,36 @@ TEST(fatal_error_reload_cycles_grow_memory_by_at_most_16_KiB_each)
     });
     CHECK(perCycle < 16.0);
 }
+
+// Decision D6 (ADR 0007): ngspice keeps no plot of the run, so a long run commits no memory for
+// its points, neither when it starts (ngspice used to reserve stopTime / maxStep points then:
+// about 300 MiB for 10 s at 1 us steps) nor as it goes. Checked for that run and for the
+// defaults, whose stop time is effectively endless.
+TEST(a_long_run_commits_no_memory_for_its_points)
+{
+    NgspiceEngine::Config tenSeconds;
+    tenSeconds.stopTime = 10.0;
+    tenSeconds.maxStep = 1e-6;
+    for (const NgspiceEngine::Config& config : {tenSeconds, NgspiceEngine::Config{}}) {
+        {
+            // Warm up on a short run that ends, then free it: the baseline holds no run.
+            NgspiceEngine warm(shortRun());
+            CHECK(warm.load(kRc));
+            CHECK(!warm.advance(1e-3).empty());
+        }
+        const double before = privateKiB();
+        NgspiceEngine engine(config);
+        CHECK(engine.load(kRc));
+        const double started = privateKiB();
+        for (int k = 0; k < 100; ++k) { // 0.1 s: 100 000 points
+            CHECK(!engine.advance(1e-3).empty());
+        }
+        const double after = privateKiB();
+        std::printf("stop time %g s, max step %g s: +%.0f KiB at the start, +%.0f KiB after "
+                    "0.1 s\n",
+                    engine.config().stopTime, engine.config().maxStep, started - before,
+                    after - before);
+        CHECK(started - before < 1024.0);
+        CHECK(after - before < 1024.0);
+    }
+}

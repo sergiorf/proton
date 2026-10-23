@@ -2,11 +2,12 @@
 // proton-spike: runs the RC example through the whole pipeline and prints the multimeter readings
 // and the last scope frame as CSV (ARCHITECTURE.md section 10).
 //
-//     proton-spike [--engine mock|ngspice] [--duration <seconds>] > rc.csv
+//     proton-spike [--engine mock|ngspice] [--duration <seconds>] [--realtime] > rc.csv
 //
-// The engine is the mock by default; ngspice needs a build that has it. The duration is a SPICE
-// number ("0.5", "500m"). The exit code is 0 when the run reached the duration and gave a
-// triggered frame and both readings, 1 otherwise, 2 for bad arguments.
+// The engine is the mock by default; ngspice needs a build that has it. --realtime feeds the
+// instruments in step with wall-clock time, so a run of 2 s takes 2 s (decision D6, ADR 0007).
+// The duration is a SPICE number ("0.5", "500m"). The exit code is 0 when the run reached the
+// duration and gave a triggered frame and both readings, 1 otherwise, 2 for bad arguments.
 
 #include "proton/core/spice_number.h"
 #include "proton/spike/pipeline.h"
@@ -18,7 +19,7 @@
 namespace {
 
 constexpr const char* kUsage =
-    "usage: proton-spike [--engine mock|ngspice] [--duration <seconds>]\n";
+    "usage: proton-spike [--engine mock|ngspice] [--duration <seconds>] [--realtime]\n";
 
 } // namespace
 
@@ -40,6 +41,10 @@ int main(int argc, char** argv)
                 return 2;
             }
             settings.duration = *duration;
+            continue;
+        }
+        if (arg == "--realtime") {
+            settings.realTime = true;
             continue;
         }
         if (arg == "--engine" && i + 1 < argc) {

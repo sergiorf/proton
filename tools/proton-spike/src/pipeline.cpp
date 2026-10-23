@@ -4,6 +4,7 @@
 #include "proton/core/spice_number.h"
 #include "proton/schematic/netlist.h"
 #include "proton/sim/mock_engine.h"
+#include "proton/sim/real_time_pacer.h"
 #ifdef PROTON_HAVE_NGSPICE
 #include "proton/sim/ngspice_engine.h"
 #endif
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -61,14 +63,17 @@ public:
           result_(result)
     {}
 
-    // Feeds the points of `chunk` up to the duration. Returns true once the duration is reached.
-    bool feed(const sim::SimChunk& chunk, std::size_t in, std::size_t out)
+    // Feeds the points of `chunk` from index `from` up to simulation time `limit` (at most the
+    // duration), and returns the index of the first point not fed.
+    std::size_t feed(const sim::SimChunk& chunk, std::size_t from, double limit, std::size_t in,
+                     std::size_t out)
     {
-        const auto end = std::upper_bound(chunk.time.begin(), chunk.time.end(), duration_);
-        const auto count = static_cast<std::size_t>(end - chunk.time.begin());
-        const std::span<const double> time(chunk.time.data(), count);
-        const std::span<const double> vin(chunk.signals[in].data(), count);
-        const std::span<const double> vout(chunk.signals[out].data(), count);
+        const auto begin = chunk.time.begin() + static_cast<std::ptrdiff_t>(from);
+        const auto end = std::upper_bound(begin, chunk.time.end(), std::min(limit, duration_));
+        const auto count = static_cast<std::size_t>(end - begin);
+        const std::span<const double> time(chunk.time.data() + from, count);
+        const std::span<const double> vin(chunk.signals[in].data() + from, count);
+        const std::span<const double> vout(chunk.signals[out].data() + from, count);
         scope_.feed(time, vin, vout);
         dc_.feed(time, vout);
         ac_.feed(time, vout);
@@ -84,7 +89,18 @@ public:
         if (count > 0) {
             result_.lastTime = time.back();
         }
-        return !chunk.time.empty() && chunk.time.back() >= duration_;
+        return from + count;
+    }
+
+    // Whether every point up to the duration has been fed, given that `chunk` was fed up to
+    // `next` with a limit of `limit`.
+    bool reached(const sim::SimChunk& chunk, std::size_t next, double limit) const
+    {
+        if (chunk.time.empty() || limit < duration_) {
+            return false;
+        }
+        // The points left are past the duration, or the chunk ends at it.
+        return next < chunk.time.size() || chunk.time.back() >= duration_;
     }
 
 private:
@@ -144,6 +160,11 @@ std::optional<PipelineSettings::Engine> parseEngine(std::string_view name)
     return std::nullopt;
 }
 
+double maxStepFor(const Scope::Config& scope)
+{
+    return Scope(scope).sampleInterval();
+}
+
 PipelineSettings defaultSettings(const RcExample& example)
 {
     PipelineSettings settings;
@@ -152,6 +173,7 @@ PipelineSettings defaultSettings(const RcExample& example)
     settings.scope.trigger.source = Scope::TriggerSource::Channel1;
     settings.scope.trigger.slope = Scope::Slope::Rising;
     settings.scope.trigger.level = FunctionGenerator::sanitise(example.generator).offset;
+    settings.maxStep = maxStepFor(settings.scope);
     return settings;
 }
 
@@ -205,22 +227,48 @@ PipelineResult run(const RcExample& example, const PipelineSettings& settings)
         return result;
     }
 
+    // With realTime, the points of a chunk past what is due wait in `held` for the wall clock.
     Pump pump(settings, result);
-    bool done = false;
-    while (!done) {
-        if (std::optional<sim::SimChunk> chunk = worker.tryPop()) {
-            done = pump.feed(*chunk, *in, *out);
-            continue;
-        }
-        if (!worker.running()) {
-            // The run failed: every chunk it produced is already in the ring.
-            while (std::optional<sim::SimChunk> chunk = worker.tryPop()) {
-                pump.feed(*chunk, *in, *out);
+    sim::RealTimePacer pacer;
+    const auto clockStart = std::chrono::steady_clock::now();
+    const auto wallNow = [&] {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - clockStart).count();
+    };
+    pacer.start(wallNow());
+    std::optional<sim::SimChunk> held;
+    std::size_t next = 0;  // first point of `held` not fed yet
+    bool ending = false;   // the run failed; the chunks left in the ring are fed, then it stops
+    for (;;) {
+        if (!held) {
+            held = worker.tryPop();
+            next = 0;
+            if (!held) {
+                if (ending) {
+                    result.error = worker.error();
+                    break;
+                }
+                // A run that failed pushed every chunk before saying so: pop them all first.
+                ending = !worker.running();
+                std::this_thread::yield();
+                continue;
             }
-            result.error = worker.error();
+        }
+        const double now = wallNow();
+        const double limit = settings.realTime ? pacer.due(now) : settings.duration;
+        next = pump.feed(*held, next, limit, *in, *out);
+        pacer.fed(now, result.lastTime);
+        if (pump.reached(*held, next, limit)) {
             break;
         }
-        std::this_thread::yield();
+        if (next == held->time.size()) {
+            held.reset();
+        } else {
+            // The rest is not due yet.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    if (settings.realTime) {
+        result.speed = pacer.speed();
     }
     worker.stop();
     return result;
@@ -252,7 +300,8 @@ std::string report(const RcExample& example, const PipelineSettings& settings,
          << number(generator.frequency) << " Hz, " << number(generator.amplitude) << " V around "
          << number(generator.offset) << " V; "
          << (settings.engine == PipelineSettings::Engine::Ngspice ? "ngspice" : "mock engine")
-         << ", " << number(settings.duration) << " s\n";
+         << ", " << number(settings.duration) << " s" << (settings.realTime ? " in real time" : "")
+         << '\n';
     if (!result.netlist.empty()) {
         text << "# netlist:\n";
         std::istringstream lines(result.netlist);
@@ -274,6 +323,9 @@ std::string report(const RcExample& example, const PipelineSettings& settings,
     };
     reading("DC V", result.dcReadings);
     reading("AC V", result.acReadings);
+    if (settings.realTime) {
+        text << "# simulation speed: " << number(result.speed) << " x real time\n";
+    }
     if (result.frames.empty()) {
         text << "# scope: no frame\n";
         return text.str();

@@ -13,5 +13,6 @@ free number.
 | 0004 | Scope rendering with `QPainter`, no Qt Charts | planned, M2.3 |
 | [0005](0005-live-changes.md) | Live value changes: restart or `alter` (decision D3) | accepted |
 | [0006](0006-licensing.md) | Licensing: AGPL-3.0-only plus a commercial license | accepted |
+| [0007](0007-time-model.md) | Time model: pacing, maximum step, endless runs (decision D6) | accepted |
 
 Numbers are reserved in the order of [PLAN.md](../PLAN.md), so some are written before others.

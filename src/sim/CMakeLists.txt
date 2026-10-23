@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_library(proton_sim
     src/mock_engine.cpp
+    src/real_time_pacer.cpp
     src/sim_chunk.cpp
     src/sim_worker.cpp
 )
