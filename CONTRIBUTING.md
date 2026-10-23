@@ -20,7 +20,7 @@ Proton is split into layers ([ARCHITECTURE.md section 2](docs/ARCHITECTURE.md#2-
 [ADR 0001](docs/adr/0001-qt-free-layers.md)):
 
 ```
-src/app (Qt)  ->  src/bench (M3)  ->  src/sim, src/instruments, src/schematic  ->  src/core
+src/app (Qt)  ->  src/bench (M2.2)  ->  src/sim, src/instruments, src/schematic  ->  src/core
 ```
 
 - **No Qt below `src/app`.** Every other library builds and tests without Qt. CI enforces it: the
@@ -77,8 +77,10 @@ A change that needs to break one of these rules needs an ADR first.
 
 - Work through [docs/PLAN.md](docs/PLAN.md) tasks in order; a task is done when its "Done when"
   holds and CI is green. Mark it done in the plan in the same change, or right after CI passes.
-- Keep [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/ROADMAP.md](docs/ROADMAP.md) in
-  sync with the code, in the same change.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) stays high level (layers, dependencies, threads,
+  contracts, invariants and why): update it in the same change only when one of those changes.
+  Details of a class go in its header comment, measurements in an ADR. Keep
+  [docs/ROADMAP.md](docs/ROADMAP.md)'s feature states in sync with the code.
 - Record significant decisions as an ADR in [docs/adr/](docs/adr/), starting from the template.
 - CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs every Windows and Linux preset on
   each pull request; all jobs must pass.

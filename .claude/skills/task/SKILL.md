@@ -38,7 +38,9 @@ in the summary.
    to compile, and show the tests failing on their CHECKs, not on a build error.
 5. Implement until the tests pass. Build and run the full Windows debug preset
    locally, warning-free.
-6. Update ARCHITECTURE.md / ROADMAP.md if the code now differs from them.
+6. Update ROADMAP.md feature states. Update ARCHITECTURE.md only if a layer,
+   dependency, thread, contract or invariant changed, and keep it high level:
+   class details go in header comments, measurements in an ADR.
 7. Show me the diff and a summary: what changed, every choice you made that the
    plan didn't specify, and any deviation. Wait for my OK.
 8. On my OK: mark the heading *(done locally YYYY-MM-DD, CI pending)*, commit,

@@ -9,7 +9,10 @@ says in what order things get built and how each step is known to be done.
 - Tasks are numbered `M<milestone>.<n>` and sized for one working session. Do them in order inside
   a milestone; a task may only rely on tasks before it.
 - Every task ends with a **Done when** line. A task is done when that holds, its tests pass in CI,
-  and ARCHITECTURE.md / ROADMAP.md still describe the code (update them in the same change).
+  and ARCHITECTURE.md / ROADMAP.md are still true (update them in the same change).
+- ARCHITECTURE.md stays high level: layers, dependencies, threads, contracts, invariants and why.
+  Change it only when one of those changes. How a class works goes in its header comment,
+  measurements and the choices they support in an ADR, and task history only here.
 - When a task is done, append a marker to its heading: *(done YYYY-MM-DD)*. If everything holds
   except a CI check that a later task sets up, mark it *(done locally YYYY-MM-DD, CI pending
   M0.x)* and update the marker once that CI run is green.
@@ -22,9 +25,9 @@ says in what order things get built and how each step is known to be done.
 | Milestone | Result | Depends on |
 |---|---|---|
 | M0 Foundations | Build, CI, and the whole pipeline running headless on the mock engine | - |
-| M1 ngspice | Real simulation, validated against analytic answers; latency measured | M0 |
-| M2 First UI | Qt app: 2-channel scope, multimeter, generator on built-in example circuits | M1 |
-| M3 Bench model | `src/bench`, any number of instruments, DC supply, DMM current and resistance | M2 |
+| M1 ngspice | Real simulation, validated against analytic answers; latency measured; time model decided | M0 |
+| M2 First UI | Qt-free bench core; Qt app: 2-channel scope, multimeter, generator on built-in example circuits | M1 |
+| M3 Bench model | Any number of instruments, DC supply, DMM current and resistance | M2 |
 | M4 Schematic editor | Draw circuits, probe them, save and load projects | M3 |
 | M5 Components and release | Full MVP component set, acceptance suite, Windows package | M4 |
 
@@ -58,7 +61,7 @@ src/core/          SpscRing, formatting, SPICE numbers
 src/schematic/     Circuit, Scene (M4), validate, buildNetlist
 src/instruments/   Scope, Multimeter, FunctionGenerator, PowerSupply, DSP helpers
 src/sim/           ISimEngine, SimChunk, MockEngine, NgspiceEngine, SimWorker
-src/bench/         Bench model (M3)
+src/bench/         Bench model and run control (M2.2, generalised in M3)
 src/app/           Qt Widgets UI (only place Qt is allowed)
 tools/proton-spike/  headless demo
 tools/fetch-ngspice.ps1
@@ -210,6 +213,26 @@ switch). Default: whichever keeps the change under about 100 ms, restart if both
 **M1.6 Engine choice in the demo.** `proton-spike --engine mock|ngspice`.
 *Done when:* both engines give the same DMM reading on the RC example within tolerance.
 
+**M1.7 Time model.** How simulation time reaches the student, headless and Qt-free: pacing
+against wall-clock time (or not), the engine's maximum step derived from the bench's fastest
+timebase, and what happens when a run reaches its stop time without reserving memory for an
+endless run up front. Measure memory and wall-clock speed on the RC example at 100 us/div and
+1 s/div.
+**Decision D6:** the time model. Default: the bench runs in real time when the simulator keeps up
+and shows a "slower than real time" indicator when it does not; `maxStep` is a fixed fraction of
+the smallest time/div (so a time/div change restarts the run); a run is a window of a few seconds
+that restarts from its last state (or, if that is not possible, from t = 0) when it ends.
+*Done when:* an ADR records the measurements and D6, the defaults no longer commit memory for a
+10 s run at 1 us steps, and a headless test shows a paced run following wall-clock time within a
+stated tolerance.
+
+**M1.8 ngspice under sanitizers.** A Linux path for `NgspiceEngine` (`dlopen`), used by CI so the
+engine's threading code runs under TSan and ASan/UBSan.
+**Decision D9:** whether to add a Linux libngspice for CI and where it comes from (a dependency,
+so it needs approval and a line in LICENSING.md). Default: build the pinned ngspice 46 from source
+in CI, cached; not shipped.
+*Done when:* the ngspice engine tests run on `linux-clang-tsan` and `linux-clang-asan` in CI.
+
 **M1 exit check:** `proton-spike --engine ngspice` shows the RC example with readings matching the
 analytic answer.
 
@@ -223,16 +246,20 @@ step, CI Windows job with Qt installed.
 *Done when:* the app builds and starts in CI (a smoke test that opens and closes the window) and
 locally from VS Code.
 
-**M2.2 BenchController (temporary glue).** In `src/app`: owns the worker, pumps chunks on a 16 ms
-UI timer into one scope, one multimeter and one generator; example menu (RC low-pass, voltage
-divider, RC high-pass); falls back to the mock engine when ngspice is missing.
-*Done when:* choosing an example runs it, and switching examples restarts cleanly.
+**M2.2 Bench core (Qt-free).** `src/bench` with one scope, one multimeter and one generator
+(ARCHITECTURE.md section 5.1, generalised in M3.1): `contributeTo`, `attach`, `feed`, and run
+control (start, restart on a circuit change with changes coalesced, the time model from D6).
+`proton-spike` moves onto it. In `src/app`, a 16 ms UI timer pumps the bench, and an example menu
+(RC low-pass, voltage divider, RC high-pass) loads circuits. Without ngspice the app says so and
+does not simulate: the mock engine ignores the circuit, so it stays in tests and `proton-spike`.
+*Done when:* headless bench tests cover a run, a restart and a missing net; choosing an example in
+the app runs it, and switching examples restarts cleanly.
 
 **M2.3 ScopeWidget and faceplate.** ADR 0004 (custom `QPainter`, no Qt Charts). Graticule, two
 traces, trigger level and position markers; faceplate with time/div, V/div, position, coupling,
 trigger source / level / slope / mode, Run / Stop / Single.
 *Done when:* every knob changes the display as on a real scope, and the trace stays stable at
-60 frames per second on the RC example.
+60 frames per second on the RC example (with the time model from D6).
 
 **M2.4 Multimeter display and faceplate.** Mode (DC V, AC V), range (auto or fixed), probe binding
 to a net of the example.
@@ -253,9 +280,9 @@ channels, sweep the generator, read -3 dB on the multimeter.
 
 Implements ARCHITECTURE.md section 5.1 and the remaining MVP instruments.
 
-**M3.1 src/bench.** `Bench` with instrument instances, connections to nets, `contributeTo`,
-`attach` (reports probes on missing nets), `feed`, per-instance frames and readings. Port
-`BenchController` onto it and delete the temporary glue.
+**M3.1 Any number of instruments.** Generalise the M2.2 bench: a list of instrument instances with
+unique names, connections to nets, per-instance frames and readings; `validate()` rejects duplicate
+element names across fragments of several instruments.
 *Done when:* headless bench tests cover two scopes and two meters on one circuit, and the app
 behaves as in M2.
 
@@ -274,10 +301,11 @@ to insert it, as on a real bench.
 *Done when:* current in a series circuit matches Ohm's law, and the voltage across the meter is
 zero.
 
-**M3.5 Multimeter resistance.** Adds an operating-point entry point to `ISimEngine` (ARCHITECTURE.md
-section 8 gets updated). The meter zeroes all sources in a copy of the circuit (voltage sources
-become shorts, current sources open), injects a test current sized for the range and reads the
-voltage.
+**M3.5 Multimeter resistance.** Starts with an ADR for decision D8 (analyses beyond transient and
+ngspice process isolation). Adds an operating-point analysis to the engine as D8 decides
+(ARCHITECTURE.md section 8 gets updated). The meter zeroes all sources in a copy of the circuit
+(voltage sources become shorts, current sources open), injects a test current sized for the range
+and reads the voltage.
 **Decision D4 (decided):** ngspice allows one instance per process, so the resistance run cannot
 happen while the transient run is going. Resistance mode only reads while the bench's sources are
 off and otherwise shows "power off to measure", which is also correct practice on a real bench.
@@ -295,9 +323,10 @@ with the multimeter, and watch two nodes on the scope.
 
 **M4.1 Scene model.** Plain data, Qt-free, in `src/schematic`: placed parts (position, rotation,
 mirror), wires, junctions, labels. Conversion from scene to `Circuit` extracts nets from connected
-wires and pins.
+wires and pins. Net labels are the first user-named nets, so `validate()` now rejects the names
+the ngspice engine reserves (`Vproton_halt`, `proton_halt`, ADR 0005).
 *Done when:* headless tests convert scenes with crossings, junctions and labels into the expected
-nets.
+nets, and a reserved name is a diagnostic.
 
 **M4.2 Editor view.** `QGraphicsScene` / `QGraphicsView`: grid with snapping, place, move, rotate,
 delete, draw wires, edit values; original component symbols.
@@ -322,11 +351,16 @@ save, load, and a migration hook keyed on the version. The M2 built-in examples 
 *Done when:* save then load reproduces the same scene, netlist and instrument settings
 (round-trip test), and the examples load from the menu.
 
-**M4.7 Potentiometer and switch.** Both component kinds, with live changes using the method from
-D3 (a potentiometer as two resistors whose split changes; a switch as a voltage-controlled switch
-driven by a hidden control source).
+**M4.7 Potentiometer and switch.** Both component kinds, with live changes that keep the
+circuit's state, using the method from D7 (a potentiometer as two resistors whose split changes; a
+switch as an element whose resistance changes between on and off). A restart (D3) would not do:
+it computes a fresh operating point, so a switched RC would start already charged.
+**Decision D7:** how a change keeps the circuit's state. Default: `alter` of the element's
+resistance on the running simulation (`NgspiceEngine::alter()` and `SimWorker::resume()`, the
+M1.5 prototype); the generator keeps restarting (D3).
 *Done when:* turning a potentiometer in a divider changes the multimeter reading live, and
-toggling a switch charges and discharges an RC on the scope.
+toggling a switch shows an RC charging and discharging on the scope, matching `1 - exp(-t / tau)`
+from the moment of the toggle.
 
 **M4 exit check:** draw the RC low-pass from an empty sheet, wire the generator and scope, save,
 reopen, and measure the corner frequency.
@@ -335,7 +369,11 @@ reopen, and measure the corner frequency.
 
 **M5.1 Diodes.** Generic original models: diode, LED by colour (forward drop per colour), Zener
 (breakdown voltage as the value). Parameters documented in `docs/LICENSING.md` as original.
-*Done when:* tests check forward drop at a known current and Zener regulation at a known load.
+These are the first elements that need `.model` lines (and, for the op-amp in M5.3, a
+`.subckt`): `buildNetlist()` gains a model section, written once per model used and in a stable
+order, and `validate()` learns the new element letters.
+*Done when:* tests check forward drop at a known current and Zener regulation at a known load,
+and golden netlists cover the model section.
 
 **M5.2 Transistors.** Generic NPN and PNP BJT, generic N- and P-channel MOSFET.
 *Done when:* tests check a BJT's current gain in a bias circuit and a MOSFET switching a load
@@ -368,7 +406,12 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M3.5 | One process per ngspice test; D4 for resistance |
-| Restarting on every knob turn feels sluggish | M1.5, M2.5, M4.7 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.6 with the alter prototype |
+| Restarting on every knob turn feels sluggish | M1.5, M2.5 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.6 with the alter prototype |
+| A restart loses the circuit's state (a switched RC starts charged) | M4.7 | Switches and potentiometers keep state (D7) |
+| Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Time model decided and measured before the UI (D6) |
+| The engine's threading code is never run under TSan | M1.8 | Linux ngspice in CI (D9) |
+| One ngspice per process blocks resistance while running, the Bode plotter and a grader | M3.5, after the MVP | D8 decides analyses and process isolation together |
+| A user's `.spiceinit` changes ngspice's behaviour (ADR 0002) | M5.5 | Keep ngspice from reading it in the package, or test that it does not matter |
 | ngspice memory growth over many runs | M1.4 | Measured in M1.4: about 1 KiB per run, accepted (ADR 0002). Reloading the DLL does not give it back; a helper process would |
 | Convergence failures on student circuits | M4, M5 | `validate()` catches the common causes first; ngspice errors shown as diagnostics, never a crash |
 | Scope too slow to draw at 60 fps | M2.3 | Draw decimated min/max columns; `QRhi` only if still too slow (ADR 0004) |
@@ -379,6 +422,10 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|---|---|
 | D1 | Hosting and CI | GitHub, GitHub Actions | decided | M0.3 |
 | D2 | Proton's own license | AGPL-3.0-only plus a commercial license; dependencies permissive or LGPL only | decided | M0.4 |
-| D3 | Restart or `alter` for live changes | Restart: both fit far under 100 ms, restart is simpler (ADR 0005) | decided | M1.5 |
+| D3 | Restart or `alter` for live changes | Restart: both fit far under 100 ms, restart is simpler (ADR 0005). Changes that must keep state: D7 | decided | M1.5 |
 | D4 | Resistance while the circuit is powered | Only with sources off; otherwise "power off to measure" | decided | M3.5 |
 | D5 | Generic op-amp values | Proposed: 100 dB gain, 1 MHz GBW, rails within 1 V | open | M5.3 |
+| D6 | Time model: pacing, maximum step, end of a run | Proposed: real time when the simulator keeps up, with an indicator when not; `maxStep` from the smallest time/div; runs as restarting windows (M1.7) | open | M1.7 |
+| D7 | Live changes that keep the circuit's state (switch, potentiometer) | Proposed: `alter` on the running simulation; the generator keeps restarting | open | M4.7 |
+| D8 | Analyses beyond transient; ngspice in a helper process | Proposed: decide together in an ADR at the start of M3.5 | open | M3.5 |
+| D9 | Linux libngspice for sanitizer CI | Proposed: pinned ngspice 46 built from source in CI, cached, not shipped | open | M1.8 |

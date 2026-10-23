@@ -73,5 +73,8 @@ linking `proton::test_support` (the harness in `tests/support`: `TEST`, `CHECK`,
 - New instrument or component: tests first, checked against analytic results (RC corner at
   -3 dB, sine RMS 0.7071), not by eyeballing a plot.
 - Schematic changes come with golden netlist tests.
-- Keep ARCHITECTURE.md and ROADMAP.md in sync with what the code does. Update them in the
-  same change.
+- ARCHITECTURE.md stays high level: layers, dependencies, threads, contracts, invariants and
+  why. Update it in the same change only when one of those changes, not after every task. How a
+  class works goes in its header comment; measurements and the choices they support go in an
+  ADR; what a test checks stays in the test; task history stays in PLAN.md.
+- Keep ROADMAP.md's feature states in sync with the code, in the same change.
