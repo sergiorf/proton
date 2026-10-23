@@ -84,29 +84,37 @@ lock-free single-producer / single-consumer queue (`proton/core/spsc_ring.h`: po
 capacity fixed at construction, move-only elements, release/acquire on the two indices,
 non-blocking `tryPush` / `tryPop`; a full `tryPush` leaves its argument untouched so the producer
 can wait and retry). Sample data never travels through Qt signals between threads. Changing a
-knob (time/div, trigger level) is a call on the UI thread; changing the *circuit* stops the worker,
-rebuilds the netlist, reloads the engine and restarts.
+knob (time/div, trigger level) is a call on the UI thread; changing the *circuit*, including a
+generator knob, a potentiometer or a switch, rebuilds the netlist and restarts the run with
+`SimWorker::start()` (decision D3, ADR 0005).
 
 `SimWorker` (`proton/sim/sim_worker.h`, done in M0) owns the engine and a `std::jthread`. The
 thread advances the engine one chunk (`chunkDuration`, 1 ms of simulation time by default) at a
 time and pushes it into the ring (64 chunks by default). When the ring is full it keeps the chunk
-and retries, with a few yields and then 100 us sleeps, checking for a stop each time: nothing is
-dropped, and the wait never touches simulation time. `start(netlist)` stops any run, drops the
-chunks it left, loads the engine on the calling thread and starts the thread; `stop()` requests a
-stop and joins. Thread start and join order the engine's use between the two threads. Besides
-the ring, only control state crosses threads: the stop request, and a failure flag stored with
-release order after the error text, which is not written again until the thread is joined.
+and retries, with a few yields and then 100 us waits on a condition variable that a stop request
+wakes at once (a plain sleep lasts a 15.6 ms timer tick on Windows): nothing is dropped, and the
+wait never touches simulation time. `start(netlist)` stops any run, drops the chunks it left,
+loads the engine on the calling thread and starts the thread; `stop()` requests a stop and joins,
+keeping a chunk the thread was waiting to push; `resume()` continues a stopped run exactly where
+it stopped (prototype of live changes by `alter`, ADR 0005). Thread start and join order the
+engine's use between the two threads. Besides the ring, only control state crosses threads: the
+stop request, and a failure flag stored with release order after the error text, which is not
+written again until the thread is joined.
 
 With `NgspiceEngine` the simulation thread does not compute anything itself: ngspice runs the
 analysis on its own thread, and the engine's data callback copies each accepted time point into
 a bounded queue private to the engine (a mutex and a condition variable, so neither side polls).
 The callback waits while the queue is full, which holds ngspice back; `advance()` waits until a
 point past the chunk's end arrives or the run ends. Halting sets a flag under the mutex first, so
-a callback waiting on a full queue returns and later ones drop their point, then waits for
-ngspice's thread to end.
+a callback waiting on a full queue returns and later ones drop their point, then raises the halt
+source (section 8) and waits for ngspice's thread to end.
 
-Latency from circuit to pixel is roughly `chunkDuration + queue wait + frame cadence`. The defaults
-(1 ms chunks, 16 ms UI tick) are a starting point to be measured in milestone M1.
+Latency from a circuit change to a scope frame was measured in M1.5 (ADR 0005, `ngspice_latency`)
+with the defaults (1 ms chunks, 64 of them, a 4096-point engine queue): halting and reloading
+take 1 to 4 ms, `stop()` waits for the chunk being simulated (up to one `chunkDuration` of
+simulation time), and the rest is simulating the frame itself, about 2.5 ms of simulation time
+at 200 us/div. The first new frame came 3 to 22 ms after a restart (10 us and 1 us steps,
+Release, headless); the app adds up to one 16 ms UI tick and the paint.
 
 ## 5. The instrument contract
 
@@ -300,16 +308,27 @@ next `duration` seconds, t = 0 included in the first, with one signal per name. 
   resolves the API with `GetProcAddress` and calls `ngSpice_Init` with the callbacks; the DLL then
   stays loaded until a fatal error, so a program that never loads this engine does not need it,
   and a missing DLL is a `load()` error. `load()` halts any run, frees the old circuit and plots (`remcirc`,
-  `destroy all`), sends the netlist line by line plus `.tran maxStep stopTime 0 maxStep` and
-  `.end` (`ngSpice_Circ`), and starts `bg_run`; it returns once the first point (the operating
-  point at t = 0) is queued. A netlist ngspice reports an error for is a load error, and so is a
+  `destroy all`), sends the netlist line by line plus the halt source, `.tran maxStep stopTime 0
+  maxStep` and `.end` (`ngSpice_Circ`), sets the breakpoint `stop when v(proton_halt) > 0.5`, and
+  starts `bg_run`; it returns once the first point (the operating point at t = 0) is queued.
+  The halt source, `Vproton_halt proton_halt 0 DC 0 EXTERNAL`, sits on a node of its own, so the
+  circuit's points are the same as without it, and its vectors are not signals. Its value comes
+  from a callback (`ngSpice_Init_Sync`): to halt, the engine raises it to 1 V and ngspice stops at
+  its next accepted point, in well under a millisecond. `bg_halt` sleeps 100 ms on Windows before
+  it looks at its thread, so it only joins the stopped thread, or halts the slow way if ngspice
+  has not stopped within 1 s (M1.5, ADR 0005). A netlist ngspice reports an error for is a load error, and so is a
   line it ignores with a warning (`R1 in`), since simulating the circuit without it would be
   wrong; so is a circuit whose operating point ngspice cannot find. Signal names come from the
   first point: node `out` is `v(out)`, branch `v1#branch` is `i(v1)`, lower case, in ngspice's
   order. A point whose time is not after the previous one is dropped. The run ends at `stopTime`
   (10 s by default; `maxStep` 1 us): `advance()` gives the points up to it and then reports "the run
-  reached its stop time" through `error()`, so `SimWorker` ends cleanly; endless runs are revisited
-  with latency in M1.5. `reset()` loads the same netlist again. Only one engine
+  reached its stop time" through `error()`, so `SimWorker` ends cleanly. ngspice reserves its plot
+  for the whole run when it starts (`stopTime / maxStep` points, 8 bytes per vector), so endless
+  runs need a policy, still open for the bench (M2.2, ADR 0005). `reset()` loads the same netlist
+  again. `alter(change)`, the prototype of live changes in place (ADR 0005), pauses the run at its
+  next point through the halt source, keeping every point, runs ngspice's `alter <change>` and
+  resumes it with `bg_resume`; live changes restart instead (D3), so nothing above `src/sim` uses
+  it yet. Only one engine
   may exist per process: while one does, every other one fails to load. Constraints (global state,
   backpressure by blocking the callback, fatal errors) are in `docs/adr/0002-simulation-backend.md`.
   Some netlist errors are fatal to ngspice (a missing `.include`, unmatched `.subckt` and `.ends`,
@@ -373,7 +392,9 @@ failure, and reports the engine's message. A failing simulation never takes down
   gives the same points (backpressure), `load()` halts a run blocked on a full queue, a second
   instance is refused, and the engine runs under `SimWorker`; fatal netlist errors (M1.4) are load
   errors, under `SimWorker` too, after which the reloaded ngspice runs the RC example exactly as
-  before. `ngspice_soak` (M1.4) measures private memory over 1000 load/reset cycles and over 200
+  before; the halt source is not a signal, loading over a running run does not wait for
+  `bg_halt`, and `alter()` (M1.5) switches a running sine to a new frequency at one point with no
+  point lost, or reports a bad change and runs on. `ngspice_soak` (M1.4) measures private memory over 1000 load/reset cycles and over 200
   fatal-error reloads, prints it, and fails above 2 KiB per cycle and 16 KiB per reload.
   `ngspice_validation` (M1.3) checks
   ngspice against analytic answers, each with a tolerance stated in the test (about ten times what
@@ -388,8 +409,15 @@ failure, and reports the engine's message. A failing simulation never takes down
   and configure with `PROTON_REQUIRE_NGSPICE=ON`, so they cannot silently skip them.
 - **Repository checks** run as CTest tests on every preset: `spdx_headers`
   (`tools/check-spdx.cmake`) fails on a source file without the SPDX license line.
-- **Next:** circuit-to-frame latency and live changes (M1.5); UI is
-  covered by smoke tests only: logic belongs below the UI, where it is testable.
+- **Latency** (`ngspice_latency`, M1.5): the RC example on a `SimWorker` with its defaults and a
+  scope fed as chunks arrive; it prints wall-clock time from the first start, and from a 1 kHz to
+  2 kHz generator change by restart and by alter (keeping up and with full queues), to the first
+  frame that shows it, at 1 us and 10 us steps. It checks that every change reaches the scope with
+  the new frequency and that alter loses no point; the timings only loosely, since CI runners are
+  noisy. ADR 0005 records the Release numbers. `sim` checks that `SimWorker::resume()` after 300
+  stops gives exactly the chunks of an unstopped run.
+- **Next:** UI (M2), covered by smoke tests only: logic belongs below the UI, where it is
+  testable.
 
 ## 11. Planned UI architecture (Qt, `src/app`)
 
@@ -415,8 +443,8 @@ failure, and reports the engine's message. A failing simulation never takes down
 
 ## 13. Open questions
 
-- **Live knob feel for the circuit itself** (a potentiometer in the schematic): restart the run,
-  or pause the ngspice run, `alter` the value and resume? Decided from measurements in M1.5
-  (PLAN.md decision D3).
+- **Endless runs:** a run ends at `stopTime` and ngspice reserves its plot for all of it up
+  front. The bench needs a policy (a long stop time with a coarser `.tran` step, or a restart when
+  the run ends) by M2.2 (ADR 0005).
 - **Real-time pacing:** `SimWorker` can pace simulation to wall-clock time; whether the bench
   should always run in real time, or only for slow timebases, is a UX decision.

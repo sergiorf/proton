@@ -10,8 +10,10 @@ namespace proton::sim {
 
 namespace {
 
-// A full ring is retried with a few yields first, then with short sleeps. The wait is only
-// scheduling: it never changes simulation time or the chunks.
+// A full ring is retried with a few yields first, then with short waits that a stop request ends
+// at once: a plain sleep lasts a whole timer tick on Windows (about 15.6 ms), which stop() would
+// wait out (ADR 0005). The wait is only scheduling: it never changes simulation time or the
+// chunks.
 constexpr int kYieldsBeforeSleep = 16;
 constexpr std::chrono::microseconds kRetrySleep{100};
 
@@ -44,6 +46,8 @@ bool SimWorker::start(std::string_view netlist)
     stop();
     while (ring_.tryPop()) {
     }
+    pending_.reset();
+    stopped_ = false;
     failed_.store(false, std::memory_order_relaxed);
     error_.clear();
     names_.clear();
@@ -66,7 +70,18 @@ void SimWorker::stop()
     if (thread_.joinable()) {
         thread_.request_stop();
         thread_.join(); // orders everything the thread did before what follows
+        stopped_ = !failed_.load(std::memory_order_relaxed);
     }
+}
+
+bool SimWorker::resume()
+{
+    if (!stopped_ || thread_.joinable()) {
+        return false;
+    }
+    stopped_ = false;
+    thread_ = std::jthread([this](std::stop_token stop) { run(std::move(stop)); });
+    return true;
 }
 
 std::optional<SimChunk> SimWorker::tryPop()
@@ -91,6 +106,13 @@ const std::string& SimWorker::error() const
 
 void SimWorker::run(std::stop_token stop)
 {
+    if (pending_) {
+        SimChunk chunk = std::move(*pending_);
+        pending_.reset();
+        if (!push(stop, std::move(chunk))) {
+            return;
+        }
+    }
     while (!stop.stop_requested()) {
         SimChunk chunk = engine_->advance(config_.chunkDuration);
         const bool failed = !engine_->error().empty();
@@ -112,12 +134,14 @@ bool SimWorker::push(const std::stop_token& stop, SimChunk&& chunk)
             return true;
         }
         if (stop.stop_requested()) {
+            pending_ = std::move(chunk); // for resume()
             return false;
         }
         if (attempt < kYieldsBeforeSleep) {
             std::this_thread::yield();
         } else {
-            std::this_thread::sleep_for(kRetrySleep);
+            std::unique_lock lock(retryMutex_);
+            retry_.wait_for(lock, stop, kRetrySleep, [] { return false; });
         }
     }
 }

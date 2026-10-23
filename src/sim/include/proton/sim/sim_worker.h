@@ -6,8 +6,10 @@
 #include "proton/sim/sim_engine.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stop_token>
 #include <string>
@@ -67,8 +69,15 @@ public:
     bool start(std::string_view netlist);
 
     // Stops the run and waits for the worker thread to end. Unread chunks stay readable until the
-    // next start(). Does nothing when no run is going.
+    // next start(), and a chunk the thread was waiting to push is kept for resume(). Does nothing
+    // when no run is going.
     void stop();
+
+    // Continues the run that stop() stopped, from where it stopped: the chunks that follow are
+    // exactly those an unstopped run would have given. Between stop() and resume() the caller may
+    // change the engine (a live change, ADR 0005), since no thread uses it then. Returns false and
+    // does nothing if there is no stopped run: none was started, or it failed, or it is running.
+    bool resume();
 
     // The oldest unread chunk, if there is one.
     std::optional<SimChunk> tryPop();
@@ -90,9 +99,16 @@ private:
     std::unique_ptr<ISimEngine> engine_;
     core::SpscRing<SimChunk> ring_;
     std::vector<std::string> names_;
+    // A chunk the thread was waiting to push when it stopped. Used only by the thread, and by
+    // start() while no thread runs.
+    std::optional<SimChunk> pending_;
+    bool stopped_ = false; // stop() stopped a run that resume() can continue
     // Written by the worker thread before failed_ is set, otherwise only while no thread runs.
     std::string error_;
     std::atomic<bool> failed_{false};
+    // The worker thread waits on these for room in the ring; a stop request wakes it at once.
+    std::mutex retryMutex_;
+    std::condition_variable_any retry_;
     std::jthread thread_; // last: it ends before the members it uses go away
 };
 

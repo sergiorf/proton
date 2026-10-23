@@ -31,8 +31,8 @@ constexpr const char* kFatal = "* missing include\n.include no-such-file.lib\nV1
 
 constexpr double kKiB = 1024.0;
 
-// Runs short enough that one advance() takes all of them: a run that has ended needs no bg_halt,
-// which takes over 100 ms (ADR 0002), so a thousand cycles take seconds instead of minutes.
+// Runs short enough that one advance() takes all of them, so every cycle is a whole run: a
+// thousand cycles take seconds.
 NgspiceEngine::Config shortRun()
 {
     NgspiceEngine::Config config;

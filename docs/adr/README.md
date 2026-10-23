@@ -11,7 +11,7 @@ free number.
 | [0002](0002-simulation-backend.md) | Simulation backend: ngspice as a runtime-loaded shared library | accepted |
 | [0003](0003-build-and-dependencies.md) | Build, toolchain and dependencies | accepted |
 | 0004 | Scope rendering with `QPainter`, no Qt Charts | planned, M2.3 |
-| 0005 | Live value changes: restart or `alter` (decision D3) | planned, M1.5 |
+| [0005](0005-live-changes.md) | Live value changes: restart or `alter` (decision D3) | accepted |
 | [0006](0006-licensing.md) | Licensing: AGPL-3.0-only plus a commercial license | accepted |
 
 Numbers are reserved in the order of [PLAN.md](../PLAN.md), so some are written before others.

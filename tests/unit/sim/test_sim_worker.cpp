@@ -216,6 +216,56 @@ TEST(stop_and_restart_1000_times)
     CHECK_EQ(failures, 0);
 }
 
+TEST(resume_continues_a_stopped_run_exactly)
+{
+    // Stopped 300 times, often while the worker holds a chunk it cannot push into the full ring,
+    // the run still gives exactly the chunks of an unstopped one.
+    SimWorker worker(mock(), withCapacity(2));
+    CHECK(!worker.resume()); // nothing to resume yet
+    CHECK(worker.start(kNetlist));
+    CHECK(!worker.resume()); // running
+    std::vector<SimChunk> chunks;
+    int failures = 0;
+    for (int k = 0; k < 300; ++k) {
+        for (SimChunk& chunk : pop(worker, static_cast<std::size_t>(k % 3))) {
+            chunks.push_back(std::move(chunk));
+        }
+        if (k % 4 == 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(200)); // let the ring fill
+        }
+        worker.stop();
+        if (worker.running() || !worker.resume() || !worker.running()) {
+            ++failures;
+        }
+    }
+    for (SimChunk& chunk : pop(worker, 50)) {
+        chunks.push_back(std::move(chunk));
+    }
+    worker.stop();
+    CHECK_EQ(failures, 0);
+    CHECK(chunks == direct({}, worker.config().chunkDuration, chunks.size()));
+    CHECK_EQ(chunks.size(), 300u + 50u);
+
+    // A new start() forgets the stopped run.
+    CHECK(worker.start(kNetlist));
+    worker.stop();
+    CHECK(worker.start(kNetlist));
+    const std::vector<SimChunk> first = pop(worker, 1);
+    CHECK(!first.empty() && first.front().time.front() == 0.0);
+}
+
+TEST(a_failed_run_cannot_be_resumed)
+{
+    MockEngine::Config config;
+    config.failAt = 5e-3;
+    SimWorker worker(mock(config));
+    CHECK(worker.start(kNetlist));
+    CHECK(waitFor([&] { return !worker.running(); }));
+    worker.stop();
+    CHECK(!worker.resume());
+    CHECK(!worker.running());
+}
+
 TEST(a_load_error_reaches_error_and_starts_nothing)
 {
     SimWorker worker(mock());

@@ -5,10 +5,12 @@
 #include "proton/sim/sim_worker.h"
 #include "proton/test/test.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -341,4 +343,93 @@ TEST(a_fatal_error_under_the_sim_worker)
     if (chunk) {
         CHECK_EQ(chunk->time.front(), 0.0);
     }
+}
+
+TEST(the_halt_source_is_not_a_signal)
+{
+    NgspiceEngine engine(shortRun());
+    CHECK(engine.load(kRc));
+    CHECK_EQ(engine.signalNames().size(), std::size_t{3}); // i(vgen1), v(in), v(out)
+    CHECK(!indexOfSignal(engine.signalNames(), "v(proton_halt)").has_value());
+    CHECK(!indexOfSignal(engine.signalNames(), "i(vproton_halt)").has_value());
+}
+
+TEST(loading_over_a_running_run_does_not_wait_for_bg_halt)
+{
+    // bg_halt sleeps 100 ms before it looks at ngspice's thread (ADR 0002); the halt source
+    // stops it at its next point (ADR 0005). The fastest of a few, against noise on CI runners.
+    NgspiceEngine engine(shortRun(1.0));
+    auto fastest = std::chrono::steady_clock::duration::max();
+    for (int k = 0; k < 5; ++k) {
+        CHECK(engine.load(kRc));
+        CHECK(!engine.advance(kChunk).empty()); // ngspice runs ahead until the queue is full
+        const auto before = std::chrono::steady_clock::now();
+        CHECK(engine.load(kRc));
+        fastest = std::min(fastest, std::chrono::steady_clock::now() - before);
+    }
+    CHECK(fastest < std::chrono::milliseconds(50));
+}
+
+TEST(alter_changes_a_running_source_and_keeps_every_point)
+{
+    // A small queue, so that ngspice is held back near the end of what advance() gave.
+    NgspiceEngine::Config config = shortRun();
+    config.queueCapacity = 16;
+    NgspiceEngine engine(config);
+    CHECK(engine.load(kRc));
+    std::vector<SimChunk> chunks = run(engine, 5e-3);
+    CHECK_EQ(engine.alter("@vgen1[sin] = [ 500m 1 2k ]"), std::string());
+    for (SimChunk& c : run(engine, 10e-3)) {
+        chunks.push_back(std::move(c));
+    }
+    CHECK_EQ(engine.error(), std::string());
+    const SimChunk all = join(chunks);
+    CHECK(strictlyIncreasing(all.time));
+    CHECK(all.time.back() > 14e-3);
+    for (std::size_t i = 1; i < all.time.size(); ++i) {
+        CHECK(all.time[i] - all.time[i - 1] <= 1e-5 * (1 + 1e-9)); // no point lost
+    }
+    // v(in) is the 1 kHz sine up to the change, then the 2 kHz one: one switch, at most the
+    // queue's 16 points after what advance() had given.
+    const auto in = indexOfSignal(engine.signalNames(), "v(in)");
+    CHECK(in.has_value());
+    if (!in) {
+        return;
+    }
+    const auto sine = [](double f, double t) {
+        return 0.5 + std::sin(2 * std::numbers::pi * f * t);
+    };
+    std::size_t change = 0;
+    while (change < all.time.size() &&
+           std::abs(all.signals[*in][change] - sine(1e3, all.time[change])) < 1e-9) {
+        ++change;
+    }
+    CHECK(change < all.time.size());
+    if (change < all.time.size()) {
+        CHECK(all.time[change] > 5e-3);
+        CHECK(all.time[change] < 5e-3 + 20 * 1e-5);
+    }
+    int mismatches = 0;
+    for (std::size_t i = change; i < all.time.size(); ++i) {
+        if (std::abs(all.signals[*in][i] - sine(2e3, all.time[i])) > 1e-9) {
+            ++mismatches;
+        }
+    }
+    CHECK_EQ(mismatches, 0);
+}
+
+TEST(alter_reports_a_bad_change_and_the_run_goes_on)
+{
+    NgspiceEngine::Config config = shortRun();
+    config.queueCapacity = 16;
+    NgspiceEngine engine(config);
+    CHECK(!engine.alter("@vgen1[sin] = [ 500m 1 2k ]").empty()); // nothing loaded
+    CHECK(engine.load(kRc));
+    CHECK(!engine.advance(kChunk).empty());
+    const std::string why = engine.alter("@nosuch[sin] = [ 0 1 1k ]");
+    CHECK(!why.empty());
+    CHECK(why.find("ngspice") == 0);
+    const SimChunk next = engine.advance(kChunk);
+    CHECK(!next.empty());
+    CHECK_EQ(engine.error(), std::string());
 }
