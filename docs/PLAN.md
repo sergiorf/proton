@@ -200,7 +200,7 @@ cycles and watch memory.
 valid run succeeds; memory growth over the 1000 cycles is recorded in ADR 0002 (fixed if it
 grows without bound).
 
-**M1.5 Latency and live changes.** Measure circuit-to-frame latency for the chunk and queue
+**M1.5 Latency and live changes.** *(done 2026-10-23)* Measure circuit-to-frame latency for the chunk and queue
 defaults. Prototype the two ways of changing a value while running: restart the run, or halt,
 `alter` and resume. Measure both on a generator frequency change.
 **Decision D3:** restart or alter for live changes (generator knobs, and later potentiometer and
