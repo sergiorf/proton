@@ -42,8 +42,9 @@ All models are generic and original, never vendor models (see `docs/LICENSING.md
 | Op-amp | one generic model: finite gain, gain-bandwidth product, rail saturation; optional "ideal" mode |
 | Switches | SPST switch (voltage-controlled switch in SPICE) |
 
-The potentiometer and the switch are the elements a student changes while the circuit runs. Like
-the generator's knobs, a change restarts the run with the new netlist (decision D3, ADR 0005).
+The potentiometer and the switch are the elements a student changes while the circuit runs. Unlike
+the generator's knobs, which restart the run with the new netlist (decision D3, ADR 0005), they
+must keep the circuit's state, so a switched RC charges from where it was (decision D7).
 
 ### Done when
 
@@ -65,8 +66,8 @@ analytic answer:
   the most useful next instrument for design work.
 - **Function generator:** pulse with duty cycle.
 - **Oscilloscope:** cursors, measurements, averaging, FFT/math; holdoff; delayed timebase; non-edge
-  triggers; sin(x)/x display interpolation; 4 channels; optional quantisation and bandwidth limit
-  as teaching aids (ideal by default).
+  triggers; sin(x)/x display interpolation; 4 channels. (Optional quantisation and bandwidth
+  limit are already in the model, off by default.)
 - **DC power supply:** CC/CV behaviour.
 - **Multimeter:** diode test, continuity.
 - **Components:** transformer / coupled inductors, comparator, voltage regulator.
