@@ -213,7 +213,7 @@ switch). Default: whichever keeps the change under about 100 ms, restart if both
 **M1.6 Engine choice in the demo.** *(done 2026-10-23)* `proton-spike --engine mock|ngspice`.
 *Done when:* both engines give the same DMM reading on the RC example within tolerance.
 
-**M1.7 Time model.** *(done locally 2026-10-24, CI pending)* How simulation time reaches the student, headless and Qt-free: pacing
+**M1.7 Time model.** *(done 2026-10-24)* How simulation time reaches the student, headless and Qt-free: pacing
 against wall-clock time (or not), the engine's maximum step derived from the bench's fastest
 timebase, and what happens when a run reaches its stop time without reserving memory for an
 endless run up front. Measure memory and wall-clock speed on the RC example at 100 us/div and
