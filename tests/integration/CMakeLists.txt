@@ -22,6 +22,9 @@ if(PROTON_NGSPICE_FOUND)
     target_compile_definitions(proton_integration_ngspice_tests PRIVATE PROTON_TEST_NGSPICE)
     proton_copy_ngspice_dlls(proton_integration_ngspice_tests)
     add_test(NAME integration_ngspice COMMAND proton_integration_ngspice_tests)
+    # The demo on ngspice (M1.6); tools/proton-spike copies the DLLs next to it.
+    add_test(NAME proton_spike_runs_ngspice
+        COMMAND proton-spike --engine ngspice --duration 0.25)
 
     add_executable(proton_ngspice_validation_tests test_ngspice_validation.cpp)
     target_link_libraries(proton_ngspice_validation_tests PRIVATE

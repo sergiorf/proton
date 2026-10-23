@@ -133,6 +133,17 @@ std::unique_ptr<sim::ISimEngine> makeEngine(const RcExample& example,
 
 } // namespace
 
+std::optional<PipelineSettings::Engine> parseEngine(std::string_view name)
+{
+    if (name == "mock") {
+        return PipelineSettings::Engine::Mock;
+    }
+    if (name == "ngspice") {
+        return PipelineSettings::Engine::Ngspice;
+    }
+    return std::nullopt;
+}
+
 PipelineSettings defaultSettings(const RcExample& example)
 {
     PipelineSettings settings;

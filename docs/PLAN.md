@@ -210,7 +210,7 @@ defaults. Prototype the two ways of changing a value while running: restart the 
 switch). Default: whichever keeps the change under about 100 ms, restart if both do (simpler).
 *Done when:* ADR 0005 records the measurements and the decision.
 
-**M1.6 Engine choice in the demo.** `proton-spike --engine mock|ngspice`.
+**M1.6 Engine choice in the demo.** *(done locally 2026-10-23, CI pending)* `proton-spike --engine mock|ngspice`.
 *Done when:* both engines give the same DMM reading on the RC example within tolerance.
 
 **M1.7 Time model.** How simulation time reaches the student, headless and Qt-free: pacing

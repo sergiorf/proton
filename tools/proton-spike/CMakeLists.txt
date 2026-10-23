@@ -14,3 +14,7 @@ add_executable(proton-spike
     src/main.cpp
 )
 target_link_libraries(proton-spike PRIVATE proton::spike_pipeline proton::core proton_warnings)
+# `--engine ngspice` loads the DLL from the executable's directory.
+if(PROTON_NGSPICE_FOUND)
+    proton_copy_ngspice_dlls(proton-spike)
+endif()
