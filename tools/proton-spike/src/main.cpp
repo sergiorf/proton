@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// proton-spike: runs the RC example through the whole pipeline on the mock engine and prints the
-// multimeter readings and the last scope frame as CSV (ARCHITECTURE.md section 10).
+// proton-spike: runs the RC example through the whole pipeline and prints the multimeter readings
+// and the last scope frame as CSV (ARCHITECTURE.md section 10).
 //
-//     proton-spike [--duration <seconds>] > rc.csv
+//     proton-spike [--engine mock|ngspice] [--duration <seconds>] > rc.csv
 //
-// The duration is a SPICE number ("0.5", "500m"). The exit code is 0 when the run reached the
-// duration and gave a triggered frame and both readings, 1 otherwise, 2 for bad arguments.
+// The engine is the mock by default; ngspice needs a build that has it. The duration is a SPICE
+// number ("0.5", "500m"). The exit code is 0 when the run reached the duration and gave a
+// triggered frame and both readings, 1 otherwise, 2 for bad arguments.
 
 #include "proton/core/spice_number.h"
 #include "proton/spike/pipeline.h"
@@ -16,7 +17,8 @@
 
 namespace {
 
-constexpr const char* kUsage = "usage: proton-spike [--duration <seconds>]\n";
+constexpr const char* kUsage =
+    "usage: proton-spike [--engine mock|ngspice] [--duration <seconds>]\n";
 
 } // namespace
 
@@ -38,6 +40,16 @@ int main(int argc, char** argv)
                 return 2;
             }
             settings.duration = *duration;
+            continue;
+        }
+        if (arg == "--engine" && i + 1 < argc) {
+            const std::optional<proton::spike::PipelineSettings::Engine> engine =
+                proton::spike::parseEngine(argv[++i]);
+            if (!engine) {
+                std::cerr << "proton-spike: --engine needs 'mock' or 'ngspice'\n";
+                return 2;
+            }
+            settings.engine = *engine;
             continue;
         }
         std::cerr << "proton-spike: unknown argument '" << arg << "'\n" << kUsage;

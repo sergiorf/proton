@@ -205,7 +205,42 @@ TEST(an_invalid_circuit_stops_at_validate)
     CHECK(result.frames.empty());
 }
 
+TEST(engine_names_parse)
+{
+    CHECK(proton::spike::parseEngine("mock") == PipelineSettings::Engine::Mock);
+    CHECK(proton::spike::parseEngine("ngspice") == PipelineSettings::Engine::Ngspice);
+    CHECK(!proton::spike::parseEngine("Ngspice"));
+    CHECK(!proton::spike::parseEngine(""));
+    CHECK(!proton::spike::parseEngine("spice"));
+}
+
 #ifdef PROTON_TEST_NGSPICE
+// What `proton-spike --engine mock` and `--engine ngspice` print agree (M1.6): the mock's exact
+// RC response and ngspice's simulation of the netlist give the same multimeter readings.
+TEST(mock_and_ngspice_give_the_same_dmm_readings)
+{
+    // How far a reading on ngspice may be from the same reading on the mock, V: about ten times
+    // what ngspice 46 gives at the default 10 us step (1e-6 V DC, 5.5e-5 V AC).
+    constexpr double kDcEngineTolerance = 1e-5;
+    constexpr double kAcEngineTolerance = 6e-4;
+
+    PipelineSettings mockSettings = defaults();
+    mockSettings.engine = PipelineSettings::Engine::Mock;
+    const PipelineResult mock = runDefault(mockSettings);
+    const PipelineResult ngspice = runDefault(defaults());
+    CHECK(mock.ok() && ngspice.ok());
+    CHECK_EQ(mock.dcReadings.size(), ngspice.dcReadings.size());
+    CHECK_EQ(mock.acReadings.size(), ngspice.acReadings.size());
+    for (std::size_t i = 1; i < mock.dcReadings.size() && i < ngspice.dcReadings.size(); ++i) {
+        CHECK_NEAR(ngspice.dcReadings[i].value, mock.dcReadings[i].value, kDcEngineTolerance);
+        CHECK_EQ(ngspice.dcReadings[i].display.text, mock.dcReadings[i].display.text);
+    }
+    for (std::size_t i = 1; i < mock.acReadings.size() && i < ngspice.acReadings.size(); ++i) {
+        CHECK_NEAR(ngspice.acReadings[i].value, mock.acReadings[i].value, kAcEngineTolerance);
+        CHECK_EQ(ngspice.acReadings[i].display.text, mock.acReadings[i].display.text);
+    }
+}
+
 TEST(ngspice_simulates_the_netlist_whatever_the_generator)
 {
     RcExample example;

@@ -9,7 +9,9 @@
 #include "proton/sim/sim_worker.h"
 
 #include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace proton::spike {
@@ -17,7 +19,7 @@ namespace proton::spike {
 // The whole M0 pipeline, headless (ARCHITECTURE.md section 3): circuit -> validate ->
 // netlist -> MockEngine or NgspiceEngine on a SimWorker thread -> scope and multimeters on the
 // calling thread.
-// It is the temporary glue that src/bench replaces in M3, shared by proton-spike and the
+// It is the temporary glue that src/bench replaces in M2.2, shared by proton-spike and the
 // integration test so the test checks exactly what the demo runs.
 
 // The RC example: a function generator on net `in`, R1 from `in` to `out`, C1 from `out` to
@@ -64,6 +66,10 @@ struct PipelineSettings
     // ngspice.
     double failAt = std::numeric_limits<double>::infinity();
 };
+
+// The engine named on proton-spike's command line: "mock" or "ngspice", exactly. Empty for any
+// other name.
+std::optional<PipelineSettings::Engine> parseEngine(std::string_view name);
 
 // The settings proton-spike uses for `example`.
 PipelineSettings defaultSettings(const RcExample& example);
