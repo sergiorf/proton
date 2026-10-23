@@ -37,11 +37,6 @@ constexpr double kTau = 1e3 * 100e-9;
 const double kGain = 1.0 / std::sqrt(1.0 + kOmega * kTau * kOmega * kTau); // 0.8467
 const double kPhase = std::atan(kOmega * kTau);                            // 32.1 degrees
 
-// How far a multimeter reading on ngspice may be from the same reading on the mock, V: about ten
-// times what ngspice 46 gives at the default 10 us step (1e-6 V DC, 5.5e-5 V AC).
-constexpr double kDcEngineTolerance = 1e-5;
-constexpr double kAcEngineTolerance = 6e-4;
-
 std::string readFile(const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -224,6 +219,11 @@ TEST(engine_names_parse)
 // RC response and ngspice's simulation of the netlist give the same multimeter readings.
 TEST(mock_and_ngspice_give_the_same_dmm_readings)
 {
+    // How far a reading on ngspice may be from the same reading on the mock, V: about ten times
+    // what ngspice 46 gives at the default 10 us step (1e-6 V DC, 5.5e-5 V AC).
+    constexpr double kDcEngineTolerance = 1e-5;
+    constexpr double kAcEngineTolerance = 6e-4;
+
     PipelineSettings mockSettings = defaults();
     mockSettings.engine = PipelineSettings::Engine::Mock;
     const PipelineResult mock = runDefault(mockSettings);
