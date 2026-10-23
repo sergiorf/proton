@@ -213,7 +213,7 @@ switch). Default: whichever keeps the change under about 100 ms, restart if both
 **M1.6 Engine choice in the demo.** *(done 2026-10-23)* `proton-spike --engine mock|ngspice`.
 *Done when:* both engines give the same DMM reading on the RC example within tolerance.
 
-**M1.7 Time model.** How simulation time reaches the student, headless and Qt-free: pacing
+**M1.7 Time model.** *(done locally 2026-10-24, CI pending)* How simulation time reaches the student, headless and Qt-free: pacing
 against wall-clock time (or not), the engine's maximum step derived from the bench's fastest
 timebase, and what happens when a run reaches its stop time without reserving memory for an
 endless run up front. Measure memory and wall-clock speed on the RC example at 100 us/div and
@@ -408,7 +408,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 | One ngspice instance per process | M1.3, M3.5 | One process per ngspice test; D4 for resistance |
 | Restarting on every knob turn feels sluggish | M1.5, M2.5 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.6 with the alter prototype |
 | A restart loses the circuit's state (a switched RC starts charged) | M4.7 | Switches and potentiometers keep state (D7) |
-| Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Time model decided and measured before the UI (D6) |
+| Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Decided in M1.7 (D6, ADR 0007): pacing by the consumer, endless runs without a plot; fast timebases stay slower than real time (x0.4 at 100 us/div) |
 | The engine's threading code is never run under TSan | M1.8 | Linux ngspice in CI (D9) |
 | One ngspice per process blocks resistance while running, the Bode plotter and a grader | M3.5, after the MVP | D8 decides analyses and process isolation together |
 | A user's `.spiceinit` changes ngspice's behaviour (ADR 0002) | M5.5 | Keep ngspice from reading it in the package, or test that it does not matter |
@@ -425,7 +425,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 | D3 | Restart or `alter` for live changes | Restart: both fit far under 100 ms, restart is simpler (ADR 0005). Changes that must keep state: D7 | decided | M1.5 |
 | D4 | Resistance while the circuit is powered | Only with sources off; otherwise "power off to measure" | decided | M3.5 |
 | D5 | Generic op-amp values | Proposed: 100 dB gain, 1 MHz GBW, rails within 1 V | open | M5.3 |
-| D6 | Time model: pacing, maximum step, end of a run | Proposed: real time when the simulator keeps up, with an indicator when not; `maxStep` from the smallest time/div; runs as restarting windows (M1.7) | open | M1.7 |
+| D6 | Time model: pacing, maximum step, end of a run | Paced to wall-clock time by the consumer, slipping when behind; `maxStep` one sample of the fastest timebase, a change restarts; endless runs with `.save none` (ADR 0007) | decided | M1.7 |
 | D7 | Live changes that keep the circuit's state (switch, potentiometer) | Proposed: `alter` on the running simulation; the generator keeps restarting | open | M4.7 |
 | D8 | Analyses beyond transient; ngspice in a helper process | Proposed: decide together in an ADR at the start of M3.5 | open | M3.5 |
 | D9 | Linux libngspice for sanitizer CI | Proposed: pinned ngspice 46 built from source in CI, cached, not shipped | open | M1.8 |

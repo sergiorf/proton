@@ -82,6 +82,13 @@ bool strictlyIncreasing(const std::vector<double>& t)
 
 } // namespace
 
+// Decision D6 (ADR 0007): runs are endless in practice; the bench stops or restarts them.
+TEST(the_default_run_is_effectively_endless)
+{
+    CHECK_EQ(NgspiceEngine::Config{}.stopTime, NgspiceEngine::kMaxStopTime);
+    CHECK(NgspiceEngine::kMaxStopTime >= 1e6); // over eleven days
+}
+
 TEST(sanitise_clamps_settings)
 {
     NgspiceEngine::Config config;

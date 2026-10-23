@@ -90,13 +90,20 @@ between threads. Besides the ring, only control state crosses: a stop request an
 
 `SimWorker` owns the engine and its thread. It advances the engine one chunk of simulation time at
 a time and pushes each chunk into the ring; when the ring is full it waits, so nothing is ever
-dropped and the waiting never touches simulation time. It does not pace itself to wall-clock time
-(section 13).
+dropped and the waiting never touches simulation time.
 
-Changing an instrument knob (time/div, trigger level) is a call on the UI thread. Changing the
-*circuit*, including a generator knob, rebuilds the netlist and restarts the run (decision D3,
-ADR 0005); changes that must keep the circuit's state are an open question (section 13). A
-restart reaches the scope in tens of milliseconds (ADR 0005).
+**Time model** (decision D6, ADR 0007). The bench runs in real time: the consumer of the ring
+feeds its instruments only the output that is due by wall-clock time (`RealTimePacer`), and a
+full ring holds the simulator back. Pacing changes when instruments are fed, never what they
+see; the pacer is handed wall-clock time and reads no clock itself. A simulator slower than real
+time is fed whatever it gives, and the pacer reports its speed. Runs are endless. The engine's
+longest step is one sample of the fastest scope's timebase.
+
+Changing an instrument knob (trigger level, V/div) is a call on the UI thread; so is time/div,
+unless it changes the engine's step, which restarts the run. Changing the *circuit*, including a
+generator knob, rebuilds the netlist and restarts the run (decision D3, ADR 0005); changes that
+must keep the circuit's state are an open question (section 13). A restart reaches the scope in
+tens of milliseconds (ADR 0005).
 
 ## 5. The instrument contract
 
@@ -139,7 +146,7 @@ Qt-free library, `src/bench`, tested headlessly and shared by the app and the to
 - `Bench::feed(chunk)` routes each chunk to every measuring instrument; frames and readings are
   collected per instrument id.
 - Run control lives here too: when a change restarts the run, how changes are coalesced, and how
-  simulation time relates to wall-clock time (section 13).
+  simulation time relates to wall-clock time (section 4).
 - Instrument settings stay plain-data structs, so the bench can be serialised into the project
   file without touching the models.
 - The UI is a thin view: one dockable panel per instance, each bound to a bench instrument id.
@@ -207,7 +214,8 @@ analyses (operating point, AC) are not part of it yet (section 13).
   point into a bounded queue and blocks while it is full, which is the only backpressure ngspice
   allows. ngspice keeps process-wide state, so one engine may exist per process. It halts through
   a source of its own instead of `bg_halt` (ADR 0005), and recovers from ngspice's fatal errors by
-  reloading the DLL (ADR 0002). A run ends at a stop time chosen when it starts.
+  reloading the DLL (ADR 0002). ngspice keeps no plot of the run, so points reach Proton only
+  through the callback and a run can last indefinitely (ADR 0007).
 - **RF**: ngspice is weak at harmonic balance and S-parameters, so a spectrum analyzer starts as an
   FFT of transient data and a VNA as a dedicated small-signal solver. Decided when RF work begins.
 
@@ -261,10 +269,6 @@ failure and reports the engine's message. A failing simulation never takes down 
 
 Each has a decision in the [PLAN.md](PLAN.md) Decisions table.
 
-- **Time model (D6).** How simulation time relates to what the student sees: whether the bench is
-  paced to wall-clock time, who chooses the engine's maximum step (it has to follow the fastest
-  timebase on the bench, which would make a time/div change a restart), and what happens when a
-  run reaches its stop time, given that ngspice reserves memory for the whole run when it starts.
 - **Live changes that must keep the circuit's state (D7).** A restart computes a fresh operating
   point, so closing a switch on an RC starts with the capacitor already charged and the student
   never sees the charge. Switches and potentiometers need the circuit's state carried across the

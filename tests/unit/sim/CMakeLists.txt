@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_executable(proton_sim_tests
     test_mock_engine.cpp
+    test_real_time_pacer.cpp
     test_sim_chunk.cpp
     test_sim_worker.cpp
 )

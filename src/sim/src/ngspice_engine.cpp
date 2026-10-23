@@ -380,6 +380,10 @@ bool NgspiceEngine::start()
         lines.emplace_back(line);
     }
     lines.push_back(std::string(kHaltSource) + " " + kHaltNode + " 0 DC 0 EXTERNAL");
+    // ngspice keeps no plot: every point still reaches the data callback, but none is stored, so
+    // a run commits no memory for its points (ngspice would otherwise reserve stopTime / maxStep
+    // points of every vector when the run starts). Decision D6, ADR 0007.
+    lines.push_back(".save none");
     const std::string step = core::formatSpiceNumber(config_.maxStep);
     lines.push_back(".tran " + step + " " + core::formatSpiceNumber(config_.stopTime) + " 0 " +
                     step);

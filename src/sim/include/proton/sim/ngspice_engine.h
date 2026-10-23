@@ -39,6 +39,10 @@ namespace proton::sim {
 // same as without it; its two vectors are left out of the signals. `bg_halt` remains the fallback
 // if the thread does not stop within kHaltTimeout.
 //
+// ngspice keeps no plot of the run (`.save none`): points reach the engine through the callback and
+// nowhere else, so a run commits no memory for its points however long it is (decision D6, ADR
+// 0007). By default the stop time is effectively endless; whoever runs the engine stops it.
+//
 // A run ends at stopTime: advance() gives the points up to it, then error() is "... reached its
 // stop time ..." and the run is over. A run that ngspice abandons (a singular matrix, a time step
 // too small) gives the points before the failure and ngspice's error message.
@@ -65,7 +69,7 @@ public:
 
     struct Config
     {
-        double stopTime = 10.0;           // s of simulation time; the run ends there
+        double stopTime = kMaxStopTime;   // s of simulation time; the run ends there
         double maxStep = 1e-6;            // s, the longest step ngspice may take
         std::size_t queueCapacity = 4096; // time points ngspice may run ahead of advance()
         // The DLL to load, UTF-8. Empty: ngspice.dll in the directory of the running executable.

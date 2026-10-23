@@ -56,7 +56,11 @@ struct PipelineSettings
 
     Engine engine = Engine::Mock;
     double duration = 0.35; // s of simulation time; points after it are not fed
-    double maxStep = 1e-5;  // s, the longest step ngspice may take: 100 per period of 1 kHz
+    // s, the longest step ngspice may take; defaultSettings() makes it maxStepFor(scope).
+    double maxStep = 1e-5;
+    // Feed the instruments in step with wall-clock time (RealTimePacer) instead of as fast as the
+    // engine runs. Changes when the instruments are fed, never what they give.
+    bool realTime = false;
     sim::SimWorker::Config worker;
     // Both channels at 1 V/div, 200 us/div (two periods of 1 kHz on the screen), Normal mode,
     // triggered by CH1 rising through the generator's offset; see defaultSettings().
@@ -70,6 +74,12 @@ struct PipelineSettings
 // The engine named on proton-spike's command line: "mock" or "ngspice", exactly. Empty for any
 // other name.
 std::optional<PipelineSettings::Engine> parseEngine(std::string_view name);
+
+// The engine's longest step for a scope set up as `scope`: one sample interval of its timebase
+// (decision D6, ADR 0007), so the engine gives at least one point per sample and the scope's
+// linear interpolation between points is faithful. Moves to src/bench in M2.2, where the fastest
+// of the bench's scopes sets it and a change restarts the run.
+double maxStepFor(const instruments::Scope::Config& scope);
 
 // The settings proton-spike uses for `example`.
 PipelineSettings defaultSettings(const RcExample& example);
@@ -87,6 +97,8 @@ struct PipelineResult
     std::vector<instruments::DmmReading> dcReadings; // DC V on v(out)
     std::vector<instruments::DmmReading> acReadings; // AC V on v(out)
     double lastTime = 0.0;                           // simulation time of the last point fed
+    // With realTime, the pacer's speed at the end of the run (RealTimePacer::speed()); 1 without.
+    double speed = 1.0;
     std::string error; // why the run stopped early, empty when it reached the duration
 
     bool ok() const { return error.empty(); }
