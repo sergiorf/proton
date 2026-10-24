@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Windows: MSVC build and tests (Qt-free until M2.1 adds the app), with the pinned ngspice.
+# Windows: MSVC build and tests, the Qt app included, with the pinned ngspice.
 # Linux: clang with sanitizers, ngspice built from the same release; Qt is not installed, which
 # enforces "no Qt below src/app".
 name: CI
@@ -35,6 +35,13 @@ jobs:
           key: ngspice-${{ hashFiles('tools/fetch-ngspice.ps1') }}
       - name: Fetch ngspice
         run: ./tools/fetch-ngspice.ps1
+      # Qt for src/app; the action sets QT_ROOT_DIR, which the Windows presets pass to CMake.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.12.0'
+          arch: win64_msvc2022_64
+          cache: true
       - name: Configure
         run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON -DPROTON_REQUIRE_NGSPICE=ON
       - name: Build

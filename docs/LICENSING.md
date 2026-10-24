@@ -41,7 +41,7 @@ Shipped with Proton:
 
 | Dependency | Used for | License | How it is used | Status |
 |---|---|---|---|---|
-| Qt 6 (Core, Gui, Widgets) | UI in `src/app` | LGPL-3.0-only (open-source option) | Dynamically linked DLLs, deployed with `windeployqt` | planned, M2.1 |
+| Qt 6 (Core, Gui, Widgets; Svg and Network, which `windeployqt` adds for plugins) | UI in `src/app` | LGPL-3.0-only (open-source option) | Dynamically linked DLLs, deployed with `windeployqt` | Qt 6.12, from M2.1 |
 | ngspice 46 | Circuit simulation in `src/sim` | Modified BSD (BSD-3-Clause) for most of the code; see below | Shared library loaded at runtime (`LoadLibrary`) | fetched by `tools/fetch-ngspice.ps1` (M1.1) |
 | LLVM OpenMP runtime (`libomp140.x86_64.dll`) | Required by `ngspice.dll` | Visual Studio redistributable terms (LLVM-based) | DLL shipped next to `ngspice.dll`, from the same ngspice archive | fetched with ngspice (M1.1) |
 | Microsoft C++ runtime | Runtime of MSVC-built binaries | Visual Studio redistributable terms | System library DLLs | planned, M5.5 |
@@ -58,7 +58,7 @@ Build, test and CI only (not shipped):
 | GitHub Actions: `actions/cache` | Caching ngspice in CI | MIT |
 | ngspice 46, built from source on Linux (`libngspice.so`) | Running `NgspiceEngine` under the sanitizers in the Linux CI jobs; built by `tools/fetch-ngspice.sh` (ADR 0008) | As the shipped ngspice 46 above, the same release and license review |
 | GNU OpenMP runtime (`libgomp`), GCC | Building that library, and its OpenMP runtime | GPL-3.0 with the GCC Runtime Library Exception (runtime); GPL-3.0 (compiler), CI only |
-| GitHub Actions: `jurplel/install-qt-action` | Installing Qt in CI | MIT (planned, M2.1) |
+| GitHub Actions: `jurplel/install-qt-action` | Installing Qt in CI | MIT |
 
 Proton's test harness (`tests/support`) is Proton's own code, so the tests have no third-party
 dependency.
