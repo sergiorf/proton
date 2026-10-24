@@ -209,8 +209,9 @@ analyses (operating point, AC) are not part of it yet (section 13).
 - **`MockEngine`:** deterministic sine and RC low-pass on an irregular grid, ignoring the netlist's
   elements. It exists so tests and the headless demo exercise the whole pipeline without an
   external dependency. Because it ignores the circuit, it is never a fallback in the app.
-- **`NgspiceEngine`:** libngspice's shared-library API, loaded at runtime, Windows only for now
-  (ADR 0002). ngspice runs the analysis on its own thread; a data callback copies each accepted
+- **`NgspiceEngine`:** libngspice's shared-library API, loaded at runtime: the official DLL on
+  Windows (ADR 0002), and on Linux the same release built from source for the sanitizer CI jobs
+  (ADR 0008). ngspice runs the analysis on its own thread; a data callback copies each accepted
   point into a bounded queue and blocks while it is full, which is the only backpressure ngspice
   allows. ngspice keeps process-wide state, so one engine may exist per process. It halts through
   a source of its own instead of `bg_halt` (ADR 0005), and recovers from ngspice's fatal errors by
@@ -236,9 +237,10 @@ failure and reports the engine's message. A failing simulation never takes down 
   is built.
 - **ngspice tests** run one executable per process, because libngspice keeps process-wide state.
   They validate ngspice against analytic answers; soak and latency tests print the numbers that the
-  ADRs record. The Windows CI jobs require ngspice, so they cannot silently skip these.
-- **Sanitizers** (ASan/UBSan and TSan) on Linux, because threading code is the riskiest code.
-  `NgspiceEngine` does not run there yet (section 13).
+  ADRs record. Every CI job requires ngspice, so none can silently skip these.
+- **Sanitizers** (ASan/UBSan and TSan) on Linux, because threading code is the riskiest code,
+  `NgspiceEngine` and its exchange with ngspice's thread included. ngspice's own per-load leaks
+  are suppressed by their allocator, so Proton's leaks still show (`tests/lsan.supp`).
 - **Repository checks:** every source file carries the SPDX line.
 - **UI:** smoke tests only. Logic belongs below the UI, where it is testable.
 
@@ -277,5 +279,3 @@ Each has a decision in the [PLAN.md](PLAN.md) Decisions table.
   plotter an AC analysis, while ngspice allows one instance per process. Whether `ISimEngine` grows
   analysis kinds, and whether ngspice moves to a helper process (which would also isolate crashes,
   return leaked memory and allow several instances), is decided together.
-- **ngspice under sanitizers (D9).** The engine's threading code runs only on Windows, where CI
-  has no TSan or UBSan.

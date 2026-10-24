@@ -21,6 +21,7 @@ ctest --preset windows-msvc-debug          # run all tests
 
 On Windows, `powershell -ExecutionPolicy Bypass -File tools/fetch-ngspice.ps1` once before
 configuring fetches the pinned ngspice into `third_party/ngspice`; without it the build skips ngspice.
+On Linux, `bash tools/fetch-ngspice.sh` builds the same release from source instead (ADR 0008).
 
 Linux (clang + Ninja, Qt-free): `linux-clang-asan` (ASan + UBSan) and `linux-clang-tsan`, same
 three commands. CI (`.github/workflows/ci.yml`) runs both Windows presets and both Linux presets

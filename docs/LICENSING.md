@@ -55,7 +55,9 @@ Build, test and CI only (not shipped):
 | clang / LLVM, including the sanitizer runtimes | Linux CI compiler, ASan, UBSan, TSan | Apache-2.0 WITH LLVM-exception |
 | Ninja | Linux CI build tool | Apache-2.0 |
 | GitHub Actions: `actions/checkout` | CI | MIT |
-| GitHub Actions: `actions/cache` | Caching the ngspice download in CI | MIT |
+| GitHub Actions: `actions/cache` | Caching ngspice in CI | MIT |
+| ngspice 46, built from source on Linux (`libngspice.so`) | Running `NgspiceEngine` under the sanitizers in the Linux CI jobs; built by `tools/fetch-ngspice.sh` (ADR 0008) | As the shipped ngspice 46 above, the same release and license review |
+| GNU OpenMP runtime (`libgomp`), GCC | Building that library, and its OpenMP runtime | GPL-3.0 with the GCC Runtime Library Exception (runtime); GPL-3.0 (compiler), CI only |
 | GitHub Actions: `jurplel/install-qt-action` | Installing Qt in CI | MIT (planned, M2.1) |
 
 Proton's test harness (`tests/support`) is Proton's own code, so the tests have no third-party
@@ -90,6 +92,10 @@ for the same unmodified, dynamically loaded library). The XSPICE code model `tab
 is a separate file, and `tools/fetch-ngspice.ps1` keeps no code models at all, so it is never
 shipped. Only `ngspice.dll` and the `libomp140.x86_64.dll` it needs are shipped. The package ships
 ngspice's `COPYING` and says where the ngspice 46 source can be obtained.
+
+On Linux, `tools/fetch-ngspice.sh` builds `libngspice.so` from the same release's source, only for
+the sanitizer CI jobs ([ADR 0008](adr/0008-ngspice-on-linux-ci.md)). It is never shipped, and the
+script keeps no code models either.
 
 ## Component models
 
