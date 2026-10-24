@@ -7,8 +7,8 @@ The app runs on Windows. You need:
 
 - Visual Studio 2022 or newer, with the "Desktop development with C++" workload
 - CMake 3.25 or newer
-- Qt 6.12 from the [official installer](https://www.qt.io/download-qt-installer-oss), with the
-  MSVC 2022 64-bit kit
+- Qt 6.8 or newer (6.12 recommended) from the
+  [official installer](https://www.qt.io/download-qt-installer-oss), with the MSVC 2022 64-bit kit
 
 Tell the build where Qt is, once (then open a new terminal):
 

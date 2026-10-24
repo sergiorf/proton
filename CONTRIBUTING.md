@@ -65,7 +65,7 @@ A change that needs to break one of these rules needs an ADR first.
   [CLAUDE.md](CLAUDE.md)): `windows-msvc-debug` and `windows-msvc-release` on Windows,
   `linux-clang-asan` and `linux-clang-tsan` on Linux. Run `tools/fetch-ngspice.ps1` on Windows
   (ADR 0002) or `bash tools/fetch-ngspice.sh` on Linux (ADR 0008) once before configuring to build
-  the ngspice tests. The Windows presets build the Qt app too: set `QT_ROOT_DIR` to the Qt 6.12
+  the ngspice tests. The Windows presets build the Qt app too: set `QT_ROOT_DIR` to a Qt 6.8 or newer
   MSVC kit (see CLAUDE.md).
 - The app has a smoke test only (`app_starts`: it opens the main window and closes it). Logic
   goes below `src/app`, where it is tested without Qt.
