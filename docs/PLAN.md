@@ -226,7 +226,7 @@ that restarts from its last state (or, if that is not possible, from t = 0) when
 10 s run at 1 us steps, and a headless test shows a paced run following wall-clock time within a
 stated tolerance.
 
-**M1.8 ngspice under sanitizers.** A Linux path for `NgspiceEngine` (`dlopen`), used by CI so the
+**M1.8 ngspice under sanitizers.** *(done 2026-10-24)* A Linux path for `NgspiceEngine` (`dlopen`), used by CI so the
 engine's threading code runs under TSan and ASan/UBSan.
 **Decision D9:** whether to add a Linux libngspice for CI and where it comes from (a dependency,
 so it needs approval and a line in LICENSING.md). Default: build the pinned ngspice 46 from source
