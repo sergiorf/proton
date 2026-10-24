@@ -44,6 +44,11 @@ What is known:
   `ngspice.dll` on Windows.
 - The ASan preset suppresses leaks allocated through `tmalloc` and `libgomp`
   (`tests/lsan.supp`), never whole modules.
+- The fatal-error reload tests run in their own executable with leak detection off. Their leaks
+  come from library copies that are unloaded by the time LeakSanitizer reports at exit, so
+  clang's LeakSanitizer shows them as `<unknown module>` and no suppression can name them (gcc's
+  could, which hid this locally; CI caught it). ASan's other checks, UBSan and TSan still cover
+  them.
 - The memory soak test stays Windows only: it reads the process's committed memory, which under
   the sanitizers measures their allocators.
 - The Linux library is a CI tool. It is never shipped; Proton on Linux is not a product yet.
