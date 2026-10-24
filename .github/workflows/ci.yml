@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Windows: MSVC build and tests (Qt-free until M2.1 adds the app), with the pinned ngspice.
-# Linux: clang with sanitizers; Qt is not installed, which enforces "no Qt below src/app".
+# Linux: clang with sanitizers, ngspice built from the same release; Qt is not installed, which
+# enforces "no Qt below src/app".
 name: CI
 
 on:
@@ -64,8 +65,17 @@ jobs:
             echo "Qt found on the Linux runner; this job must build without Qt" >&2
             exit 1
           fi
+      # libngspice built from the pinned source release, so the engine runs under the sanitizers
+      # (ADR 0008). The pin lives in the build script, so a new pin misses the cache.
+      - name: Cache ngspice
+        uses: actions/cache@v4
+        with:
+          path: third_party/ngspice
+          key: ngspice-linux-${{ hashFiles('tools/fetch-ngspice.sh') }}
+      - name: Build ngspice
+        run: bash tools/fetch-ngspice.sh
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset ${{ matrix.preset }} -DPROTON_WARNINGS_AS_ERRORS=ON -DPROTON_REQUIRE_NGSPICE=ON
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel
       - name: Test

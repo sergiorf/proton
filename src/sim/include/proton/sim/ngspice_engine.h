@@ -13,11 +13,12 @@
 
 namespace proton::sim {
 
-// ngspice through its shared-library API (ARCHITECTURE.md section 8, ADR 0002). Windows only, and
-// built only when ngspice was fetched.
+// ngspice through its shared-library API (ARCHITECTURE.md section 8, ADR 0002). Built only when
+// ngspice was fetched: on Windows the official ngspice.dll; on Linux libngspice.so, built from the
+// same release so the sanitizer CI jobs run this engine (ADR 0008).
 //
-// ngspice.dll is loaded at runtime on the first load(), so a program that never uses this engine
-// does not need the DLL, and a missing DLL is a load() error. load() sends the netlist line by line
+// The library is loaded at runtime on the first load(), so a program that never uses this engine
+// does not need it, and a missing library is a load() error. load() sends the netlist line by line
 // with a `.tran` analysis to stopTime, and starts the run on ngspice's background thread. Its data
 // callback copies every accepted time point into a bounded queue and blocks while the queue is
 // full, so ngspice runs at most queueCapacity points ahead of advance(). Points whose time is not
@@ -72,9 +73,9 @@ public:
         double stopTime = kMaxStopTime;   // s of simulation time; the run ends there
         double maxStep = 1e-6;            // s, the longest step ngspice may take
         std::size_t queueCapacity = 4096; // time points ngspice may run ahead of advance()
-        // The DLL to load, UTF-8. Empty: ngspice.dll in the directory of the running executable.
-        // Used when the DLL is not loaded yet: it then stays loaded for the process, until a
-        // fatal error unloads it.
+        // The library to load, UTF-8. Empty: ngspice.dll (libngspice.so on Linux) in the
+        // directory of the running executable. Used when the library is not loaded yet: it then
+        // stays loaded for the process, until a fatal error unloads it.
         std::string libraryPath;
 
         friend bool operator==(const Config&, const Config&) = default;

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# LeakSanitizer suppressions for the linux-clang-asan preset (ADR 0008).
+#
+# ngspice leaks a little on every load, which nothing short of ending the process gives back
+# (ADR 0002). Every such leak is allocated by ngspice's own allocator, tmalloc, or by the OpenMP
+# runtime it loads. Matching on tmalloc rather than on libngspice.so keeps Proton's own leaks
+# visible: Proton's data callback runs with ngspice's frames on its stack, but never allocates
+# through tmalloc.
+leak:tmalloc
+leak:libgomp.so

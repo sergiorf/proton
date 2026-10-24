@@ -9,7 +9,7 @@ target_link_libraries(proton_sim_tests PRIVATE proton::sim proton::test_support 
 
 add_test(NAME sim COMMAND proton_sim_tests)
 
-# The fetched ngspice DLL (M1.1) and NgspiceEngine (M1.2). Each is its own executable: ngspice
+# The fetched ngspice library (M1.1, ADR 0008 on Linux) and NgspiceEngine (M1.2). Each is its own executable: ngspice
 # keeps process-wide state.
 if(PROTON_NGSPICE_FOUND)
     add_executable(proton_ngspice_dll_tests test_ngspice_dll.cpp)
@@ -26,10 +26,26 @@ if(PROTON_NGSPICE_FOUND)
     proton_copy_ngspice_dlls(proton_ngspice_engine_tests)
     add_test(NAME ngspice_engine COMMAND proton_ngspice_engine_tests)
 
-    # Memory over many runs and fatal-error reloads (M1.4).
-    add_executable(proton_ngspice_soak_tests test_ngspice_soak.cpp)
-    target_link_libraries(proton_ngspice_soak_tests
+    # Fatal-error reloads (M1.4). Each reload leaks ngspice's memory from a library that is
+    # unloaded before LeakSanitizer can name it for a suppression, so leak detection is off for
+    # this executable only; ASan's other checks, UBSan and TSan still run (ADR 0008).
+    add_executable(proton_ngspice_reload_tests test_ngspice_reload.cpp)
+    target_link_libraries(proton_ngspice_reload_tests
         PRIVATE proton::sim proton::test_support proton_warnings)
-    proton_copy_ngspice_dlls(proton_ngspice_soak_tests)
-    add_test(NAME ngspice_soak COMMAND proton_ngspice_soak_tests)
+    proton_copy_ngspice_dlls(proton_ngspice_reload_tests)
+    add_test(NAME ngspice_reload COMMAND proton_ngspice_reload_tests)
+    if(NOT WIN32)
+        set_tests_properties(ngspice_reload PROPERTIES
+            ENVIRONMENT_MODIFICATION "ASAN_OPTIONS=string_append::detect_leaks=0")
+    endif()
+
+    # Memory over many runs and fatal-error reloads (M1.4). Windows only: it reads the process's
+    # committed memory, which under the Linux sanitizers would measure their allocators instead.
+    if(WIN32)
+        add_executable(proton_ngspice_soak_tests test_ngspice_soak.cpp)
+        target_link_libraries(proton_ngspice_soak_tests
+            PRIVATE proton::sim proton::test_support proton_warnings)
+        proton_copy_ngspice_dlls(proton_ngspice_soak_tests)
+        add_test(NAME ngspice_soak COMMAND proton_ngspice_soak_tests)
+    endif()
 endif()

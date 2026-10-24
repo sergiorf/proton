@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// NgspiceEngine against the fetched ngspice DLL (M1.2). Windows only: built when CMake found
-// third_party/ngspice. Its own executable: ngspice keeps process-wide state.
+// NgspiceEngine against the fetched ngspice library (M1.2): built when CMake found
+// third_party/ngspice. Its own executable: ngspice keeps process-wide state. The fatal-error
+// reloads are in test_ngspice_reload.cpp.
 #include "proton/sim/ngspice_engine.h"
 #include "proton/sim/sim_worker.h"
 #include "proton/test/test.h"
@@ -290,66 +291,6 @@ TEST(runs_under_the_sim_worker)
     CHECK(strictlyIncreasing(all.time));
     CHECK_EQ(all.time.front(), 0.0);
     CHECK_NEAR(all.time.back(), 20e-3, 1e-12);
-}
-
-// Netlist errors that ngspice 46 treats as fatal: it calls its exit callback (ADR 0002).
-constexpr const char* kFatal[] = {
-    "* missing include\n.include no-such-file.lib\nV1 in 0 DC 1\nR1 in 0 1k\n",
-    "* missing ends\n.subckt half a b\nR1 a b 1k\nV1 in 0 DC 1\nR2 in 0 1k\n",
-    "* bad param\n.param x={1+}\nV1 in 0 DC {x}\nR1 in 0 1k\n",
-};
-
-TEST(a_fatal_error_is_a_load_error_and_ngspice_is_reloaded)
-{
-    NgspiceEngine engine(shortRun());
-    CHECK(engine.load(kRc));
-    const SimChunk before = join(run(engine, 5e-3));
-    CHECK(!before.empty());
-    for (const char* netlist : kFatal) {
-        CHECK(!engine.load(netlist));
-        CHECK(engine.error().find("fatal error") != std::string::npos);
-        CHECK(engine.signalNames().empty());
-        CHECK(engine.advance(kChunk).empty());
-        // The next load gets a fresh ngspice, which runs the circuit exactly as before.
-        CHECK(engine.load(kRc));
-        CHECK_EQ(engine.error(), std::string());
-        CHECK(join(run(engine, 5e-3)) == before);
-    }
-    CHECK(!engine.load(kFatal[0]));
-    CHECK(engine.error().find("no-such-file.lib") != std::string::npos);
-}
-
-TEST(fatal_errors_one_after_another)
-{
-    NgspiceEngine engine(shortRun());
-    for (int k = 0; k < 10; ++k) {
-        CHECK(!engine.load(kFatal[k % 3]));
-        CHECK(engine.error().find("fatal error") != std::string::npos);
-    }
-    CHECK(engine.load(kRc));
-    CHECK(!engine.advance(kChunk).empty());
-}
-
-TEST(a_fatal_error_under_the_sim_worker)
-{
-    SimWorker worker(std::make_unique<NgspiceEngine>(shortRun()));
-    CHECK(!worker.start(kFatal[0]));
-    CHECK(!worker.running());
-    CHECK(worker.error().find("fatal error") != std::string::npos);
-    CHECK(worker.start(kRc));
-    CHECK_EQ(worker.error(), std::string());
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    std::optional<SimChunk> chunk;
-    while (!chunk && std::chrono::steady_clock::now() < deadline) {
-        chunk = worker.tryPop();
-        if (!chunk) {
-            std::this_thread::yield();
-        }
-    }
-    CHECK(chunk.has_value());
-    if (chunk) {
-        CHECK_EQ(chunk->time.front(), 0.0);
-    }
 }
 
 TEST(the_halt_source_is_not_a_signal)

@@ -1,3 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Golden files are compared byte for byte: keep LF on every platform.
 tests/golden/** text eol=lf
+# Shell scripts run on Linux: keep LF.
+*.sh text eol=lf

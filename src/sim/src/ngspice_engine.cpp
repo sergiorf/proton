@@ -5,9 +5,13 @@
 
 #include <ngspice/sharedspice.h>
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -22,9 +26,10 @@ namespace proton::sim {
 
 namespace {
 
-// The ngspice API, resolved when the DLL is loaded. ngspice keeps its state in the DLL, so it is
-// initialised on each load, with callbacks that reach the engine through g_engine. The DLL stays
-// loaded until a fatal error: then it is freed and loaded again, which gives ngspice fresh state.
+// The ngspice API, resolved when the library is loaded. ngspice keeps its state in the library, so
+// it is initialised on each load, with callbacks that reach the engine through g_engine. The
+// library stays loaded until a fatal error: then it is freed and loaded again, which gives ngspice
+// fresh state.
 struct Api
 {
     decltype(ngSpice_Init)* init = nullptr;
@@ -43,13 +48,24 @@ constexpr std::chrono::seconds kHaltTimeout{1};
 
 int g_ident = 0; // ngspice's id for the one instance, passed to ngSpice_Init_Sync
 
-HMODULE g_module = nullptr;             // the loaded DLL, while g_api is set
+// The shared library through the platform's loader: ngspice.dll on Windows (ADR 0002),
+// libngspice.so on Linux, where it serves the sanitizer CI jobs (ADR 0008).
+#ifdef _WIN32
+using Module = HMODULE;
+constexpr const char* kLibraryName = "ngspice.dll";
+#else
+using Module = void*;
+constexpr const char* kLibraryName = "libngspice.so";
+#endif
+
+Module g_module = nullptr;              // the loaded library, while g_api is set
 std::optional<Api> g_api;               // used only by the engine that owns ngspice
 std::atomic<bool> g_taken{false};       // an NgspiceEngine exists
 std::atomic<NgspiceEngine*> g_engine{}; // where ngspice's callbacks go
 
 std::filesystem::path exeDir()
 {
+#ifdef _WIN32
     std::wstring buf(MAX_PATH, L'\0');
     for (;;) {
         const DWORD n = GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
@@ -59,6 +75,38 @@ std::filesystem::path exeDir()
         }
         buf.resize(buf.size() * 2);
     }
+#else
+    std::error_code ec;
+    return std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
+#endif
+}
+
+// Loads the library at `path`, or returns nullptr with the loader's reason in `why`.
+Module openLibrary(const std::filesystem::path& path, std::string& why)
+{
+#ifdef _WIN32
+    // The altered search path, for an absolute path, finds the DLLs ngspice.dll needs next to it.
+    const Module module = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (module == nullptr) {
+        why = "error " + std::to_string(GetLastError());
+    }
+#else
+    const Module module = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (module == nullptr) {
+        const char* error = dlerror();
+        why = error != nullptr ? error : "dlopen failed";
+    }
+#endif
+    return module;
+}
+
+void closeLibrary(Module module)
+{
+#ifdef _WIN32
+    FreeLibrary(module);
+#else
+    dlclose(module);
+#endif
 }
 
 // Paths as UTF-8, both ways: path::string() would throw for a character outside the ANSI code page.
@@ -74,9 +122,13 @@ std::string toUtf8(const std::filesystem::path& path)
 }
 
 template <typename Fn>
-Fn* resolve(HMODULE module, const char* name)
+Fn* resolve(Module module, const char* name)
 {
+#ifdef _WIN32
     return reinterpret_cast<Fn*>(reinterpret_cast<void*>(GetProcAddress(module, name)));
+#else
+    return reinterpret_cast<Fn*>(dlsym(module, name));
+#endif
 }
 
 std::string toLower(std::string_view text)
@@ -319,17 +371,15 @@ bool NgspiceEngine::load(std::string_view netlist)
         return false;
     }
     if (!g_api) {
-        std::filesystem::path path = exeDir() / L"ngspice.dll";
+        std::filesystem::path path = exeDir() / kLibraryName;
         if (!config_.libraryPath.empty()) {
             std::error_code ec;
             path = std::filesystem::absolute(fromUtf8(config_.libraryPath), ec);
         }
-        // The altered search path, for an absolute path, finds the DLLs ngspice.dll needs next
-        // to it.
-        HMODULE module = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        std::string why;
+        const Module module = openLibrary(path, why);
         if (module == nullptr) {
-            error_ = "ngspice: cannot load " + toUtf8(path) + " (error " +
-                     std::to_string(GetLastError()) + ")";
+            error_ = "ngspice: cannot load " + toUtf8(path) + " (" + why + ")";
             return false;
         }
         Api api;
@@ -340,7 +390,7 @@ bool NgspiceEngine::load(std::string_view netlist)
         api.initSync = resolve<decltype(ngSpice_Init_Sync)>(module, "ngSpice_Init_Sync");
         if (api.init == nullptr || api.command == nullptr || api.circ == nullptr ||
             api.reset == nullptr || api.initSync == nullptr) {
-            FreeLibrary(module);
+            closeLibrary(module);
             error_ = "ngspice: " + toUtf8(path) + " does not export the shared-library API";
             return false;
         }
@@ -555,7 +605,7 @@ bool NgspiceEngine::recover()
     // its memory behind (about 125 KiB per reload); ngSpice_Reset() frees most of it first.
     // Called without the reload, it crashes the next run. The next load() loads ngspice afresh.
     g_api->reset();
-    FreeLibrary(g_module);
+    closeLibrary(g_module);
     g_module = nullptr;
     g_api.reset();
     return true;

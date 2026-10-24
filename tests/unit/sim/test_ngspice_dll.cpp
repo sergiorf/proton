@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The fetched ngspice DLL is next to the test binary and is a working libngspice (M1.1).
-// Windows only: built when CMake found third_party/ngspice.
+// The fetched ngspice library is next to the test binary and is a working libngspice (M1.1):
+// ngspice.dll on Windows, libngspice.so built from the same release on Linux (ADR 0008). Built
+// when CMake found third_party/ngspice.
 #include "proton/test/test.h"
 
 #include <ngspice/sharedspice.h>
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include <filesystem>
 #include <string>
@@ -15,6 +20,7 @@
 
 namespace {
 
+#ifdef _WIN32
 std::filesystem::path exeDir()
 {
     std::wstring buf(MAX_PATH, L'\0');
@@ -35,10 +41,29 @@ HMODULE ngspice()
     return module;
 }
 
+void* symbol(const char* name)
+{
+    return reinterpret_cast<void*>(GetProcAddress(ngspice(), name));
+}
+#else
+void* ngspice()
+{
+    static void* const module = dlopen(
+        (std::filesystem::read_symlink("/proc/self/exe").parent_path() / "libngspice.so").c_str(),
+        RTLD_NOW | RTLD_LOCAL);
+    return module;
+}
+
+void* symbol(const char* name)
+{
+    return ngspice() != nullptr ? dlsym(ngspice(), name) : nullptr;
+}
+#endif
+
 template <typename Fn>
 Fn* resolve(const char* name)
 {
-    return reinterpret_cast<Fn*>(reinterpret_cast<void*>(GetProcAddress(ngspice(), name)));
+    return reinterpret_cast<Fn*>(symbol(name));
 }
 
 std::string g_output;
@@ -57,12 +82,12 @@ TEST(header_matches_the_fetched_version)
     CHECK_EQ(std::string_view(NGSPICE_PACKAGE_VERSION), std::string_view(PROTON_NGSPICE_VERSION));
 }
 
-TEST(dll_loads_from_the_test_directory)
+TEST(library_loads_from_the_test_directory)
 {
     CHECK(ngspice() != nullptr);
 }
 
-TEST(dll_exports_the_shared_library_api)
+TEST(library_exports_the_shared_library_api)
 {
     CHECK(resolve<decltype(ngSpice_Init)>("ngSpice_Init") != nullptr);
     CHECK(resolve<decltype(ngSpice_Command)>("ngSpice_Command") != nullptr);
@@ -73,7 +98,7 @@ TEST(dll_exports_the_shared_library_api)
     CHECK(resolve<decltype(ngSpice_AllVecs)>("ngSpice_AllVecs") != nullptr);
 }
 
-TEST(dll_initialises_and_runs_a_command)
+TEST(library_initialises_and_runs_a_command)
 {
     auto* init = resolve<decltype(ngSpice_Init)>("ngSpice_Init");
     auto* command = resolve<decltype(ngSpice_Command)>("ngSpice_Command");
