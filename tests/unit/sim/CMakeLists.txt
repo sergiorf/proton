@@ -37,6 +37,15 @@ if(PROTON_NGSPICE_FOUND)
     if(NOT WIN32)
         set_tests_properties(ngspice_reload PROPERTIES
             ENVIRONMENT_MODIFICATION "ASAN_OPTIONS=string_append::detect_leaks=0")
+        # Again on one core: there ngspice's ended thread only finishes once the caller blocks,
+        # which made freeing the library under it crash on every run, not once in a while.
+        find_program(PROTON_TASKSET taskset)
+        if(PROTON_TASKSET)
+            add_test(NAME ngspice_reload_one_core
+                COMMAND "${PROTON_TASKSET}" -c 0 $<TARGET_FILE:proton_ngspice_reload_tests>)
+            set_tests_properties(ngspice_reload_one_core PROPERTIES
+                ENVIRONMENT_MODIFICATION "ASAN_OPTIONS=string_append::detect_leaks=0")
+        endif()
     endif()
 
     # Memory over many runs and fatal-error reloads (M1.4). Windows only: it reads the process's

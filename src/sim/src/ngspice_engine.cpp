@@ -11,6 +11,8 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 #include <algorithm>
@@ -19,8 +21,12 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <mutex>
 #include <optional>
+#include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace proton::sim {
 
@@ -57,6 +63,80 @@ constexpr const char* kLibraryName = "ngspice.dll";
 using Module = void*;
 constexpr const char* kLibraryName = "libngspice.so";
 #endif
+
+// ngspice's background threads that have said they ended but may still be returning through the
+// library's code. ngspice detaches them, so bg_halt does not wait for them to exit, and freeing
+// the library under one crashes it: the reload tests did whenever the caller kept the CPU (one
+// core). recover() waits for them before it frees the library.
+class EndingThreads {
+public:
+    // Called on the ending thread itself, from ngspice's BGThreadRunning callback.
+    void addCurrent()
+    {
+        const std::lock_guard lock(mutex_);
+        std::erase_if(threads_, [](Thread& t) { return exited(t, std::chrono::milliseconds(0)); });
+#ifdef _WIN32
+        if (HANDLE h = OpenThread(SYNCHRONIZE, FALSE, GetCurrentThreadId())) {
+            threads_.push_back(h);
+        }
+#else
+        threads_.push_back(gettid());
+#endif
+    }
+
+    // True when every thread exited within `timeout`.
+    bool waitAll(std::chrono::milliseconds timeout)
+    {
+        const std::lock_guard lock(mutex_);
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        std::erase_if(threads_, [&](Thread& t) {
+            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+            return exited(t, std::max(left, std::chrono::milliseconds(0)));
+        });
+        return threads_.empty();
+    }
+
+private:
+#ifdef _WIN32
+    using Thread = HANDLE;
+
+    // Closes the handle once the thread has exited.
+    static bool exited(Thread& t, std::chrono::milliseconds timeout)
+    {
+        if (WaitForSingleObject(t, static_cast<DWORD>(timeout.count())) != WAIT_OBJECT_0) {
+            return false;
+        }
+        CloseHandle(t);
+        return true;
+    }
+#else
+    using Thread = pid_t;
+
+    // A thread other than the process's first is reaped as soon as it exits, which removes it
+    // from /proc/self/task.
+    static bool exited(Thread& t, std::chrono::milliseconds timeout)
+    {
+        const std::filesystem::path task = "/proc/self/task/" + std::to_string(t);
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        for (;;) {
+            std::error_code ec;
+            if (!std::filesystem::exists(task, ec) && !ec) {
+                return true;
+            }
+            if (std::chrono::steady_clock::now() >= deadline) {
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+#endif
+
+    std::mutex mutex_;
+    std::vector<Thread> threads_;
+};
+
+EndingThreads g_endingThreads;
 
 Module g_module = nullptr;              // the loaded library, while g_api is set
 std::optional<Api> g_api;               // used only by the engine that owns ngspice
@@ -233,6 +313,9 @@ struct NgspiceEngine::Callbacks
     // Called by ngspice with true when its background thread ends, false when it starts.
     static int backgroundThread(NG_BOOL exited, int /*id*/, void* /*user*/)
     {
+        if (exited) {
+            g_endingThreads.addCurrent();
+        }
         NgspiceEngine* engine = g_engine.load(std::memory_order_acquire);
         if (engine != nullptr) {
             const std::lock_guard lock(engine->mutex_);
@@ -600,6 +683,13 @@ bool NgspiceEngine::recover()
             return false;
         }
         exited_ = false;
+    }
+    // A thread that said it ended may still be in the library's code, and ngSpice_Reset() frees
+    // what it may still read.
+    if (!g_endingThreads.waitAll(kThreadEndTimeout)) {
+        const std::lock_guard lock(mutex_);
+        exited_ = true; // ngspice stays dead rather than freeing code that still runs
+        return false;
     }
     // ngspice's C runtime allocates from the process heap, so freeing the DLL alone would leave
     // its memory behind (about 125 KiB per reload); ngSpice_Reset() frees most of it first.
