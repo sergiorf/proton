@@ -254,7 +254,8 @@ TEST(a_missing_net_is_reported_while_the_run_goes_on)
     config.scopeNets = {"in", "out"};
     control.bench().configure(config);
     CHECK(control.probeErrors().empty());
-    CHECK(runTo(control, 0.04));
+    // On from wherever the run is: an unpaced pump may already have fed well past 0.02 s.
+    CHECK(runTo(control, control.fedThrough() + 0.02));
     CHECK(control.bench().popFrame().has_value());
     CHECK_EQ(control.restarts(), 1u);
 }
