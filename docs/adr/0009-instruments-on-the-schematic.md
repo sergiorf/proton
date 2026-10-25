@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-25
-- **Plan task:** M3.1, M4.1 to M4.6, decision D10
+- **Plan task:** M3.1, M4.1 to M4.7, decision D10
 
 ## Context
 
@@ -77,6 +77,6 @@ their terminal nets, and source instruments still reach the netlist as `Fragment
   bench.
 - `validate()` (or the scene conversion) reports unconnected instrument terminals. Instance names
   share one name space with designators and fragments.
-- Project files (M4.6) store instruments as parts of the scene, with their settings.
+- Project files (M4.7) store instruments as parts of the scene, with their settings.
 - Measuring current means wiring the meter in series, which on a schematic is breaking a wire:
   the lesson a real bench teaches.

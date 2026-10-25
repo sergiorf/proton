@@ -284,12 +284,11 @@ offset on knobs with a numeric entry, output on/off with a lit button, using the
 method from D3.
 *Done when:* turning the frequency updates the scope within the latency measured in M1.5.
 
-**M2.7 Usability pass.** Use the app for a scripted session (measure the RC corner frequency with
-the scope and the generator) and fix what gets in the way.
-*Done when:* the session is possible without reading code, and fixes are in.
+The usability pass that was M2.7 moved to M4.5: judging the bench needs the circuit in front of
+the student, which the editor brings.
 
-**M2 exit check:** measure the RC corner frequency in the app: input and output on two scope
-channels, sweep the generator, read -3 dB on the multimeter.
+**M2 exit check:** *(met 2026-10-25)* the three built-in examples run in the app with the scope, multimeter and
+generator front panels, and the panel smoke checks pass.
 
 ## M3 Instrument instances
 
@@ -337,11 +336,17 @@ a dock that can float, one panel per instance; deleting it removes the instrumen
 on the sheet, without typing a net name; each instrument's panel opens from its symbol; and two
 scopes and two multimeters can be open at once, each bound to its own instance.
 
-**M4.5 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
+**M4.5 Usability pass.** With the circuit and its instruments on the sheet, use the app for a
+scripted session as a student would: open the RC low-pass, find its corner frequency by sweeping
+the generator, reading -3 dB on the multimeter and checking the 45 degree lag on the scope, and
+compare with 1 / (2 pi R C). Fix what gets in the way.
+*Done when:* the session is possible without reading code, and fixes are in.
+
+**M4.6 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.
 *Done when:* each M0.7 diagnostic is shown at the right place.
 
-**M4.6 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
+**M4.7 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to
 `examples/` as project files.
 *Done when:* save then load reproduces the same scene, netlist and instrument settings
@@ -434,7 +439,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M5.3 | One process per ngspice test; D4 for resistance |
-| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.7 with the alter prototype |
+| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M4.5 with the alter prototype |
 | A restart loses the circuit's state (a switched RC starts charged) | M5.4 | Switches and potentiometers keep state (D7) |
 | Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Decided in M1.7 (D6, ADR 0007): pacing by the consumer, endless runs without a plot; fast timebases stay slower than real time (x0.4 at 100 us/div) |
 | The engine's threading code is never run under TSan | M1.8 | Done in M1.8: ngspice 46 built on Linux, every ngspice test under TSan and ASan (ADR 0008) |
