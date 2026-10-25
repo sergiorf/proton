@@ -1,34 +1,46 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 
-#include "proton/instruments/scope.h"
+#include "panel/panel_section.h"
 
-#include <QWidget>
+#include "proton/instruments/scope.h"
 
 #include <array>
 #include <optional>
 
-class QComboBox;
-class QDoubleSpinBox;
-class QLabel;
-class QPushButton;
-
 namespace proton::app {
+
+namespace panel {
+class KnobWidget;
+class LitButton;
+} // namespace panel
 
 class ScopeWidget;
 
-// The oscilloscope's front panel: the screen (ScopeWidget) and its knobs. Horizontal: time/div.
-// Per channel: V/div, position (the voltage at the centre of the screen) and DC/AC coupling.
-// Trigger: source, level, slope, Auto or Normal. Run/Stop and Single.
+// The oscilloscope's front panel (PLAN.md M2.4), laid out like a generic two-channel bench scope:
+// the screen on the left, and on the right Run/Stop and Single, then the Horizontal, Vertical and
+// Trigger sections.
 //
-// The panel holds the scope's settings and says when the student changes them (changed()); the
-// owner applies them to the bench, where a change restarts acquisition, as turning a knob does
-// (ARCHITECTURE.md section 5). The stepped knobs follow the 1-2-5 sequence.
+// - Horizontal: the time/div knob, 1-2-5 steps; clockwise is faster.
+// - Vertical, per channel: the scale knob (V/div, 1-2-5 steps, clockwise is larger), the position
+//   knob (clockwise moves the trace up; pushed, it centres the channel's ground), and AC coupling,
+//   lit when on.
+// - Trigger: the level knob (pushed, it goes to the centre of the source channel's screen), CH1 or
+//   CH2 as source, the slope, and Auto or Normal.
+//
+// Position is the scope model's offset with its sign turned (offset is the voltage at the centre
+// of the screen, so raising the trace lowers it). Fine knobs step a tenth of a division of their
+// channel, faster when turned fast.
 //
 // Run/Stop and Single work as on a digital scope. Stop freezes the screen on the last frame; Run
 // shows new frames again, in the trigger mode chosen. Single takes one triggered frame and then
-// stops: the scope's own Single mode. Run after Single goes back to that mode.
-class ScopePanel : public QWidget {
+// stops: the scope's own Single mode. Run after Single goes back to that mode. Run/Stop is lit
+// green while running and red when stopped; Single is lit while it waits for its trigger.
+//
+// The panel holds the scope's settings and says when the student changes them (changed()); the
+// owner applies them to the bench, where a change restarts acquisition, as turning a knob does
+// (ARCHITECTURE.md section 5).
+class ScopePanel : public panel::PanelFace {
     Q_OBJECT
 
 public:
@@ -59,38 +71,36 @@ signals:
 private:
     struct ChannelControls
     {
-        QComboBox* voltsPerDiv = nullptr;
-        QDoubleSpinBox* position = nullptr;
-        QComboBox* coupling = nullptr;
+        panel::KnobWidget* scale = nullptr;
+        panel::KnobWidget* position = nullptr;
+        panel::LitButton* ac = nullptr;
     };
 
     void build();
-    void readKnobs();
     void showKnobs();
-    void updateSteps();
-    void showRunState();
+    void showState();
+    void apply();
     void run();
     void stop();
     void single();
 
     instruments::Scope::Config config_;
     instruments::Scope::Mode runMode_ = instruments::Scope::Mode::Auto; // Run's mode
-    bool frozen_ = false;   // Stop: the screen keeps its frame
+    bool frozen_ = false; // Stop: the screen keeps its frame
     bool lastStopped_ = false;
     std::optional<bool> lastTriggered_;
     long long framesShown_ = 0;
 
     ScopeWidget* screen_ = nullptr;
-    QComboBox* timePerDiv_ = nullptr;
+    panel::KnobWidget* timePerDiv_ = nullptr;
     std::array<ChannelControls, instruments::Scope::kChannels> channels_{};
-    QComboBox* triggerSource_ = nullptr;
-    QDoubleSpinBox* triggerLevel_ = nullptr;
-    QComboBox* triggerSlope_ = nullptr;
-    QComboBox* triggerMode_ = nullptr;
-    QPushButton* runStop_ = nullptr;
-    QPushButton* single_ = nullptr;
-    QLabel* runState_ = nullptr;
-    QLabel* readout_ = nullptr;
+    panel::KnobWidget* triggerLevel_ = nullptr;
+    std::array<panel::LitButton*, instruments::Scope::kChannels> triggerSource_{};
+    panel::LitButton* slope_ = nullptr;
+    panel::LitButton* auto_ = nullptr;
+    panel::LitButton* normal_ = nullptr;
+    panel::LitButton* runStop_ = nullptr;
+    panel::LitButton* single_ = nullptr;
 };
 
 } // namespace proton::app

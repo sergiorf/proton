@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "scope_widget.h"
 
+#include "panel/panel_style.h"
+
+#include "proton/core/format.h"
 #include "proton/instruments/scope_display.h"
 
 #include <QColor>
+#include <QFontMetrics>
 #include <QElapsedTimer>
 #include <QPaintEvent>
 #include <QPainter>
@@ -29,8 +33,7 @@ using instruments::Scope;
 
 const QColor kBackground(12, 14, 16);
 const QColor kGrid(70, 76, 82);
-const std::array<QColor, Scope::kChannels> kTraceColours = {QColor(240, 220, 40),
-                                                            QColor(40, 210, 230)};
+const std::array<QColor, Scope::kChannels> kTraceColours = {panel::kChannel1, panel::kChannel2};
 
 constexpr int kMinorTicks = 5; // per division, on the centre axes
 
@@ -57,11 +60,12 @@ private:
     double yScale_;
 };
 
-// The screen: the largest 10:8 rectangle inside `area`, leaving room for the edge markers.
-QRectF screenRect(const QRectF& area)
+// The graticule: the largest 10:8 rectangle inside `area`, leaving room for the edge markers, a
+// status line of `band` pixels above and the settings bar below.
+QRectF screenRect(const QRectF& area, double band)
 {
     constexpr double kMargin = 14.0;
-    const QRectF inner = area.adjusted(kMargin, kMargin, -kMargin, -kMargin);
+    const QRectF inner = area.adjusted(kMargin, kMargin + band, -kMargin, -kMargin - band);
     const double aspect = kHalfWidthDivisions / kHalfHeightDivisions;
     double width = inner.width();
     double height = width / aspect;
@@ -187,7 +191,9 @@ void ScopeWidget::paint()
 {
     QPainter painter(this);
     painter.fillRect(rect(), kBackground);
-    const QRectF screen = screenRect(QRectF(rect()));
+    const QFontMetrics metrics(font());
+    const double band = metrics.height() + 4;
+    const QRectF screen = screenRect(QRectF(rect()), band);
     const Mapping map(screen);
     drawGraticule(painter, screen, map);
 
@@ -212,6 +218,58 @@ void ScopeWidget::paint()
                QPointF(-1, 0), kTraceColours[source]);
     // Trigger position at the centre of the top edge, pointing down.
     drawMarker(painter, QPointF(map.x(0), screen.top()), QPointF(0, 1), QColor(255, 140, 40));
+
+    drawText(painter, screen, band);
+}
+
+void ScopeWidget::drawText(QPainter& painter, const QRectF& screen, double band) const
+{
+    const auto perDiv = [](double value, const char* unit) {
+        return QString::fromStdString(core::formatEngineering(value, 1, unit)) +
+               QStringLiteral("/");
+    };
+    // Above the graticule: the acquisition state on the right.
+    const QRectF top(screen.left(), screen.top() - band - 8, screen.width(), band);
+    painter.setPen(statusColour_.isValid() ? statusColour_ : panel::kLettering);
+    painter.drawText(top, Qt::AlignRight | Qt::AlignVCenter, status_);
+
+    // Below it, spread across: CH1, CH2, timebase and trigger, each in its colour.
+    const QRectF bar(screen.left(), screen.bottom() + 8, screen.width(), band);
+    const double quarter = bar.width() / 4.0;
+    const auto cell = [&](int i) {
+        return QRectF(bar.left() + quarter * i, bar.top(), quarter, bar.height());
+    };
+    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+        const Scope::ChannelConfig& channel = config_.channels[c];
+        painter.setPen(kTraceColours[c]);
+        painter.drawText(cell(static_cast<int>(c)), Qt::AlignLeft | Qt::AlignVCenter,
+                         QStringLiteral("CH%1  %2  %3")
+                             .arg(c + 1)
+                             .arg(perDiv(channel.voltsPerDiv, "V"),
+                                  channel.coupling == Scope::Coupling::Ac ? QStringLiteral("AC")
+                                                                          : QStringLiteral("DC")));
+    }
+    painter.setPen(panel::kLettering);
+    painter.drawText(cell(2), Qt::AlignLeft | Qt::AlignVCenter,
+                     QStringLiteral("H  %1").arg(perDiv(config_.timePerDiv, "s")));
+    const std::size_t source = config_.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
+    const QChar slope(config_.trigger.slope == Scope::Slope::Rising ? 0x2191 : 0x2193); // arrows
+    painter.setPen(kTraceColours[source]);
+    painter.drawText(cell(3), Qt::AlignLeft | Qt::AlignVCenter,
+                     QStringLiteral("T  CH%1 %2 %3")
+                         .arg(source + 1)
+                         .arg(slope)
+                         .arg(QString::fromStdString(
+                             core::formatEngineering(config_.trigger.level, 3, "V"))));
+}
+
+void ScopeWidget::setStatus(const QString& status, const QColor& colour)
+{
+    if (status != status_ || colour != statusColour_) {
+        status_ = status;
+        statusColour_ = colour;
+        update();
+    }
 }
 
 } // namespace proton::app

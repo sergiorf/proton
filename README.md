@@ -1,3 +1,5 @@
+<p align="center"><img src="src/app/resources/proton.png" alt="Proton icon" width="128"></p>
+
 # proton
 Proton is a desktop-based virtual electronics laboratory that lets users design, simulate, test, and troubleshoot circuits using realistic instruments such as oscilloscopes, multimeters, signal generators, and RF equipment for education and prototyping.
 
