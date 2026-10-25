@@ -179,7 +179,7 @@ QString MultimeterPanel::displayUnit() const
 void MultimeterPanel::apply()
 {
     showSettings();
-    emit changed();
+    Q_EMIT changed();
 }
 
 void MultimeterPanel::showSettings()

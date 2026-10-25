@@ -16,6 +16,7 @@
 class QLabel;
 
 namespace proton::app {
+class GeneratorPanel;
 class MultimeterPanel;
 class ScopePanel;
 } // namespace proton::app
@@ -25,8 +26,8 @@ namespace proton::app {
 // The app's main window: the bench, run by a bench::RunControl that a 16 ms UI timer pumps, and an
 // Examples menu that loads a built-in circuit into it. Choosing an example sets the circuit and
 // the bench's wiring; the next pump restarts the run. The scope and the multimeter are front
-// panels in docks, bound to the bench's instruments (ARCHITECTURE.md section 11); the generator's
-// follows in M2.6. The run's state shows as text in the middle.
+// panels in docks, with the function generator under the multimeter, each bound to the bench's
+// instrument (ARCHITECTURE.md section 11). The run's state shows as text in the middle.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -42,6 +43,9 @@ public:
     ScopePanel& scope() { return *scope_; }
     const MultimeterPanel& multimeter() const { return *meter_; }
     MultimeterPanel& multimeter() { return *meter_; }
+    GeneratorPanel& generator() { return *generator_; }
+    // Frames the scope has shown since the window opened.
+    long long framesShown() const;
     // The last reading of the bench's multimeter since the example was loaded.
     const std::optional<instruments::DmmReading>& reading() const { return reading_; }
     // Frames shown, and pumps run, per second over the last second or so.
@@ -56,7 +60,7 @@ private:
     void showStatus();
     void applyScope();
     void applyMultimeter();
-    long long framesShown() const;
+    void applyGenerator();
 
     std::vector<bench::Example> examples_;
     std::optional<std::size_t> example_; // the loaded one
@@ -66,6 +70,7 @@ private:
     QLabel* status_ = nullptr;
     ScopePanel* scope_ = nullptr;
     MultimeterPanel* meter_ = nullptr;
+    GeneratorPanel* generator_ = nullptr;
 
     // What the multimeter read last, shown until it reads again.
     std::optional<instruments::DmmReading> reading_;

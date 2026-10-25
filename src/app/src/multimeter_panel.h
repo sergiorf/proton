@@ -21,8 +21,8 @@ class SelectorWidget;
 // on top (4.5 digits, the AUTO, DC and AC annunciators and the unit), the mode dial, the RANGE and
 // AUTO buttons, and the input jacks with the net each is on.
 //
-// - Mode dial: DC V and AC V. Current and resistance positions arrive with those modes (M3.4,
-//   M3.5).
+// - Mode dial: DC V and AC V. Current and resistance positions arrive with those modes (M5.2,
+//   M5.3).
 // - RANGE: from auto range it holds the range the meter is on; then each press goes up one range,
 //   wrapping round (Multimeter::nextRange). AUTO goes back to auto range; it is lit while auto.
 //
@@ -49,7 +49,7 @@ public:
     QString displayText() const;
     QString displayUnit() const;
 
-signals:
+Q_SIGNALS:
     void changed();
 
 private:

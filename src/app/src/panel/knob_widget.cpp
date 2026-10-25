@@ -74,7 +74,7 @@ void KnobWidget::changed(bool changed)
 {
     if (changed) {
         update();
-        emit valueChanged(knob_.value());
+        Q_EMIT valueChanged(knob_.value());
     }
 }
 
@@ -161,7 +161,7 @@ void KnobWidget::mouseReleaseEvent(QMouseEvent* event)
     }
     dragging_ = false;
     knob_.endDrag();
-    if (dragTravel_ <= kPushTravel) {
+    if (dragTravel_ <= kPushTravel && pushable_) {
         changed(knob_.push());
     }
 }
@@ -200,7 +200,7 @@ void KnobWidget::keyPressEvent(QKeyEvent* event)
     case Qt::Key_Space:
     case Qt::Key_Return:
     case Qt::Key_Enter:
-        changed(knob_.push());
+        changed(pushable_ && knob_.push());
         break;
     default:
         QWidget::keyPressEvent(event);

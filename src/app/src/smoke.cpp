@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "smoke.h"
 
+#include "generator_panel.h"
 #include "main_window.h"
 #include "multimeter_panel.h"
 #include "panel/knob_widget.h"
@@ -15,6 +16,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QList>
 #include <QMouseEvent>
 #include <QPointF>
@@ -37,6 +39,7 @@ using instruments::Scope;
 
 constexpr std::chrono::seconds kExampleTimeout{30};      // generous: CI runners are slow
 constexpr std::chrono::milliseconds kExampleDwell{1500}; // over a second for the frame rate
+constexpr std::chrono::milliseconds kLatencyBound{2000};  // as the latency test's loose bound
 
 void wheel(QWidget* widget, int notches)
 {
@@ -275,8 +278,119 @@ void smokePanel(MainWindow& window)
         }
     }
 
+    // The generator: each knob turns by wheel, each waveform button selects its waveform, a typed
+    // value applies on Enter, and Output switches the output.
+    GeneratorPanel& generator = window.generator();
+    using Generator = instruments::FunctionGenerator;
+    for (panel::KnobWidget* knob : generator.findChildren<panel::KnobWidget*>()) {
+        const Generator::Config before = generator.config();
+        wheel(knob, 1);
+        checker.check(generator.config() != before, knob->accessibleName() + QStringLiteral(": wheel"));
+    }
+    for (panel::LitButton* button : generator.findChildren<panel::LitButton*>()) {
+        const QString name = button->accessibleName();
+        const Generator::Config before = generator.config();
+        button->click();
+        if (name == QStringLiteral("Output")) {
+            checker.check(generator.config().output != before.output, name + QStringLiteral(": click"));
+            button->click(); // back on
+        } else {
+            checker.check(button->lit(), name + QStringLiteral(": lit when chosen"));
+        }
+    }
+    // Back to a sine, so the frequency field is enabled.
+    for (panel::LitButton* button : generator.findChildren<panel::LitButton*>()) {
+        if (button->accessibleName() == QStringLiteral("Sine")) {
+            button->click();
+        }
+    }
+    for (QLineEdit* field : generator.findChildren<QLineEdit*>()) {
+        if (field->accessibleName() == QStringLiteral("Frequency entry")) {
+            field->setText(QStringLiteral("2.2k"));
+            key(field, Qt::Key_Return);
+            checker.check(generator.config().frequency == 2.2e3,
+                          QStringLiteral("Frequency entry: 2.2k"));
+        }
+    }
+
     const bool failed = checker.failed();
     QTimer::singleShot(0, &window, [failed] { QApplication::exit(failed ? 1 : 0); });
+}
+
+void smokeLatency(MainWindow& window)
+{
+    struct Progress
+    {
+        QElapsedTimer clock;
+        bool turned = false;
+        std::size_t restartsBefore = 0;
+        long long framesBefore = 0;
+        double frequencyBefore = 0.0;
+    };
+    auto progress = std::make_shared<Progress>();
+    auto* timer = new QTimer(&window);
+    window.loadExample(0);
+    progress->clock.start();
+    QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, progress] {
+        const auto fail = [&](const char* why) {
+            std::fprintf(stderr, "proton: generator latency: %s\n", why);
+            timer->stop();
+            QApplication::exit(1);
+        };
+        if (progress->clock.elapsed() > std::chrono::milliseconds(kExampleTimeout).count()) {
+            fail("timed out");
+            return;
+        }
+        if (window.control().state() != bench::RunControl::State::Running) {
+            fail(window.control().error().c_str());
+            return;
+        }
+        if (!progress->turned) {
+            if (window.framesShown() == 0) {
+                return; // wait for the run to show something first
+            }
+            panel::KnobWidget* knob = nullptr;
+            for (panel::KnobWidget* candidate :
+                 window.generator().findChildren<panel::KnobWidget*>()) {
+                if (candidate->accessibleName() == QStringLiteral("Frequency")) {
+                    knob = candidate;
+                }
+            }
+            if (knob == nullptr) {
+                fail("no frequency knob");
+                return;
+            }
+            progress->restartsBefore = window.control().restarts();
+            progress->frequencyBefore = window.generator().config().frequency;
+            progress->clock.restart();
+            wheel(knob, 1);
+            progress->turned = true;
+            return;
+        }
+        // The first frame shown after the restart is from the new run.
+        if (window.control().restarts() > progress->restartsBefore &&
+            progress->framesBefore == 0) {
+            progress->framesBefore = window.framesShown();
+            return;
+        }
+        if (progress->framesBefore != 0 && window.framesShown() > progress->framesBefore) {
+            const double ms = static_cast<double>(progress->clock.nsecsElapsed()) * 1e-6;
+            std::printf("proton: generator %.4g Hz -> %.4g Hz: first new frame after %.1f ms\n",
+                        progress->frequencyBefore, window.generator().config().frequency, ms);
+            std::fflush(stdout);
+            timer->stop();
+            if (window.generator().config().frequency <= progress->frequencyBefore) {
+                fail("the frequency did not go up");
+                return;
+            }
+            if (ms > static_cast<double>(kLatencyBound.count())) {
+                fail("the new frame came too late");
+                return;
+            }
+            window.close();
+        }
+    });
+    timer->start(1); // check often: this is a timing
 }
 
 } // namespace proton::app

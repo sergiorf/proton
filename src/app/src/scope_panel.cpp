@@ -227,7 +227,7 @@ void ScopePanel::clear()
 void ScopePanel::apply()
 {
     showKnobs();
-    emit changed();
+    Q_EMIT changed();
 }
 
 // Every control from config_.
@@ -290,7 +290,7 @@ void ScopePanel::run()
     frozen_ = false;
     if (config_.mode == Scope::Mode::Single) {
         config_.mode = runMode_;
-        emit changed();
+        Q_EMIT changed();
     }
     showState();
 }
@@ -308,8 +308,8 @@ void ScopePanel::single()
     lastTriggered_.reset();
     config_.mode = Scope::Mode::Single;
     screen_->setConfig(config_);
-    emit changed();
-    emit armed();
+    Q_EMIT changed();
+    Q_EMIT armed();
     showState();
 }
 

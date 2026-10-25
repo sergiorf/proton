@@ -27,7 +27,7 @@ public:
     QSize sizeHint() const override { return {200, 170}; }
     QSize minimumSizeHint() const override { return {170, 150}; }
 
-signals:
+Q_SIGNALS:
     void positionChanged(std::size_t position);
 
 protected:

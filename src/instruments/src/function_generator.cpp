@@ -88,6 +88,7 @@ FunctionGenerator::Config FunctionGenerator::sanitise(const Config& config)
     result.offset = std::clamp(finiteOr(config.offset, defaults.offset), -maxOffset, maxOffset);
     result.outputImpedance = std::clamp(finiteOr(config.outputImpedance, defaults.outputImpedance),
                                         0.0, kMaxOutputImpedance);
+    result.output = config.output;
     return result;
 }
 
@@ -99,6 +100,14 @@ SpiceFragment FunctionGenerator::toSpice(std::string_view name, std::string_view
     const std::string spec = sourceSpec(config_);
 
     SpiceFragment fragment;
+    if (!config_.output) {
+        const std::string internal = instance + "_int";
+        fragment.lines.push_back("* function generator " + instance + ", output off");
+        fragment.lines.push_back("V" + instance + " " + internal + " " + reference + " DC 0");
+        fragment.lines.push_back("R" + instance + " " + internal + " " +
+                                 std::string(outputNet) + " " + number(kOffResistance));
+        return fragment;
+    }
     fragment.lines.push_back("* function generator " + instance);
     if (config_.outputImpedance == 0.0) {
         fragment.lines.push_back("V" + instance + " " + std::string(outputNet) + " " + reference +

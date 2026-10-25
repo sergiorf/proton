@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "main_window.h"
 
+#include "generator_panel.h"
 #include "multimeter_panel.h"
 #include "scope_panel.h"
 #include "scope_widget.h"
@@ -69,6 +70,13 @@ MainWindow::MainWindow(QWidget* parent)
     resizeDocks({meterDock}, {380}, Qt::Horizontal);
     connect(meter_, &MultimeterPanel::changed, this, &MainWindow::applyMultimeter);
 
+    generator_ = new GeneratorPanel(this);
+    auto* generatorDock = new QDockWidget(tr("Function generator"), this);
+    generatorDock->setObjectName(QStringLiteral("generator"));
+    generatorDock->setWidget(generator_);
+    splitDockWidget(meterDock, generatorDock, Qt::Vertical);
+    connect(generator_, &GeneratorPanel::changed, this, &MainWindow::applyGenerator);
+
     QMenu* file = menuBar()->addMenu(tr("&File"));
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);
@@ -115,6 +123,8 @@ void MainWindow::loadExample(std::size_t index)
         const bench::Bench::MultimeterSettings& meter = examples_[index].bench.multimeters[0];
         meter_->setConfig(meter.config, text(meter.net));
     }
+    generator_->setConfig(examples_[index].bench.generator,
+                          text(examples_[index].bench.generatorNet));
     control_.bench().configure(examples_[index].bench);
     control_.setCircuit(examples_[index].circuit);
     control_.start();
@@ -137,6 +147,14 @@ void MainWindow::applyMultimeter()
     config.multimeters[0].config = meter_->config();
     control_.bench().configure(config);
     meter_->clear(); // a new gate: dashes until its reading
+}
+
+// A generator knob: the next pump rebuilds the netlist and restarts the run (decision D3).
+void MainWindow::applyGenerator()
+{
+    bench::Bench::Config config = control_.bench().config();
+    config.generator = generator_->config();
+    control_.bench().configure(config);
 }
 
 long long MainWindow::framesShown() const

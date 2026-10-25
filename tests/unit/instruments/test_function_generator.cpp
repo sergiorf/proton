@@ -40,6 +40,7 @@ void checkConfig(const Config& actual, const Config& expected)
     CHECK_EQ(actual.amplitude, expected.amplitude);
     CHECK_EQ(actual.offset, expected.offset);
     CHECK_EQ(actual.outputImpedance, expected.outputImpedance);
+    CHECK_EQ(actual.output, expected.output);
 }
 
 std::string joined(const SpiceFragment& fragment)
@@ -105,6 +106,38 @@ TEST(golden_dc)
 TEST(golden_ideal_output_has_no_resistor)
 {
     checkGolden("function_generator_ideal", makeConfig(Waveform::Sine, 1e3, 1.0, 0.0, 0.0));
+}
+
+// Output off opens the output: 0 V behind kOffResistance, whatever the waveform and impedance.
+TEST(golden_output_off)
+{
+    Config config = makeConfig(Waveform::Square, 1e3, 2.5, 1.0, 0.0);
+    config.output = false;
+    checkGolden("function_generator_off", config);
+}
+
+TEST(output_off_still_leaves_a_dc_path_so_the_circuit_validates)
+{
+    // An RC low-pass whose only DC path to ground from `in` is the generator: with the output open
+    // and nothing else, SPICE could not solve `in`. The leak through kOffResistance keeps it
+    // solvable without loading the circuit.
+    Config config;
+    config.output = false;
+    proton::schematic::Circuit circuit;
+    circuit.components = {
+        {proton::schematic::ComponentKind::Resistor, "R1", {"in", "out"}, "1k"},
+        {proton::schematic::ComponentKind::Capacitor, "C1", {"out", "0"}, "100n"},
+    };
+    circuit.fragments = {{"gen1", FunctionGenerator(config).toSpice("gen1", "in", "0").lines}};
+    CHECK(!proton::schematic::hasErrors(proton::schematic::validate(circuit)));
+}
+
+TEST(the_output_switch_survives_sanitising)
+{
+    Config config;
+    config.output = false;
+    CHECK(!FunctionGenerator::sanitise(config).output);
+    CHECK(FunctionGenerator::sanitise(Config{}).output);
 }
 
 // 1/3 kHz has no exact period; the times are rounded to 12 significant digits.

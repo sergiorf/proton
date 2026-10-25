@@ -2,6 +2,8 @@
 # The Qt Widgets app (ARCHITECTURE.md section 11): the only target that links Qt. Built when
 # PROTON_BUILD_APP is on, which is the default on Windows only (ADR 0003).
 add_executable(proton WIN32
+    src/generator_panel.cpp
+    src/generator_panel.h
     src/main.cpp
     src/main_window.cpp
     src/main_window.h
@@ -31,6 +33,9 @@ if(WIN32)
     target_sources(proton PRIVATE resources/proton.rc)
 endif()
 set_target_properties(proton PROPERTIES AUTOMOC ON AUTORCC ON)
+# Qt's `signals`, `slots` and `emit` macros would clash with names in the Qt-free libraries
+# (SimChunk::signals): the app writes Q_SIGNALS and Q_EMIT instead.
+target_compile_definitions(proton PRIVATE QT_NO_KEYWORDS)
 target_link_libraries(proton PRIVATE proton::bench proton::core Qt6::Widgets proton_warnings)
 # The examples run on ngspice, loaded from the executable's directory.
 if(PROTON_NGSPICE_FOUND)
@@ -54,4 +59,6 @@ add_test(NAME app_starts COMMAND proton --smoke-test)
 if(PROTON_NGSPICE_FOUND)
     add_test(NAME app_runs_examples COMMAND proton --smoke-examples)
     add_test(NAME app_panel_controls COMMAND proton --smoke-panel)
+    # Turning the generator's frequency reaches the scope in time (M2.6, ADR 0005).
+    add_test(NAME app_generator_latency COMMAND proton --smoke-latency)
 endif()

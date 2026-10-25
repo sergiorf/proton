@@ -279,7 +279,7 @@ range and mode annunciators, a rotary mode dial (DC V, AC V; current and resista
 arrive in M5), range (auto or fixed), probe binding to a net of the example.
 *Done when:* readings match `proton-spike` for the same example.
 
-**M2.6 Generator front panel.** On the M2.4 widgets: waveform buttons, frequency, amplitude and
+**M2.6 Generator front panel.** *(done 2026-10-25)* On the M2.4 widgets: waveform buttons, frequency, amplitude and
 offset on knobs with a numeric entry, output on/off with a lit button, using the live-change
 method from D3.
 *Done when:* turning the frequency updates the scope within the latency measured in M1.5.

@@ -35,6 +35,8 @@ public:
     void setValue(double value);
     void setStep(double step) { knob_.setStep(step); }
     void setReset(double reset) { knob_.setReset(reset); }
+    // Whether a push does anything (a frequency knob has nothing to reset to). On by default.
+    void setPushable(bool pushable) { pushable_ = pushable; }
     // A second line under the label, for the current setting ("200 µs/div").
     void setCaption(const QString& caption);
     // A coloured ring around the cap, for a knob that belongs to a scope channel.
@@ -43,7 +45,7 @@ public:
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override { return sizeHint(); }
 
-signals:
+Q_SIGNALS:
     void valueChanged(double value);
 
 protected:
@@ -66,6 +68,7 @@ private:
     QPoint dragFrom_;
     double dragTravel_ = 0.0; // pixels moved since the press
     bool dragging_ = false;
+    bool pushable_ = true;
     QElapsedTimer sinceWheel_;
     int wheelRemainder_ = 0; // eighths of a degree not yet a notch
 };
