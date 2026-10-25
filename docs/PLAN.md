@@ -246,7 +246,7 @@ step, CI Windows job with Qt installed.
 *Done when:* the app builds and starts in CI (a smoke test that opens and closes the window) and
 locally from VS Code.
 
-**M2.2 Bench core (Qt-free).** `src/bench` with one scope, one multimeter and one generator
+**M2.2 Bench core (Qt-free).** *(done 2026-10-25)* `src/bench` with one scope, one multimeter and one generator
 (ARCHITECTURE.md section 5.1, generalised in M3.1): `contributeTo`, `attach`, `feed`, and run
 control (start, restart on a circuit change with changes coalesced, the time model from D6).
 `proton-spike` moves onto it. In `src/app`, a 16 ms UI timer pumps the bench, and an example menu
