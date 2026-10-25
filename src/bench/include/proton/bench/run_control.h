@@ -30,10 +30,10 @@ namespace proton::bench {
 // number of changes between two pumps cost one restart: a knob dragged across a UI tick restarts
 // once. Changes that do neither (a trigger level, a moved probe) apply to the running run.
 //
-// A restart validates the circuit, builds its netlist and starts it from t = 0 on the worker. The
-// worker and its engine are kept from run to run while the longest step stays the same, and
-// otherwise made anew by the engine factory, after the old engine is gone (ngspice allows one
-// engine per process).
+// A restart validates the circuit and the bench's instrument names (Bench::check), builds its
+// netlist and starts it from t = 0 on the worker. The worker and its engine are kept from run to
+// run while the longest step stays the same, and otherwise made anew by the engine factory, after
+// the old engine is gone (ngspice allows one engine per process).
 //
 // Wall-clock time is passed in as seconds from any fixed epoch, so RunControl reads no clock and
 // is tested with any time it is given. With realTime off, the output is fed as fast as it comes.

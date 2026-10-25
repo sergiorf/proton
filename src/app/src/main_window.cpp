@@ -60,7 +60,7 @@ MainWindow::MainWindow(QWidget* parent)
     addDockWidget(Qt::TopDockWidgetArea, scopeDock);
     resizeDocks({scopeDock}, {640}, Qt::Vertical);
     connect(scope_, &ScopePanel::changed, this, &MainWindow::applyScope);
-    connect(scope_, &ScopePanel::armed, this, [this] { control_.bench().rearmScope(); });
+    connect(scope_, &ScopePanel::armed, this, [this] { control_.bench().rearmScope(0); });
 
     meter_ = new MultimeterPanel(this);
     auto* meterDock = new QDockWidget(tr("Multimeter"), this);
@@ -117,15 +117,23 @@ void MainWindow::loadExample(std::size_t index)
     example_ = index;
     reading_.reset();
     framesAtLoad_ = framesShown();
-    scope_->setConfig(examples_[index].bench.scope);
-    scope_->clear();
-    if (!examples_[index].bench.multimeters.empty()) {
-        const bench::Bench::MultimeterSettings& meter = examples_[index].bench.multimeters[0];
-        meter_->setConfig(meter.config, text(meter.net));
+    // Each panel shows the first instrument of its kind; one panel per instance comes with the
+    // editor (M4.4).
+    const bench::Bench::Config& bench = examples_[index].bench;
+    if (!bench.scopes.empty()) {
+        scope_->setConfig(bench.scopes[0].config);
     }
-    generator_->setConfig(examples_[index].bench.generator,
-                          text(examples_[index].bench.generatorNet));
-    control_.bench().configure(examples_[index].bench);
+    scope_->clear();
+    if (!bench.multimeters.empty()) {
+        const bench::Bench::MultimeterSettings& meter = bench.multimeters[0];
+        meter_->setConfig(meter.config, text(meter.plus), text(meter.com));
+    }
+    if (!bench.generators.empty()) {
+        const bench::Bench::GeneratorSettings& generator = bench.generators[0];
+        generator_->setConfig(generator.config,
+                              generator.com.empty() ? QString() : text(generator.plus));
+    }
+    control_.bench().configure(bench);
     control_.setCircuit(examples_[index].circuit);
     control_.start();
     pump();
@@ -134,7 +142,10 @@ void MainWindow::loadExample(std::size_t index)
 void MainWindow::applyScope()
 {
     bench::Bench::Config config = control_.bench().config();
-    config.scope = scope_->config();
+    if (config.scopes.empty()) {
+        return;
+    }
+    config.scopes[0].config = scope_->config();
     control_.bench().configure(config);
 }
 
@@ -153,7 +164,10 @@ void MainWindow::applyMultimeter()
 void MainWindow::applyGenerator()
 {
     bench::Bench::Config config = control_.bench().config();
-    config.generator = generator_->config();
+    if (config.generators.empty()) {
+        return;
+    }
+    config.generators[0].config = generator_->config();
     control_.bench().configure(config);
 }
 
@@ -167,8 +181,8 @@ void MainWindow::pump()
     const double now = static_cast<double>(clock_.nsecsElapsed()) * 1e-9;
     ++pumps_;
     control_.pump(now);
-    if (std::optional<instruments::ScopeFrame> frame = control_.bench().popFrame()) {
-        scope_->showFrame(std::move(*frame), control_.bench().scopeStopped());
+    if (std::optional<instruments::ScopeFrame> frame = control_.bench().popFrame(0)) {
+        scope_->showFrame(std::move(*frame), control_.bench().scopeStopped(0));
     }
     if (std::optional<instruments::DmmReading> reading = control_.bench().popReading(0)) {
         meter_->showReading(*reading);
@@ -212,8 +226,10 @@ void MainWindow::showStatus()
         lines << text(error.message);
     }
     const bench::Bench::Config& config = control_.bench().config();
-    lines << tr("Scope: CH1 on %1, CH2 on %2; %3 frames/s shown, %4 ms per paint")
-                 .arg(text(config.scopeNets[0]), text(config.scopeNets[1]))
+    const bench::Bench::ScopeSettings scope =
+        config.scopes.empty() ? bench::Bench::ScopeSettings{} : config.scopes[0];
+    lines << tr("Scope %1: CH1 on %2, CH2 on %3; %4 frames/s shown, %5 ms per paint")
+                 .arg(text(scope.name), text(scope.channels[0]), text(scope.channels[1]))
                  .arg(frameRate_, 0, 'f', 0)
                  .arg(scope_->screen().meanPaintMs(), 0, 'f', 2);
     lines << tr("Restarts: %1").arg(control_.restarts());

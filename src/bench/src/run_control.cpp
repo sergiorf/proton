@@ -68,6 +68,9 @@ void RunControl::restart(double wallNow, schematic::Circuit circuit, double maxS
     error_.clear();
     netlist_.clear();
     diagnostics_ = schematic::validate(circuit);
+    for (schematic::Diagnostic& diagnostic : bench_.check(circuit)) {
+        diagnostics_.push_back(std::move(diagnostic));
+    }
     runCircuit_ = circuit;
     runMaxStep_ = maxStep;
     state_ = State::Running;

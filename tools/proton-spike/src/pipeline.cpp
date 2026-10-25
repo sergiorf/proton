@@ -54,18 +54,17 @@ Multimeter::Config meter(Multimeter::Mode mode, double gateTime)
     return config;
 }
 
-// The bench for the example: the generator on `in`, CH1 on `in`, CH2 on `out`, and two
-// multimeters on `out`, DC V and AC V.
+// The bench for the example: gen1 between `in` and ground; scope1 with CH1 on `in` and CH2 on
+// `out`; dmm1 (DC V) and dmm2 (AC V) between `out` and ground.
 bench::Bench::Config benchConfig(const RcExample& example, const PipelineSettings& settings)
 {
+    const std::string ground(schematic::kGroundNet);
     bench::Bench::Config config;
-    config.generator = example.generator;
-    config.generatorNet = kInputNet;
-    config.scope = settings.scope;
-    config.scopeNets = {kInputNet, kOutputNet};
+    config.generators = {{kGenerator, example.generator, kInputNet, ground}};
+    config.scopes = {{"scope1", settings.scope, {kInputNet, kOutputNet}}};
     config.multimeters = {
-        {meter(Multimeter::Mode::DcVoltage, settings.gateTime), kOutputNet},
-        {meter(Multimeter::Mode::AcVoltage, settings.gateTime), kOutputNet},
+        {"dmm1", meter(Multimeter::Mode::DcVoltage, settings.gateTime), kOutputNet, ground},
+        {"dmm2", meter(Multimeter::Mode::AcVoltage, settings.gateTime), kOutputNet, ground},
     };
     return config;
 }
@@ -87,7 +86,7 @@ Circuit components(const RcExample& example)
 // Pops everything the bench's instruments have given into `result`.
 void collect(bench::Bench& bench, PipelineResult& result)
 {
-    if (std::optional<ScopeFrame> frame = bench.popFrame()) {
+    if (std::optional<ScopeFrame> frame = bench.popFrame(0)) {
         result.frames.push_back(std::move(*frame));
     }
     if (std::optional<instruments::DmmReading> reading = bench.popReading(0)) {

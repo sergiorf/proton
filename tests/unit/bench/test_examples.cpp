@@ -90,9 +90,15 @@ TEST(example_netlists_match_the_golden_files)
 TEST(every_example_probes_in_and_out)
 {
     for (const Example& example : proton::bench::examples()) {
-        CHECK_EQ(example.bench.scopeNets[0], std::string("in"));
-        CHECK_EQ(example.bench.scopeNets[1], std::string("out"));
+        CHECK_EQ(example.bench.scopes.size(), 1u);
         CHECK_EQ(example.bench.multimeters.size(), 1u);
-        CHECK_EQ(example.bench.multimeters[0].net, std::string("out"));
+        CHECK_EQ(example.bench.generators.size(), 1u);
+        if (example.bench.scopes.size() == 1 && example.bench.multimeters.size() == 1) {
+            CHECK_EQ(example.bench.scopes[0].channels[0], std::string("in"));
+            CHECK_EQ(example.bench.scopes[0].channels[1], std::string("out"));
+            CHECK_EQ(example.bench.multimeters[0].plus, std::string("out"));
+            CHECK_EQ(example.bench.multimeters[0].com, std::string("0"));
+        }
+        CHECK(Bench(example.bench).check(example.circuit).empty());
     }
 }
