@@ -162,5 +162,5 @@ With it:
 - Endless runs are still open: a run ends at `stopTime` (10 s by default) and its plot is
   reserved up front. The bench (M2.2) needs a policy: a long stop time with a larger `.tran`
   step, or a restart when the run ends.
-- If a slow circuit's restart start-up is a problem in practice (M2.7), revisit with the alter
+- If a slow circuit's restart start-up is a problem in practice (M4.5), revisit with the alter
   prototype for that case.
