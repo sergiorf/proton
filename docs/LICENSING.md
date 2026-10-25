@@ -44,7 +44,7 @@ Shipped with Proton:
 | Qt 6 (Core, Gui, Widgets; Svg and Network, which `windeployqt` adds for plugins) | UI in `src/app` | LGPL-3.0-only (open-source option) | Dynamically linked DLLs, deployed with `windeployqt` | Qt 6.8 or newer, from M2.1 |
 | ngspice 46 | Circuit simulation in `src/sim` | Modified BSD (BSD-3-Clause) for most of the code; see below | Shared library loaded at runtime (`LoadLibrary`) | fetched by `tools/fetch-ngspice.ps1` (M1.1) |
 | LLVM OpenMP runtime (`libomp140.x86_64.dll`) | Required by `ngspice.dll` | Visual Studio redistributable terms (LLVM-based) | DLL shipped next to `ngspice.dll`, from the same ngspice archive | fetched with ngspice (M1.1) |
-| Microsoft C++ runtime | Runtime of MSVC-built binaries | Visual Studio redistributable terms | System library DLLs | planned, M5.5 |
+| Microsoft C++ runtime | Runtime of MSVC-built binaries | Visual Studio redistributable terms | System library DLLs | planned, M6.5 |
 
 Build, test and CI only (not shipped):
 
@@ -103,7 +103,7 @@ Every component model in Proton (diodes, LEDs, Zeners, transistors, the op-amp a
 later) is **generic and original**: parameters chosen to give typical, textbook behaviour, never
 copied from a manufacturer's model or datasheet model file. Vendor SPICE models often carry
 licenses that forbid redistribution or modification, and the models are generic on purpose so a
-student learns the behaviour rather than one part number. When a model is added (M5), its
+student learns the behaviour rather than one part number. When a model is added (M6), its
 parameters are listed here as original.
 
 ## Artwork
@@ -116,7 +116,7 @@ may do with it.
 
 ## Packaging checklist
 
-A Proton package (M5.5) contains:
+A Proton package (M6.5) contains:
 
 - the AGPL-3.0 text and a note on the commercial license;
 - the license text of every shipped dependency in the table above;

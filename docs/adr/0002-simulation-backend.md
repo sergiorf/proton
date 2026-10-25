@@ -61,7 +61,7 @@ What is known about the library and the releases:
   parts are used through dynamic loading of an unmodified library; the MPL-2.0 part (OSDI) is
   file-level copyleft, which an unmodified, separately loaded binary meets by shipping the license
   and pointing to the ngspice source, so it is treated like the LGPL parts. `libomp140.x86_64.dll`
-  is redistributable with Visual Studio. Packages (M5.5) ship ngspice's `COPYING` and say where its
+  is redistributable with Visual Studio. Packages (M6.5) ship ngspice's `COPYING` and say where its
   source is.
 
 ### Found while writing the engine (M1.2)
