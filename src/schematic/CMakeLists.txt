@@ -3,6 +3,7 @@ add_library(proton_schematic
     src/circuit.cpp
     src/netlist.cpp
     src/scene.cpp
+    src/scene_edit.cpp
     src/validate.cpp
 )
 add_library(proton::schematic ALIAS proton_schematic)

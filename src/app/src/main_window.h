@@ -11,11 +11,15 @@
 
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <vector>
 
 class QLabel;
 
 namespace proton::app {
+namespace sheet {
+class SchematicView;
+}
 class GeneratorPanel;
 class MultimeterPanel;
 class ScopePanel;
@@ -44,6 +48,7 @@ public:
     const MultimeterPanel& multimeter() const { return *meter_; }
     MultimeterPanel& multimeter() { return *meter_; }
     GeneratorPanel& generator() { return *generator_; }
+    sheet::SchematicView& sheet() { return *sheet_; }
     // Frames the scope has shown since the window opened.
     long long framesShown() const;
     // The last reading of the bench's multimeter since the example was loaded.
@@ -61,6 +66,8 @@ private:
     void applyScope();
     void applyMultimeter();
     void applyGenerator();
+    void applyScene();
+    void buildToolBar();
 
     std::vector<bench::Example> examples_;
     std::optional<std::size_t> example_; // the loaded one
@@ -68,6 +75,8 @@ private:
     QElapsedTimer clock_; // wall-clock time for the pacer
     QTimer timer_;
     QLabel* status_ = nullptr;
+    sheet::SchematicView* sheet_ = nullptr;
+    std::string sceneError_; // why the drawing does not run, from the scene conversion
     ScopePanel* scope_ = nullptr;
     MultimeterPanel* meter_ = nullptr;
     GeneratorPanel* generator_ = nullptr;

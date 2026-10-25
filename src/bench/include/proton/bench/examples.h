@@ -3,19 +3,22 @@
 
 #include "proton/bench/bench.h"
 #include "proton/schematic/circuit.h"
+#include "proton/schematic/scene.h"
 
 #include <string>
 #include <vector>
 
 namespace proton::bench {
 
-// A built-in circuit with the bench wired to it, for the app's example menu until the schematic
-// editor comes (M4).
+// A built-in circuit with the bench wired to it, for the app's example menu: drawn as a scene for
+// the editor, the circuit converted from it. Until the instruments are on the sheet (M4.4), the
+// bench finds the circuit through the net labels `in` and `out`.
 struct Example
 {
-    std::string name;            // for the menu: "RC low-pass"
-    schematic::Circuit circuit;  // without the instruments
-    Bench::Config bench;         // generator, probes and settings for it
+    std::string name;           // for the menu: "RC low-pass"
+    schematic::Scene scene;     // the drawing, without the instruments
+    schematic::Circuit circuit; // schematic::convert(scene).circuit
+    Bench::Config bench;        // generator, probes and settings for it
 };
 
 // The examples, in menu order. Each validates without errors. Every one has the instruments

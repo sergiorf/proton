@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/bench/examples.h"
 
+#include <string>
+#include <utility>
+
 namespace proton::bench {
 
 namespace {
@@ -8,8 +11,11 @@ namespace {
 using instruments::FunctionGenerator;
 using instruments::Multimeter;
 using instruments::Scope;
-using schematic::Component;
 using schematic::ComponentKind;
+using schematic::PlacedPart;
+using schematic::Point;
+using schematic::Rotation;
+using schematic::Scene;
 
 const std::string kGround(schematic::kGroundNet);
 
@@ -50,31 +56,73 @@ Bench::Config wiring(Multimeter::Mode mode)
     return bench;
 }
 
+PlacedPart part(ComponentKind kind, std::string designator, std::string value, Point at,
+                Rotation rotation = Rotation::R0)
+{
+    return {kind, std::move(designator), std::move(value), {at, rotation, false}};
+}
+
+Example make(std::string name, Scene scene, Bench::Config bench)
+{
+    Example example{std::move(name), std::move(scene), {}, std::move(bench)};
+    example.circuit = schematic::convert(example.scene).circuit;
+    return example;
+}
+
+// A filter: `series` from `in` to `out`, `shunt` from `out` to ground, as drawn:
+//
+//     in o----[series]----o out
+//                         |
+//                      [shunt]
+//                         |
+//                        GND
+Scene filter(PlacedPart series, PlacedPart shunt)
+{
+    series.placement = {{4, 0}, Rotation::R0, false}; // pins (2, 0), (6, 0)
+    shunt.placement = {{8, 2}, Rotation::R90, false}; // pins (8, 0), (8, 4)
+    Scene scene;
+    scene.parts = {std::move(series), std::move(shunt),
+                   part(ComponentKind::Ground, "", "", {8, 6})};
+    scene.wires = {{{0, 0}, {2, 0}}, {{6, 0}, {8, 0}}, {{8, 4}, {8, 6}}};
+    scene.labels = {{"in", {0, 0}}, {"out", {8, 0}}};
+    return scene;
+}
+
+// The divider: V1 on the left, R1 across the top, R2 down the right, ground along the bottom.
+Scene divider()
+{
+    Scene scene;
+    scene.parts = {
+        part(ComponentKind::VoltageSource, "V1", "5", {0, 2}),              // pins (0,0), (0,4)
+        part(ComponentKind::Resistor, "R1", "10k", {4, 0}),                 // pins (2,0), (6,0)
+        part(ComponentKind::Resistor, "R2", "10k", {8, 2}, Rotation::R90), // pins (8,0), (8,4)
+        part(ComponentKind::Ground, "", "", {4, 6}),
+    };
+    scene.wires = {{{0, 0}, {2, 0}}, {{6, 0}, {8, 0}}, {{0, 4}, {0, 6}}, {{0, 6}, {8, 6}},
+                   {{8, 4}, {8, 6}}};
+    scene.labels = {{"in", {1, 0}}, {"out", {7, 0}}};
+    return scene;
+}
+
 } // namespace
 
 std::vector<Example> examples()
 {
-    Example lowPass{"RC low-pass", {}, wiring(Multimeter::Mode::AcVoltage)};
-    lowPass.circuit.components = {
-        Component{ComponentKind::Resistor, "R1", {"in", "out"}, "1k"},
-        Component{ComponentKind::Capacitor, "C1", {"out", kGround}, "100n"},
-    };
+    Example lowPass = make("RC low-pass",
+                           filter(part(ComponentKind::Resistor, "R1", "1k", {}),
+                                  part(ComponentKind::Capacitor, "C1", "100n", {})),
+                           wiring(Multimeter::Mode::AcVoltage));
 
-    Example divider{"Voltage divider", {}, wiring(Multimeter::Mode::DcVoltage)};
-    divider.bench.generators[0].plus.clear(); // on the bench, not connected
-    divider.circuit.components = {
-        Component{ComponentKind::VoltageSource, "V1", {"in", kGround}, "5"},
-        Component{ComponentKind::Resistor, "R1", {"in", "out"}, "10k"},
-        Component{ComponentKind::Resistor, "R2", {"out", kGround}, "10k"},
-    };
+    Bench::Config dividerBench = wiring(Multimeter::Mode::DcVoltage);
+    dividerBench.generators[0].plus.clear(); // on the bench, not connected
+    Example dividerExample = make("Voltage divider", divider(), dividerBench);
 
-    Example highPass{"RC high-pass", {}, wiring(Multimeter::Mode::AcVoltage)};
-    highPass.circuit.components = {
-        Component{ComponentKind::Capacitor, "C1", {"in", "out"}, "100n"},
-        Component{ComponentKind::Resistor, "R1", {"out", kGround}, "1k"},
-    };
+    Example highPass = make("RC high-pass",
+                            filter(part(ComponentKind::Capacitor, "C1", "100n", {}),
+                                   part(ComponentKind::Resistor, "R1", "1k", {})),
+                            wiring(Multimeter::Mode::AcVoltage));
 
-    return {lowPass, divider, highPass};
+    return {lowPass, dividerExample, highPass};
 }
 
 } // namespace proton::bench

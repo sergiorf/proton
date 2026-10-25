@@ -70,7 +70,8 @@ A change that needs to break one of these rules needs an ADR first.
 - The app has smoke tests only (`app_starts` opens the main window and closes it;
   `app_runs_examples` runs every example in turn and checks the meter's display;
   `app_panel_controls` operates every scope, multimeter and generator control with real input
-  events; `app_generator_latency` times a generator knob to the scope's first new frame). Logic
+  events; `app_generator_latency` times a generator knob to the scope's first new frame;
+  `app_draws_divider` draws the voltage divider on the sheet and checks its reading). Logic
   goes below `src/app`, where it is tested without Qt.
 - The app is built with `QT_NO_KEYWORDS`: write `Q_SIGNALS`, `Q_SLOTS` and `Q_EMIT`, since Qt's
   `signals` macro would clash with names in the Qt-free libraries (`SimChunk::signals`).

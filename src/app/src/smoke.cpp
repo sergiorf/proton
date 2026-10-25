@@ -8,6 +8,7 @@
 #include "panel/lit_button.h"
 #include "panel/selector_widget.h"
 #include "scope_panel.h"
+#include "schematic/schematic_view.h"
 #include "scope_widget.h"
 
 #include "proton/instruments/knob.h"
@@ -391,6 +392,51 @@ void smokeLatency(MainWindow& window)
         }
     });
     timer->start(1); // check often: this is a timing
+}
+
+void smokeEditor(MainWindow& window)
+{
+    using schematic::ComponentKind;
+    using schematic::Rotation;
+    window.loadExample(1); // the divider's bench: dmm1 on `out`, DC V
+    sheet::SchematicView& sheet = window.sheet();
+    sheet.clearSheet();
+    sheet.placePart(ComponentKind::VoltageSource, {0, 2});                 // V1: (0,0), (0,4)
+    sheet.placePart(ComponentKind::Resistor, {4, 0}, Rotation::R0, "10k");  // R1: (2,0), (6,0)
+    sheet.placePart(ComponentKind::Resistor, {8, 2}, Rotation::R90, "10k"); // R2: (8,0), (8,4)
+    sheet.placePart(ComponentKind::Ground, {4, 6});
+    sheet.drawWire({0, 0}, {2, 0});
+    sheet.drawWire({6, 0}, {8, 0});
+    sheet.drawWire({0, 4}, {0, 6});
+    sheet.drawWire({0, 6}, {8, 6});
+    sheet.drawWire({8, 4}, {8, 6});
+    sheet.addLabel("in", {1, 0});
+    sheet.addLabel("out", {7, 0});
+
+    auto* timer = new QTimer(&window);
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
+    QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, clock] {
+        const std::optional<instruments::DmmReading>& reading = window.reading();
+        const QString shown = window.multimeter().displayText() + QLatin1Char(' ') +
+                              window.multimeter().displayUnit();
+        if (reading && shown == QStringLiteral("2.500 V")) {
+            std::printf("proton: the hand-drawn divider reads %s\n", shown.toStdString().c_str());
+            std::fflush(stdout);
+            timer->stop();
+            window.close();
+            return;
+        }
+        const bool late = clock->elapsed() > std::chrono::milliseconds(kExampleTimeout).count();
+        if (late || window.control().state() == bench::RunControl::State::Invalid ||
+            window.control().state() == bench::RunControl::State::Failed) {
+            std::fprintf(stderr, "proton: the hand-drawn divider did not read 2.500 V: %s %s\n",
+                         shown.toStdString().c_str(), window.control().error().c_str());
+            timer->stop();
+            QApplication::exit(1);
+        }
+    });
+    timer->start(16);
 }
 
 } // namespace proton::app

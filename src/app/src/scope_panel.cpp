@@ -119,12 +119,21 @@ void ScopePanel::build()
     triggerLayout->addWidget(auto_, 3, 0);
     triggerLayout->addWidget(normal_, 3, 1);
 
-    auto* controls = new QVBoxLayout;
-    controls->addLayout(runButtons);
-    controls->addWidget(horizontal);
-    controls->addWidget(vertical);
-    controls->addWidget(trigger);
-    controls->addStretch();
+    // Three columns beside the screen, so the panel stays low enough to sit under the schematic.
+    auto* first = new QVBoxLayout;
+    first->addLayout(runButtons);
+    first->addWidget(horizontal);
+    first->addStretch();
+    auto* second = new QVBoxLayout;
+    second->addWidget(vertical);
+    second->addStretch();
+    auto* third = new QVBoxLayout;
+    third->addWidget(trigger);
+    third->addStretch();
+    auto* controls = new QHBoxLayout;
+    controls->addLayout(first);
+    controls->addLayout(second);
+    controls->addLayout(third);
 
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(14, 14, 14, 14);

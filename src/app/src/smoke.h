@@ -27,4 +27,10 @@ void smokePanel(MainWindow& window);
 // ADR 0005 holds the numbers from a quiet machine.
 void smokeLatency(MainWindow& window);
 
+// Loads the voltage divider for its bench (the multimeter on `out`, DC V), clears the sheet and
+// draws the divider again with the editor's own operations, as a student would by hand (PLAN.md
+// M4.2): V1, R1, R2 and ground placed, wires routed between pins, `in` and `out` labelled. Passes
+// when the multimeter then reads 2.500 V, as on the built-in divider.
+void smokeEditor(MainWindow& window);
+
 } // namespace proton::app

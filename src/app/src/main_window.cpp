@@ -4,10 +4,13 @@
 #include "generator_panel.h"
 #include "multimeter_panel.h"
 #include "scope_panel.h"
+#include "schematic/schematic_view.h"
 #include "scope_widget.h"
 
 #include "proton/bench/engines.h"
 #include "proton/core/version.h"
+#include "proton/schematic/scene.h"
+#include "proton/schematic/validate.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -21,6 +24,7 @@
 #include <QStatusBar>
 #include <QString>
 #include <QStringList>
+#include <QToolBar>
 
 #include <chrono>
 #include <string>
@@ -48,17 +52,22 @@ MainWindow::MainWindow(QWidget* parent)
     setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
     setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
 
+    // The schematic in the middle, the scope along the bottom, the meter and generator on the
+    // right: the circuit in front of the student with the instruments around it.
+    sheet_ = new sheet::SchematicView(this);
+    setCentralWidget(sheet_);
+    connect(sheet_, &sheet::SchematicView::edited, this, &MainWindow::applyScene);
+
     status_ = new QLabel(this);
-    status_->setAlignment(Qt::AlignCenter);
     status_->setTextFormat(Qt::PlainText);
-    setCentralWidget(status_);
+    statusBar()->addWidget(status_, 1);
 
     scope_ = new ScopePanel(this);
     auto* scopeDock = new QDockWidget(tr("Oscilloscope"), this);
     scopeDock->setObjectName(QStringLiteral("scope"));
     scopeDock->setWidget(scope_);
-    addDockWidget(Qt::TopDockWidgetArea, scopeDock);
-    resizeDocks({scopeDock}, {640}, Qt::Vertical);
+    addDockWidget(Qt::BottomDockWidgetArea, scopeDock);
+    resizeDocks({scopeDock}, {400}, Qt::Vertical);
     connect(scope_, &ScopePanel::changed, this, &MainWindow::applyScope);
     connect(scope_, &ScopePanel::armed, this, [this] { control_.bench().rearmScope(0); });
 
@@ -78,7 +87,15 @@ MainWindow::MainWindow(QWidget* parent)
     connect(generator_, &GeneratorPanel::changed, this, &MainWindow::applyGenerator);
 
     QMenu* file = menuBar()->addMenu(tr("&File"));
+    QAction* newSheet = file->addAction(tr("&New sheet"), this, [this] {
+        sheet_->clearSheet();
+        sheet_->setTool(sheet::SchematicView::Tool::Select);
+    });
+    newSheet->setShortcut(QKeySequence::New);
+    file->addSeparator();
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
+
+    buildToolBar();
     quit->setShortcut(QKeySequence::Quit);
 
     QMenu* examples = menuBar()->addMenu(tr("&Examples"));
@@ -95,11 +112,6 @@ MainWindow::MainWindow(QWidget* parent)
     // Qt's own dialog names the Qt version and its license, as the LGPL asks (LICENSING.md).
     help->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
 
-    if (!bench::haveNgspice()) {
-        statusBar()->showMessage(tr("This build has no simulator: examples will not run."));
-    } else {
-        statusBar()->showMessage(tr("Ready"));
-    }
     clock_.start();
     // Precise: on Windows a coarse 16 ms timer lands on the 15.6 ms system tick and fires every
     // other tick, halving the frame rate (ADR 0004).
@@ -134,8 +146,8 @@ void MainWindow::loadExample(std::size_t index)
                               generator.com.empty() ? QString() : text(generator.plus));
     }
     control_.bench().configure(bench);
-    control_.setCircuit(examples_[index].circuit);
-    control_.start();
+    sheet_->setScene(examples_[index].scene);
+    applyScene();
     pump();
 }
 
@@ -171,6 +183,64 @@ void MainWindow::applyGenerator()
     control_.bench().configure(config);
 }
 
+void MainWindow::buildToolBar()
+{
+    using Tool = sheet::SchematicView::Tool;
+    QToolBar* tools = addToolBar(tr("Schematic"));
+    tools->setObjectName(QStringLiteral("schematic-tools"));
+    auto* group = new QActionGroup(this);
+    const auto tool = [&](const QString& name, const QString& tip, const QKeySequence& key,
+                          auto choose) {
+        QAction* action = tools->addAction(name, this, choose);
+        action->setToolTip(tip);
+        action->setShortcut(key);
+        action->setCheckable(true);
+        group->addAction(action);
+        return action;
+    };
+    tool(tr("Select"), tr("Select, move (drag), turn (R), delete (Del); double-click to edit"),
+         QKeySequence(Qt::Key_S), [this] { sheet_->setTool(Tool::Select); })
+        ->setChecked(true);
+    tool(tr("Wire"), tr("Click where the wire starts, then where it bends or ends"),
+         QKeySequence(Qt::Key_W), [this] { sheet_->setTool(Tool::Wire); });
+    tool(tr("Label"), tr("Click a net to name it"), QKeySequence(Qt::Key_L),
+         [this] { sheet_->setTool(Tool::Label); });
+    tools->addSeparator();
+    using schematic::ComponentKind;
+    const auto part = [&](const QString& name, ComponentKind kind) {
+        tool(name, tr("Place a %1: click to place, R to turn").arg(name.toLower()), QKeySequence(),
+             [this, kind] { sheet_->placeKind(kind); });
+    };
+    part(tr("Resistor"), ComponentKind::Resistor);
+    part(tr("Capacitor"), ComponentKind::Capacitor);
+    part(tr("Inductor"), ComponentKind::Inductor);
+    part(tr("Voltage source"), ComponentKind::VoltageSource);
+    part(tr("Current source"), ComponentKind::CurrentSource);
+    part(tr("Ground"), ComponentKind::Ground);
+}
+
+// The drawing changed: simulate the circuit it draws. A drawing the conversion rejects (two labels
+// on one net) does not run; the status says why.
+void MainWindow::applyScene()
+{
+    const schematic::Conversion conversion = schematic::convert(sheet_->scene());
+    sceneError_.clear();
+    for (const schematic::Diagnostic& diagnostic : conversion.diagnostics) {
+        if (diagnostic.severity == schematic::Severity::Error) {
+            sceneError_ = diagnostic.message;
+            break;
+        }
+    }
+    if (!sceneError_.empty()) {
+        control_.stop();
+        showStatus();
+        return;
+    }
+    control_.setCircuit(conversion.circuit);
+    control_.start();
+    showStatus();
+}
+
 long long MainWindow::framesShown() const
 {
     return scope_->framesShown();
@@ -200,15 +270,21 @@ void MainWindow::pump()
 
 void MainWindow::showStatus()
 {
+    if (!bench::haveNgspice()) {
+        status_->setText(tr("This build has no simulator: circuits will not run."));
+        return;
+    }
     if (!example_) {
-        status_->setText(tr("The bench is empty. Choose a circuit from the Examples menu."));
+        status_->setText(
+            tr("Draw a circuit, or choose one from the Examples menu. The instruments are wired "
+               "to the nets labelled in and out."));
         return;
     }
     QStringList lines;
     lines << text(examples_[*example_].name);
     switch (control_.state()) {
     case bench::RunControl::State::Idle:
-        lines << tr("Stopped");
+        lines << (sceneError_.empty() ? tr("Stopped") : text(sceneError_));
         break;
     case bench::RunControl::State::Invalid:
         lines << tr("The circuit cannot be simulated: %1").arg(text(control_.error()));
@@ -233,7 +309,7 @@ void MainWindow::showStatus()
                  .arg(frameRate_, 0, 'f', 0)
                  .arg(scope_->screen().meanPaintMs(), 0, 'f', 2);
     lines << tr("Restarts: %1").arg(control_.restarts());
-    status_->setText(lines.join(QLatin1Char('\n')));
+    status_->setText(lines.join(QStringLiteral("   \u00b7   ")));
 }
 
 void MainWindow::showAbout()
