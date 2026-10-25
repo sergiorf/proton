@@ -205,10 +205,9 @@ Conversion convert(const Scene& scene)
     std::map<std::size_t, Net> nets;
     for (std::size_t id = 0; id < points.size(); ++id) {
         const std::size_t root = points.root(id);
-        const auto [it, inserted] = nets.try_emplace(root, Net{points.point(id)});
-        if (!inserted) {
-            it->second.smallest = std::min(it->second.smallest, points.point(id));
-        }
+        const auto [it, inserted] = nets.try_emplace(root);
+        Net& net = it->second;
+        net.smallest = inserted ? points.point(id) : std::min(net.smallest, points.point(id));
     }
     for (std::size_t i = 0; i < scene.parts.size(); ++i) {
         for (const std::size_t pin : partPins[i]) {
