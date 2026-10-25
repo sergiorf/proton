@@ -261,7 +261,7 @@ trigger source / level / slope / mode, Run / Stop / Single.
 *Done when:* every knob changes the display as on a real scope, and the trace stays stable at
 60 frames per second on the RC example (with the time model from D6).
 
-**M2.4 Front-panel widgets.** The instruments look like generic bench instruments (ROADMAP.md):
+**M2.4 Front-panel widgets.** *(done 2026-10-25)* The instruments look like generic bench instruments (ROADMAP.md):
 a front panel per instrument, drawn with `QPainter` and scaling with its dock. Widgets: a rotary
 knob (drag, mouse wheel and keyboard; detented for stepped settings such as the 1-2-5 sequence,
 continuous for position and level, with push-to-reset where a real knob has it), a lit push
