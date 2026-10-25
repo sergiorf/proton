@@ -136,8 +136,10 @@ A real bench has any number of instruments. The glue between engine, circuit and
 Qt-free library, `src/bench`, tested headlessly and shared by the app and the tools:
 
 - `Bench` owns a list of instrument **instances** (kind, unique name, settings) and their
-  **connections**: scope channels and multimeter inputs bind to nets (probes, measured against
-  ground "0" at first); a generator or supply attaches its output to a net.
+  **connections**: a net per instrument terminal. Instruments are parts on the schematic, wired to
+  the circuit like components (ADR 0009), so their terminals get nets the same way pins do: the
+  scope's `CH1` and `CH2` measure against ground; the multimeter reads between `+` and `COM`; a
+  generator or supply drives between its output terminals.
 - Before a run, `Bench::contributeTo(Circuit&)` adds every source instrument's `Fragment` under a
   unique name (`gen1`, `gen2`, ...).
 - After the engine loads, `Bench::attach(signalNames)` resolves each probe's net to a signal and
@@ -148,11 +150,12 @@ Qt-free library, `src/bench`, tested headlessly and shared by the app and the to
   simulation time relates to wall-clock time (section 4).
 - Instrument settings stay plain-data structs, so the bench can be serialised into the project
   file without touching the models.
-- The UI is a thin view: one dockable panel per instance, each bound to a bench instrument id.
+- The UI is a thin view: an instrument symbol on the schematic, and one front panel per
+  instance, opened from the symbol, each bound to a bench instrument id.
 
 `bench` uses `core`, `instruments`, `schematic` and, from `sim`, the worker, `SimChunk` and
-`indexOfSignal`. `instruments` still does not depend on `sim`. Measurements are single-ended
-(relative to ground) at first; differential probes come later.
+`indexOfSignal`. `instruments` still does not depend on `sim`. Scope channels are single-ended
+(relative to ground) at first, differential probes come later; the multimeter is differential.
 
 ## 6. Oscilloscope signal path
 
@@ -185,6 +188,8 @@ give the details.
 `Circuit` holds components (kind, designator, nets, value text) and opaque `Fragment`s (SPICE lines
 from instruments). It is plain data compared by value and deliberately contains no UI data:
 positions and symbols belong to the editor's scene model, which is *converted* into a `Circuit`.
+Instruments are parts of the scene but not of `Circuit`: the conversion reports the net of each
+instrument terminal, and source instruments come back in as `Fragment`s from the bench (ADR 0009).
 This keeps it serialisable, testable without a GUI, and open to transformations such as hidden
 faults (section 12).
 
@@ -248,16 +253,18 @@ failure and reports the engine's message. A failing simulation never takes down 
 - Qt 6 **Widgets**, custom `QPainter` drawing for the scope and meter displays (no Qt Charts: see
   ADR 0004). QML or `QRhi` can be revisited if rendering becomes a bottleneck.
 - **Schematic editor**: `QGraphicsScene`/`QGraphicsView` with its own scene model, converted to a
-  `Circuit` for simulation. Undo/redo with `QUndoStack`.
-- **Bench**: dockable instrument panels (faceplate widget + display widget), each bound to one
-  instrument instance of the `Bench` model (section 5.1). The app owns the UI timer that pumps the
+  `Circuit` for simulation. Instruments are placed and wired on it like parts (ADR 0009). Undo/redo
+  with `QUndoStack`.
+- **Bench**: instrument front panels (faceplate widget + display widget) in docks that can float,
+  opened by double-clicking the instrument on the schematic, each bound to one instrument instance
+  of the `Bench` model (section 5.1). The app owns the UI timer that pumps the
   bench; it holds no simulation logic of its own.
-- **Project files**: versioned JSON holding the scene, instrument settings and probe connections.
+- **Project files**: versioned JSON holding the scene, instruments included, and their settings.
 
 ## 12. Extension points
 
 - **New instrument:** model class in `src/instruments` following section 5, tests first, then a
-  faceplate in `src/app`.
+  front panel and an original schematic symbol with its terminals in `src/app`.
 - **New engine:** implement `ISimEngine`; nothing else changes.
 - **New component:** extend `ComponentKind`, `validate()` and `buildNetlist()` with a test; ship
   an original model, never a vendor model (see `docs/LICENSING.md`).
