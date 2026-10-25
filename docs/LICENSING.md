@@ -106,6 +106,14 @@ licenses that forbid redistribution or modification, and the models are generic 
 student learns the behaviour rather than one part number. When a model is added (M5), its
 parameters are listed here as original.
 
+## Artwork
+
+The app icon (`src/app/resources/proton.png` and `proton.ico`) was generated with Claude for the
+copyright holder, who holds the rights to it under Anthropic's terms and ships it under Proton's
+licenses. It is not a third-party asset. Purely AI-generated images may not be protected by
+copyright everywhere; that limits what Proton can stop others doing with the icon, not what Proton
+may do with it.
+
 ## Packaging checklist
 
 A Proton package (M5.5) contains:

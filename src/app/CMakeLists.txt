@@ -5,8 +5,17 @@ add_executable(proton WIN32
     src/main.cpp
     src/main_window.cpp
     src/main_window.h
+    src/scope_panel.cpp
+    src/scope_panel.h
+    src/scope_widget.cpp
+    src/scope_widget.h
+    resources/resources.qrc
 )
-set_target_properties(proton PROPERTIES AUTOMOC ON)
+# The app's icon: proton.png for the window (Qt resource), proton.ico for the executable.
+if(WIN32)
+    target_sources(proton PRIVATE resources/proton.rc)
+endif()
+set_target_properties(proton PROPERTIES AUTOMOC ON AUTORCC ON)
 target_link_libraries(proton PRIVATE proton::bench proton::core Qt6::Widgets proton_warnings)
 # The examples run on ngspice, loaded from the executable's directory.
 if(PROTON_NGSPICE_FOUND)

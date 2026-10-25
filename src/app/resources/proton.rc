@@ -1,0 +1,3 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// The icon of proton.exe, shown by Explorer and the taskbar.
+IDI_ICON1 ICON "proton.ico"
