@@ -320,7 +320,7 @@ first user-named nets, so `validate()` now rejects the names the ngspice engine 
 into the expected nets and instrument connections, and a reserved name and an unconnected
 instrument terminal are diagnostics.
 
-**M4.2 Editor view.** `QGraphicsScene` / `QGraphicsView`: grid with snapping, place, move, rotate,
+**M4.2 Editor view.** *(done 2026-10-26)* `QGraphicsScene` / `QGraphicsView`: grid with snapping, place, move, rotate,
 delete, draw wires, edit values; original component symbols, and original, brand-neutral
 instrument symbols with labelled terminals.
 *Done when:* the voltage divider and RC examples can be drawn by hand and simulate like the
