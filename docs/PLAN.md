@@ -28,7 +28,7 @@ says in what order things get built and how each step is known to be done.
 | M1 ngspice | Real simulation, validated against analytic answers; latency measured; time model decided | M0 |
 | M2 First UI | Qt-free bench core; Qt app: 2-channel scope, multimeter, generator with realistic front panels, on built-in example circuits | M1 |
 | M3 Bench model | Any number of instruments, DC supply, DMM current and resistance | M2 |
-| M4 Schematic editor | Draw circuits, probe them, save and load projects | M3 |
+| M4 Schematic editor | Draw circuits, place and wire instruments on them, save and load projects | M3 |
 | M5 Components and release | Full MVP component set, acceptance suite, Windows package | M4 |
 
 After M5 the MVP "done when" list in the roadmap holds and a zip can be handed to a student.
@@ -294,13 +294,18 @@ channels, sweep the generator, read -3 dB on the multimeter.
 
 Implements ARCHITECTURE.md section 5.1 and the remaining MVP instruments.
 
-**M3.1 Any number of instruments.** Generalise the M2.2 bench: a list of instrument instances with
-unique names, connections to nets, per-instance frames and readings; `validate()` rejects duplicate
-element names across fragments of several instruments.
-*Done when:* headless bench tests cover two scopes and two meters on one circuit, and the app
-behaves as in M2.
+**M3.1 Any number of instruments.** Generalise the M2.2 bench to instrument instances as ADR 0009
+(decision D10) defines them: a kind, a unique instance name (`scope1`, `dmm1`, `gen1`), settings,
+and a net per terminal. The scope's `CH1` and `CH2` measure against ground; the multimeter reads
+between `+` and `COM`; the generator drives between `+` and `COM`. Per-instance frames and readings;
+`validate()` rejects duplicate names across instances, designators and fragments.
+*Done when:* headless bench tests cover two scopes and two meters on one circuit, a meter between
+two nets neither of which is ground, and a generator whose `COM` is not ground; and the app behaves
+as in M2.
 
-**M3.2 Instrument panels.** Add and remove instrument instances; one dockable panel per instance.
+**M3.2 Instrument panels.** One front panel per instance (the M2.4 widgets), in a dock that can
+float. Until the editor places instruments (M4.4), instances are added and removed from an
+Instruments menu and their panels opened from it.
 *Done when:* two scopes and two meters can be open at once, each bound to its own instance.
 
 **M3.3 DC power supply.** Two channels, set voltage, output on/off, current limit as a plain value:
@@ -326,9 +331,11 @@ off and otherwise shows "power off to measure", which is also correct practice o
 *Done when:* series, parallel and divider networks read their analytic resistance, and the
 powered case behaves as decided in D4.
 
-**M3.6 Probe binding by net name.** Pick a net for each scope channel, meter input and source
-output from the circuit's net list; errors from `attach` are shown in the panel.
-*Done when:* binding a probe to a missing net shows a clear message instead of a flat line.
+**M3.6 Instrument connections on the panel.** Until the editor, the examples wire instruments in
+code (ADR 0009); each panel shows which net each of its terminals is on, and the errors from
+`attach` for terminals on nets the circuit does not have.
+*Done when:* a terminal on a missing net shows a clear message on its panel instead of a flat
+line.
 
 **M3 exit check:** on the voltage divider example, power it from the supply, measure V, I and R
 with the multimeter, and watch two nodes on the scope.
@@ -336,24 +343,29 @@ with the multimeter, and watch two nodes on the scope.
 ## M4 Schematic editor and project files
 
 **M4.1 Scene model.** Plain data, Qt-free, in `src/schematic`: placed parts (position, rotation,
-mirror), wires, junctions, labels. Conversion from scene to `Circuit` extracts nets from connected
-wires and pins. Net labels are the first user-named nets, so `validate()` now rejects the names
-the ngspice engine reserves (`Vproton_halt`, `proton_halt`, ADR 0005).
-*Done when:* headless tests convert scenes with crossings, junctions and labels into the expected
-nets, and a reserved name is a diagnostic.
+mirror), wires, junctions, labels, and instrument parts with their terminals (ADR 0009). Conversion
+from scene to `Circuit` extracts nets from connected wires and pins, and gives each instrument
+terminal its net the same way; an instrument terminal with no wire is a warning. Net labels are the
+first user-named nets, so `validate()` now rejects the names the ngspice engine reserves
+(`Vproton_halt`, `proton_halt`, ADR 0005).
+*Done when:* headless tests convert scenes with crossings, junctions, labels and wired instruments
+into the expected nets and instrument connections, and a reserved name and an unconnected
+instrument terminal are diagnostics.
 
 **M4.2 Editor view.** `QGraphicsScene` / `QGraphicsView`: grid with snapping, place, move, rotate,
-delete, draw wires, edit values; original component symbols.
+delete, draw wires, edit values; original component symbols, and original, brand-neutral
+instrument symbols with labelled terminals.
 *Done when:* the voltage divider and RC examples can be drawn by hand and simulate like the
 built-in ones.
 
 **M4.3 Undo and redo.** `QUndoStack` commands for every edit.
 *Done when:* any sequence of edits undoes back to the empty sheet and redoes to the same scene.
 
-**M4.4 Probe tool and instrument wiring.** Click a net to attach a scope channel, meter input or
-source output; the series ammeter is placed as a part in the scene.
-*Done when:* every instrument connection from M3 can be made in the editor without typing a net
-name.
+**M4.4 Instruments on the sheet.** Place instruments from the parts list and wire their terminals
+like any part (ADR 0009); double-clicking an instrument opens its front panel, deleting it removes
+the instrument and its panel. Measuring current means wiring the multimeter in series.
+*Done when:* every instrument connection from M3 can be made by wiring on the sheet, without
+typing a net name, and each instrument's panel opens from its symbol.
 
 **M4.5 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.
@@ -443,3 +455,4 @@ complete every circuit on the roadmap's list with the bench instruments.
 | D7 | Live changes that keep the circuit's state (switch, potentiometer) | Proposed: `alter` on the running simulation; the generator keeps restarting | open | M4.7 |
 | D8 | Analyses beyond transient; ngspice in a helper process | Proposed: decide together in an ADR at the start of M3.5 | open | M3.5 |
 | D9 | Linux libngspice for sanitizer CI | The pinned ngspice 46 built from source in CI, cached, not shipped (ADR 0008) | decided | M1.8 |
+| D10 | How instruments connect to the circuit | As parts on the schematic, wired to their terminals, front panel opened from the symbol (Multisim's way, ADR 0009) | decided | M3.1 |

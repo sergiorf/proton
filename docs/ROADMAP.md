@@ -16,7 +16,9 @@ saturates at its rails and a diode drops about 0.6 V, otherwise circuits teach t
 The instruments look like generic bench instruments, because recognising a real bench is part of
 what a student learns: a front panel with a screen, labelled sections, rotary knobs that step
 like real ones (1-2-5 for time/div and V/div) and lit buttons. The styling is original and
-brand-neutral: no manufacturer's layout, logo or trade dress (PLAN.md, M2.4).
+brand-neutral: no manufacturer's layout, logo or trade dress (PLAN.md, M2.4). Instruments sit on
+the schematic as parts, wired to the circuit through their terminals, and double-clicking one opens
+its front panel (ADR 0009).
 
 | Instrument | MVP scope | State |
 |---|---|---|

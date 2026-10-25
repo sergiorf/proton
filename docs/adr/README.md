@@ -15,5 +15,6 @@ free number.
 | [0006](0006-licensing.md) | Licensing: AGPL-3.0-only plus a commercial license | accepted |
 | [0007](0007-time-model.md) | Time model: pacing, maximum step, endless runs (decision D6) | accepted |
 | [0008](0008-ngspice-on-linux-ci.md) | ngspice on Linux for the sanitizer CI jobs (decision D9) | accepted |
+| [0009](0009-instruments-on-the-schematic.md) | Instruments as parts on the schematic (decision D10) | accepted |
 
 Numbers are reserved in the order of [PLAN.md](../PLAN.md), so some are written before others.
