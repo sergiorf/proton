@@ -255,7 +255,7 @@ does not simulate: the mock engine ignores the circuit, so it stays in tests and
 *Done when:* headless bench tests cover a run, a restart and a missing net; choosing an example in
 the app runs it, and switching examples restarts cleanly.
 
-**M2.3 ScopeWidget and faceplate.** ADR 0004 (custom `QPainter`, no Qt Charts). Graticule, two
+**M2.3 ScopeWidget and faceplate.** *(done 2026-10-25)* ADR 0004 (custom `QPainter`, no Qt Charts). Graticule, two
 traces, trigger level and position markers; faceplate with time/div, V/div, position, coupling,
 trigger source / level / slope / mode, Run / Stop / Single.
 *Done when:* every knob changes the display as on a real scope, and the trace stays stable at
