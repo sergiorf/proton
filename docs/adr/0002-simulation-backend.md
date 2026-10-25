@@ -101,6 +101,13 @@ by scratch probes calling the DLL directly.
   fatal netlist, each followed by a valid run, without a failure. `ngSpice_Reset()` alone,
   without the reload, crashes the next run (access violation), so it is only a clean-up before
   freeing the DLL.
+- **Waiting for ngspice's thread to exit.** `bg_halt` and the `BGThreadRunning` callback say the
+  background thread has ended, but ngspice detaches the thread, so it may still be returning
+  through the library's code. Resetting and freeing the library under it crashed the reload tests
+  on every run when pinned to one core, and once in a while in the Linux ASan CI job. The engine
+  notes each thread when it reports its end and, before `ngSpice_Reset()`, waits up to 2 s for it
+  to exit (a thread handle on Windows, `/proc/self/task` on Linux); otherwise ngspice stays dead.
+  On Linux CI the reload tests also run pinned to one core (`ngspice_reload_one_core`).
 - **Memory per reload.** `ngspice.dll` links its C runtime statically, and that runtime allocates
   from the process heap, so whatever ngspice has not freed stays when the DLL goes. Freeing the
   DLL alone left about 125 KiB per reload; with `ngSpice_Reset()` first, 3 to 4.5 KiB per
