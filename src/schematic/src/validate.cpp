@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/schematic/validate.h"
 
+#include "proton/core/reserved_names.h"
 #include "proton/core/spice_number.h"
 #include "spice_line.h"
 
@@ -143,6 +144,7 @@ public:
         checkDuplicates();
         checkTerminals();
         checkNetNames();
+        checkReservedNames();
         checkValues();
         checkFragmentLines();
         checkConnectivity();
@@ -289,6 +291,41 @@ private:
         }
     }
 
+    // The simulator's own source and node (core/reserved_names.h): a circuit using them would
+    // clash with what the engine adds. Names ignore case.
+    void checkReservedNames()
+    {
+        const std::string source = lower(core::kReservedSource);
+        const std::string node = lower(core::kReservedNode);
+        for (const Element& element : elements_) {
+            if (lower(element.name) == source) {
+                report(Severity::Error, DiagnosticCode::ReservedName, element.name, {},
+                       "The name '" + element.name +
+                           "' is reserved for the simulator. Choose another one.");
+            }
+        }
+        std::set<std::string> reported;
+        const auto check = [&](const std::string& element, const std::string& net) {
+            if (lower(net) == node && reported.insert(lower(net)).second) {
+                report(Severity::Error, DiagnosticCode::ReservedName, element, net,
+                       "The net name '" + net +
+                           "' is reserved for the simulator. Choose another one.");
+            }
+        };
+        for (const Element& element : elements_) {
+            for (const std::string& net : element.nets) {
+                check(element.name, net);
+            }
+        }
+        for (const Component& component : circuit_.components) {
+            if (component.kind == ComponentKind::Ground) {
+                for (const std::string& net : component.nets) {
+                    check(component.designator, net);
+                }
+            }
+        }
+    }
+
     void checkValues()
     {
         for (const Component& component : circuit_.components) {
@@ -394,6 +431,8 @@ std::string_view codeName(DiagnosticCode code)
         return "InvalidTerminals";
     case DiagnosticCode::InvalidNetName:
         return "InvalidNetName";
+    case DiagnosticCode::ReservedName:
+        return "ReservedName";
     case DiagnosticCode::InvalidValue:
         return "InvalidValue";
     case DiagnosticCode::ZeroValue:
@@ -404,6 +443,10 @@ std::string_view codeName(DiagnosticCode code)
         return "SingleConnectionNet";
     case DiagnosticCode::NoDcPathToGround:
         return "NoDcPathToGround";
+    case DiagnosticCode::UnconnectedTerminal:
+        return "UnconnectedTerminal";
+    case DiagnosticCode::ConflictingLabels:
+        return "ConflictingLabels";
     }
     return "Unknown";
 }

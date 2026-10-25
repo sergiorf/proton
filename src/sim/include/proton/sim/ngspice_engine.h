@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 
+#include "proton/core/reserved_names.h"
 #include "proton/sim/sim_engine.h"
 
 #include <atomic>
@@ -65,8 +66,8 @@ public:
     static constexpr std::size_t kMinQueueCapacity = 1; // points
     static constexpr std::size_t kMaxQueueCapacity = std::size_t{1} << 20;
     // The source and node the engine adds to halt ngspice: no netlist may use these names.
-    static constexpr const char* kHaltSource = "Vproton_halt";
-    static constexpr const char* kHaltNode = "proton_halt";
+    static constexpr const char* kHaltSource = core::kReservedSource;
+    static constexpr const char* kHaltNode = core::kReservedNode;
 
     struct Config
     {

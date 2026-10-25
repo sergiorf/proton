@@ -2,6 +2,7 @@
 add_executable(proton_schematic_tests
     test_circuit.cpp
     test_netlist.cpp
+    test_scene.cpp
     test_validate.cpp
 )
 target_link_libraries(proton_schematic_tests
