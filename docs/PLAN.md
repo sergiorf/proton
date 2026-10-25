@@ -310,7 +310,7 @@ as in M2.
 
 ## M4 Schematic editor and project files
 
-**M4.1 Scene model.** Plain data, Qt-free, in `src/schematic`: placed parts (position, rotation,
+**M4.1 Scene model.** *(done 2026-10-25)* Plain data, Qt-free, in `src/schematic`: placed parts (position, rotation,
 mirror), wires, junctions, labels, and instrument parts with their terminals (ADR 0009). Conversion
 from scene to `Circuit` extracts nets from connected wires and pins, and gives each instrument
 terminal its net the same way; an instrument terminal with no wire is a warning. Net labels are the
