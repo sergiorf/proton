@@ -36,9 +36,10 @@ class MultimeterPanel : public panel::PanelFace {
 public:
     explicit MultimeterPanel(QWidget* parent = nullptr);
 
-    // Shows `config` and the net of the + input without emitting changed(): after loading an
-    // example. A new configuration clears the display.
-    void setConfig(const instruments::Multimeter::Config& config, const QString& net);
+    // Shows `config` and the nets of the + and COM inputs without emitting changed(): after
+    // loading an example. A new configuration clears the display.
+    void setConfig(const instruments::Multimeter::Config& config, const QString& plus,
+                   const QString& com);
     const instruments::Multimeter::Config& config() const { return config_; }
 
     void showReading(const instruments::DmmReading& reading);
@@ -59,7 +60,6 @@ private:
 
     instruments::Multimeter::Config config_;
     std::optional<instruments::DmmReading> last_;
-    QString net_;
 
     panel::SegmentDisplay* display_ = nullptr;
     panel::SelectorWidget* mode_ = nullptr;

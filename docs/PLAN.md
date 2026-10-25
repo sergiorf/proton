@@ -296,7 +296,7 @@ The bench's instruments as ADR 0009 defines them: named instances with terminals
 schematic editor places and wires. The rest of the instruments come once the editor exists (M5),
 so they are built straight onto the schematic.
 
-**M3.1 Any number of instruments.** Generalise the M2.2 bench to instrument instances as ADR 0009
+**M3.1 Any number of instruments.** *(done 2026-10-25)* Generalise the M2.2 bench to instrument instances as ADR 0009
 (decision D10) defines them: a kind, a unique instance name (`scope1`, `dmm1`, `gen1`), settings,
 and a net per terminal. The scope's `CH1` and `CH2` measure against ground; the multimeter reads
 between `+` and `COM`; the generator drives between `+` and `COM`. Per-instance frames and readings;
@@ -305,7 +305,7 @@ between `+` and `COM`; the generator drives between `+` and `COM`. Per-instance 
 two nets neither of which is ground, and a generator whose `COM` is not ground; and the app behaves
 as in M2.
 
-**M3 exit check:** the RC example runs with two multimeters, one across R1 (between `in` and
+**M3 exit check:** *(met 2026-10-25)* the RC example runs with two multimeters, one across R1 (between `in` and
 `out`) and one on `out`, and both read their analytic values.
 
 ## M4 Schematic editor and project files

@@ -40,16 +40,16 @@ std::size_t positionOf(Multimeter::Mode mode)
     return 0;
 }
 
-// The input jacks: + (red) and COM (black), with the net the + input is on. Measuring against
-// ground for now; COM gets its own net in M3.1 (ADR 0009).
+// The input jacks: + (red) and COM (black), each with the net it is on (ADR 0009).
 class Jacks : public QWidget
 {
 public:
     explicit Jacks(QWidget* parent) : QWidget(parent) {}
 
-    void setNet(const QString& net)
+    void setNets(const QString& plus, const QString& com)
     {
-        net_ = net;
+        plus_ = plus;
+        com_ = com;
         update();
     }
 
@@ -75,7 +75,13 @@ protected:
             painter.setPen(panel::kLettering);
             painter.drawText(QRectF(c.x() - 50, c.y() + r + 2, 100, metrics.height()),
                              Qt::AlignCenter, jacks[i].first);
-            const QString net = i == 0 ? tr("ground") : (net_.isEmpty() ? tr("open") : net_);
+            const QString& on = i == 0 ? com_ : plus_;
+            QString net = on;
+            if (on.isEmpty()) {
+                net = tr("open");
+            } else if (on == QStringLiteral("0")) {
+                net = tr("ground");
+            }
             painter.setPen(panel::kDimLettering);
             painter.drawText(
                 QRectF(c.x() - 60, c.y() + r + 2 + metrics.height(), 120, metrics.height()),
@@ -84,7 +90,8 @@ protected:
     }
 
 private:
-    QString net_;
+    QString plus_;
+    QString com_;
 };
 
 } // namespace
@@ -143,11 +150,11 @@ void MultimeterPanel::build()
     });
 }
 
-void MultimeterPanel::setConfig(const Multimeter::Config& config, const QString& net)
+void MultimeterPanel::setConfig(const Multimeter::Config& config, const QString& plus,
+                                const QString& com)
 {
     config_ = Multimeter::sanitise(config);
-    net_ = net;
-    static_cast<Jacks*>(jacks_)->setNet(net);
+    static_cast<Jacks*>(jacks_)->setNets(plus, com);
     clear();
     showSettings();
 }

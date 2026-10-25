@@ -75,12 +75,20 @@ Circuit rc(const std::string& resistance = "1k")
 Bench::Config wired()
 {
     Bench::Config config;
-    config.generatorNet = "in";
-    config.scope.timePerDiv = 200e-6;
-    config.scope.mode = Scope::Mode::Auto;
-    config.scopeNets = {"in", "out"};
-    config.multimeters = {{Multimeter::Config{}, "out"}};
-    config.multimeters[0].config.gateTime = 10e-3;
+    Bench::GeneratorSettings generator;
+    generator.plus = "in";
+    generator.com = "0";
+    Bench::ScopeSettings scope;
+    scope.config.timePerDiv = 200e-6;
+    scope.config.mode = Scope::Mode::Auto;
+    scope.channels = {"in", "out"};
+    Bench::MultimeterSettings meter;
+    meter.config.gateTime = 10e-3;
+    meter.plus = "out";
+    meter.com = "0";
+    config.generators = {generator};
+    config.scopes = {scope};
+    config.multimeters = {meter};
     return config;
 }
 
@@ -138,7 +146,7 @@ TEST(a_run_feeds_the_bench)
     CHECK_EQ(factory.made, 1);
     CHECK_EQ(factory.lastStep, 2e-6); // one sample at 200 us/div
     CHECK(control.lastTime() >= 0.05 - 1e-5);
-    CHECK(control.bench().popFrame().has_value());
+    CHECK(control.bench().popFrame(0).has_value());
     const std::optional<proton::instruments::DmmReading> reading = control.bench().popReading(0);
     CHECK(reading.has_value());
     CHECK(reading && std::abs(reading->value) < 0.05); // the mock's sine around 0 V
@@ -157,9 +165,9 @@ TEST(changes_between_pumps_restart_once)
     // A circuit change and two generator knobs before the next pump: one restart.
     control.setCircuit(rc("2k"));
     Bench::Config config = control.bench().config();
-    config.generator.frequency = 2e3;
+    config.generators[0].config.frequency = 2e3;
     control.bench().configure(config);
-    config.generator.amplitude = 0.5;
+    config.generators[0].config.amplitude = 0.5;
     control.bench().configure(config);
     control.pump(0.0);
     CHECK_EQ(control.restarts(), 2u);
@@ -183,10 +191,10 @@ TEST(knobs_that_keep_the_step_do_not_restart)
     control.start();
     CHECK(runTo(control, 0.01));
     Bench::Config config = control.bench().config();
-    config.scope.trigger.level = 0.3;
-    config.scope.channels[1].voltsPerDiv = 0.5;
+    config.scopes[0].config.trigger.level = 0.3;
+    config.scopes[0].config.channels[1].voltsPerDiv = 0.5;
     config.multimeters[0].config.mode = Multimeter::Mode::AcVoltage;
-    config.scopeNets = {"out", "in"};
+    config.scopes[0].channels = {"out", "in"};
     control.bench().configure(config);
     CHECK(runTo(control, 0.03));
     CHECK_EQ(control.restarts(), 1u);
@@ -202,7 +210,7 @@ TEST(a_timebase_that_changes_the_step_restarts_with_a_new_engine)
     control.start();
     CHECK(runTo(control, 0.01));
     Bench::Config config = control.bench().config();
-    config.scope.timePerDiv = 1e-3;
+    config.scopes[0].config.timePerDiv = 1e-3;
     control.bench().configure(config);
     control.pump(0.0);
     CHECK_EQ(control.restarts(), 2u);
@@ -234,29 +242,44 @@ TEST(an_invalid_circuit_does_not_run_until_it_is_fixed)
     CHECK(control.error().empty());
 }
 
+TEST(an_instrument_named_like_a_component_does_not_run)
+{
+    Factory factory;
+    RunControl control(factory.get(), unpaced());
+    Bench::Config config = wired();
+    config.multimeters[0].name = "R1";
+    control.bench().configure(config);
+    control.setCircuit(rc());
+    control.start();
+    control.pump(0.0);
+    CHECK(control.state() == RunControl::State::Invalid);
+    CHECK(control.error().find("R1") != std::string::npos);
+    CHECK_EQ(factory.made, 0);
+}
+
 TEST(a_missing_net_is_reported_while_the_run_goes_on)
 {
     Factory factory;
     RunControl control(factory.get(), unpaced());
     Bench::Config config = wired();
-    config.scopeNets = {"in", "mid"};
+    config.scopes[0].channels = {"in", "mid"};
     control.bench().configure(config);
     control.setCircuit(rc());
     control.start();
     CHECK(runTo(control, 0.02));
     CHECK(control.state() == RunControl::State::Running);
     CHECK_EQ(control.probeErrors().size(), 1u);
-    CHECK(!control.probeErrors().empty() && control.probeErrors()[0].probe == "CH2");
-    CHECK(!control.bench().popFrame()); // the scope has a missing probe
+    CHECK(!control.probeErrors().empty() && control.probeErrors()[0].probe == "scope1 CH2");
+    CHECK(!control.bench().popFrame(0)); // the scope has a missing probe
     CHECK(control.bench().popReading(0).has_value());
 
     // Moving the probe fixes it without a restart.
-    config.scopeNets = {"in", "out"};
+    config.scopes[0].channels = {"in", "out"};
     control.bench().configure(config);
     CHECK(control.probeErrors().empty());
     // On from wherever the run is: an unpaced pump may already have fed well past 0.02 s.
     CHECK(runTo(control, control.fedThrough() + 0.02));
-    CHECK(control.bench().popFrame().has_value());
+    CHECK(control.bench().popFrame(0).has_value());
     CHECK_EQ(control.restarts(), 1u);
 }
 
