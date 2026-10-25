@@ -2,6 +2,7 @@
 // The whole pipeline on the RC example: circuit -> netlist -> engine on the worker thread ->
 // scope and multimeters, checked against the analytic answers. Built twice: on MockEngine, and on
 // NgspiceEngine when PROTON_TEST_NGSPICE is defined (M1.3); the checks and tolerances are the same.
+#include "proton/bench/bench.h"
 #include "proton/sim/mock_engine.h"
 #include "proton/spike/pipeline.h"
 #include "proton/test/test.h"
@@ -199,9 +200,8 @@ TEST(the_result_does_not_depend_on_chunks_or_queue)
 TEST(the_engine_step_is_one_scope_sample)
 {
     const PipelineSettings settings = proton::spike::defaultSettings(RcExample{});
-    CHECK_NEAR(settings.maxStep, 2e-6, 1e-18); // 200 us/div: 2 ms over 1000 samples
-    CHECK_EQ(proton::spike::maxStepFor(settings.scope),
-             proton::instruments::Scope(settings.scope).sampleInterval());
+    // 200 us/div: 2 ms over 1000 samples
+    CHECK_NEAR(proton::bench::maxStepFor(settings.scope), 2e-6, 1e-18);
 }
 
 // Decision D6: paced to wall-clock time, a run of 0.3 s takes at least 0.3 s, and pacing changes

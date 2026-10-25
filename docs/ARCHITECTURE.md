@@ -36,7 +36,7 @@ dependency, a thread, a contract or an invariant changes, not after every task.
 ```mermaid
 flowchart TB
   app["src/app: Qt Widgets UI<br/>(the only layer that knows Qt)"]
-  bench["src/bench (planned, M2.2): Bench model,<br/>instrument instances, signal routing, run control"]
+  bench["src/bench: Bench model,<br/>instrument instances, signal routing, run control"]
   tools["tools/proton-spike: headless demo"]
   sim["src/sim: ISimEngine, MockEngine,<br/>NgspiceEngine, SimWorker"]
   ins["src/instruments: Scope, Multimeter,<br/>FunctionGenerator"]
@@ -53,8 +53,7 @@ flowchart TB
 Rules (see `CONTRIBUTING.md`, ADR 0001): no Qt below `src/app`; `instruments` never depends on
 `sim` (it consumes plain `(time, values)` arrays); `schematic` never depends on `instruments`
 (instrument contributions arrive as plain `Fragment` data). The glue that connects engine, circuit
-and instruments is logic, so it lives in the Qt-free `src/bench`, not in the app. Until `src/bench`
-exists, `tools/proton-spike` holds that glue and depends on the three libraries directly.
+and instruments is logic, so it lives in the Qt-free `src/bench`, not in the app.
 
 ## 3. Data flow
 

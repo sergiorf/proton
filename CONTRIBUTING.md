@@ -67,8 +67,9 @@ A change that needs to break one of these rules needs an ADR first.
   (ADR 0002) or `bash tools/fetch-ngspice.sh` on Linux (ADR 0008) once before configuring to build
   the ngspice tests. The Windows presets build the Qt app too: set `QT_ROOT_DIR` to a Qt 6.8 or newer
   MSVC kit (see CLAUDE.md).
-- The app has a smoke test only (`app_starts`: it opens the main window and closes it). Logic
-  goes below `src/app`, where it is tested without Qt.
+- The app has smoke tests only (`app_starts` opens the main window and closes it;
+  `app_runs_examples` runs every example in turn). Logic goes below `src/app`, where it is tested
+  without Qt.
 - One test executable per module under `tests/unit/<module>/`, registered with `add_test`, linking
   `proton::test_support` (`TEST`, `CHECK`, `CHECK_EQ`, `CHECK_NEAR`) and `proton_warnings`
   privately.
