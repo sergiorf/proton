@@ -7,6 +7,8 @@ add_library(proton_instruments
     src/scope.cpp
     src/scope_display.cpp
     src/scope_front_end.cpp
+    src/selector.cpp
+    src/seven_segment.cpp
 )
 add_library(proton::instruments ALIAS proton_instruments)
 

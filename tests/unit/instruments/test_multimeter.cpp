@@ -352,3 +352,13 @@ TEST(full_scale_of_each_range)
     CHECK_EQ(Multimeter::fullScale(Range::Volts200), 200.0);
     CHECK_EQ(Multimeter::fullScale(Range::Auto), 0.0);
 }
+
+TEST(the_range_button_holds_the_auto_range_then_steps_up_and_wraps)
+{
+    CHECK(Multimeter::nextRange(Range::Auto, 2.0) == Range::Volts2);
+    CHECK(Multimeter::nextRange(Range::Auto, 0.2) == Range::Millivolts200);
+    CHECK(Multimeter::nextRange(Range::Auto, 0.0) == Range::Volts200); // no reading yet
+    CHECK(Multimeter::nextRange(Range::Millivolts200, 0.0) == Range::Volts2);
+    CHECK(Multimeter::nextRange(Range::Volts20, 0.0) == Range::Volts200);
+    CHECK(Multimeter::nextRange(Range::Volts200, 0.0) == Range::Millivolts200);
+}

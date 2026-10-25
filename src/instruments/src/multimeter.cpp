@@ -63,6 +63,28 @@ Multimeter::Config Multimeter::sanitise(const Config& config)
     return result;
 }
 
+Multimeter::Range Multimeter::nextRange(Range current, double readingRange)
+{
+    switch (current) {
+    case Range::Auto:
+        for (const Range range : {Range::Millivolts200, Range::Volts2, Range::Volts20}) {
+            if (readingRange == fullScale(range)) {
+                return range;
+            }
+        }
+        return Range::Volts200;
+    case Range::Millivolts200:
+        return Range::Volts2;
+    case Range::Volts2:
+        return Range::Volts20;
+    case Range::Volts20:
+        return Range::Volts200;
+    case Range::Volts200:
+        return Range::Millivolts200;
+    }
+    return Range::Volts200;
+}
+
 double Multimeter::fullScale(Range range)
 {
     switch (range) {

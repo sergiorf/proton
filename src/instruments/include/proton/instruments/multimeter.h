@@ -74,6 +74,11 @@ public:
     // Full scale of a fixed range in volts: 0.2, 2, 20 or 200. Auto has none (0).
     static double fullScale(Range range);
 
+    // What a meter's RANGE button does: from Auto it holds the range the last reading was on
+    // (`readingRange`, its full scale in volts; the highest range when there is none), and on a
+    // fixed range it goes to the next one up, wrapping from the highest to the lowest.
+    static Range nextRange(Range current, double readingRange);
+
     Multimeter() = default;
     explicit Multimeter(const Config& config) { configure(config); }
 
