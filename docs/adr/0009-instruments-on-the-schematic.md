@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-25
-- **Plan task:** M3.1 to M4.6, decision D10
+- **Plan task:** M3.1, M4.1 to M4.6, decision D10
 
 ## Context
 
@@ -35,8 +35,8 @@ How other simulators do it:
    - **Scope:** `CH1` and `CH2`, each measuring its net against circuit ground (single-ended, as a
      bench scope whose ground clip is earthed). Differential probes come later.
    - **Multimeter:** `+` and `COM`. Voltage is `v(+) - v(COM)`, so the meter floats as a handheld
-     one does; current flows through it in series from `+` to `COM` (M3.4); resistance is measured
-     between them (M3.5).
+     one does; current flows through it in series from `+` to `COM` (M5.2); resistance is measured
+     between them (M5.3).
    - **Function generator:** `+` and `COM`; the output appears between them, and `COM` may be on
      any net.
    - **DC power supply:** `+` and `-` per channel.
@@ -49,7 +49,7 @@ How other simulators do it:
 5. An instrument terminal with no wire is a warning on the instrument ("CH2 of scope1 is not
    connected") and reads 0 V.
 6. Until the editor exists (M4), the built-in examples place their instruments in code with the
-   same instances and terminals, and the panels show which net each terminal is on (M3.6).
+   same instances and terminals.
 
 Instruments are not components of `Circuit`: the scene holds them as parts, the conversion reports
 their terminal nets, and source instruments still reach the netlist as `Fragment`s from the bench
@@ -69,8 +69,9 @@ their terminal nets, and source instruments still reach the netlist as `Fragment
 
 - M3.1 generalises the bench to named instances with terminals; the multimeter measures between
   `+` and `COM` instead of one net against ground, and the generator's reference is its `COM` net.
-- M3.2 and M3.6 open panels and show connections without an editor; M4.1 adds instrument parts to
-  the scene model, M4.2 their symbols, and M4.4 placing, wiring and opening them.
+- M4.1 adds instrument parts to the scene model, M4.2 their symbols, and M4.4 placing, wiring and
+  opening them. The editor comes right after M3.1, so no interim way to add instruments or show
+  their connections is built first.
 - `schematic` still does not depend on `instruments`: in the scene an instrument part is plain
   data (kind, instance name, terminal names and positions), and its settings and model live in the
   bench.

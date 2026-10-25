@@ -27,11 +27,12 @@ says in what order things get built and how each step is known to be done.
 | M0 Foundations | Build, CI, and the whole pipeline running headless on the mock engine | - |
 | M1 ngspice | Real simulation, validated against analytic answers; latency measured; time model decided | M0 |
 | M2 First UI | Qt-free bench core; Qt app: 2-channel scope, multimeter, generator with realistic front panels, on built-in example circuits | M1 |
-| M3 Bench model | Any number of instruments, DC supply, DMM current and resistance | M2 |
+| M3 Instrument instances | Named instruments with terminals, any number of each | M2 |
 | M4 Schematic editor | Draw circuits, place and wire instruments on them, save and load projects | M3 |
-| M5 Components and release | Full MVP component set, acceptance suite, Windows package | M4 |
+| M5 More instruments and live parts | DC supply, DMM current and resistance, potentiometer and switch | M4 |
+| M6 Components and release | Full MVP component set, acceptance suite, Windows package | M5 |
 
-After M5 the MVP "done when" list in the roadmap holds and a zip can be handed to a student.
+After M6 the MVP "done when" list in the roadmap holds and a zip can be handed to a student.
 
 ## Technical baseline
 
@@ -273,9 +274,9 @@ dress.
 *Done when:* every scope control from M2.3 is operable by drag, wheel and keyboard on the new
 panel, the knob tests pass, and M2.3's knob behaviour still holds.
 
-**M2.5 Multimeter front panel.** On the M2.4 widgets: a 4.5-digit 7-segment-style display with
+**M2.5 Multimeter front panel.** *(done 2026-10-25)* On the M2.4 widgets: a 4.5-digit 7-segment-style display with
 range and mode annunciators, a rotary mode dial (DC V, AC V; current and resistance positions
-arrive in M3), range (auto or fixed), probe binding to a net of the example.
+arrive in M5), range (auto or fixed), probe binding to a net of the example.
 *Done when:* readings match `proton-spike` for the same example.
 
 **M2.6 Generator front panel.** On the M2.4 widgets: waveform buttons, frequency, amplitude and
@@ -290,9 +291,11 @@ the scope and the generator) and fix what gets in the way.
 **M2 exit check:** measure the RC corner frequency in the app: input and output on two scope
 channels, sweep the generator, read -3 dB on the multimeter.
 
-## M3 Bench model
+## M3 Instrument instances
 
-Implements ARCHITECTURE.md section 5.1 and the remaining MVP instruments.
+The bench's instruments as ADR 0009 defines them: named instances with terminals, which the
+schematic editor places and wires. The rest of the instruments come once the editor exists (M5),
+so they are built straight onto the schematic.
 
 **M3.1 Any number of instruments.** Generalise the M2.2 bench to instrument instances as ADR 0009
 (decision D10) defines them: a kind, a unique instance name (`scope1`, `dmm1`, `gen1`), settings,
@@ -303,42 +306,8 @@ between `+` and `COM`; the generator drives between `+` and `COM`. Per-instance 
 two nets neither of which is ground, and a generator whose `COM` is not ground; and the app behaves
 as in M2.
 
-**M3.2 Instrument panels.** One front panel per instance (the M2.4 widgets), in a dock that can
-float. Until the editor places instruments (M4.4), instances are added and removed from an
-Instruments menu and their panels opened from it.
-*Done when:* two scopes and two meters can be open at once, each bound to its own instance.
-
-**M3.3 DC power supply.** Two channels, set voltage, output on/off, current limit as a plain value:
-the panel shows the current drawn and flags when it exceeds the limit (CC/CV behaviour comes after
-the MVP). `toSpice()` contributes a voltage source per channel; current is read from the source's
-branch current.
-*Done when:* a resistor load shows V/R on the supply's display; exceeding the limit shows the flag.
-
-**M3.4 Multimeter DC current.** The meter in current mode is a two-terminal series element that
-contributes a 0 V source; the reading is that source's branch current. The circuit must be broken
-to insert it, as on a real bench.
-*Done when:* current in a series circuit matches Ohm's law, and the voltage across the meter is
-zero.
-
-**M3.5 Multimeter resistance.** Starts with an ADR for decision D8 (analyses beyond transient and
-ngspice process isolation). Adds an operating-point analysis to the engine as D8 decides
-(ARCHITECTURE.md section 8 gets updated). The meter zeroes all sources in a copy of the circuit
-(voltage sources become shorts, current sources open), injects a test current sized for the range
-and reads the voltage.
-**Decision D4 (decided):** ngspice allows one instance per process, so the resistance run cannot
-happen while the transient run is going. Resistance mode only reads while the bench's sources are
-off and otherwise shows "power off to measure", which is also correct practice on a real bench.
-*Done when:* series, parallel and divider networks read their analytic resistance, and the
-powered case behaves as decided in D4.
-
-**M3.6 Instrument connections on the panel.** Until the editor, the examples wire instruments in
-code (ADR 0009); each panel shows which net each of its terminals is on, and the errors from
-`attach` for terminals on nets the circuit does not have.
-*Done when:* a terminal on a missing net shows a clear message on its panel instead of a flat
-line.
-
-**M3 exit check:** on the voltage divider example, power it from the supply, measure V, I and R
-with the multimeter, and watch two nodes on the scope.
+**M3 exit check:** the RC example runs with two multimeters, one across R1 (between `in` and
+`out`) and one on `out`, and both read their analytic values.
 
 ## M4 Schematic editor and project files
 
@@ -362,10 +331,11 @@ built-in ones.
 *Done when:* any sequence of edits undoes back to the empty sheet and redoes to the same scene.
 
 **M4.4 Instruments on the sheet.** Place instruments from the parts list and wire their terminals
-like any part (ADR 0009); double-clicking an instrument opens its front panel, deleting it removes
-the instrument and its panel. Measuring current means wiring the multimeter in series.
-*Done when:* every instrument connection from M3 can be made by wiring on the sheet, without
-typing a net name, and each instrument's panel opens from its symbol.
+like any part (ADR 0009). Double-clicking an instrument opens its front panel (the M2.4 widgets) in
+a dock that can float, one panel per instance; deleting it removes the instrument and its panel.
+*Done when:* every connection of the scope, multimeter and generator (M3.1) can be made by wiring
+on the sheet, without typing a net name; each instrument's panel opens from its symbol; and two
+scopes and two multimeters can be open at once, each bound to its own instance.
 
 **M4.5 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.
@@ -377,7 +347,38 @@ save, load, and a migration hook keyed on the version. The M2 built-in examples 
 *Done when:* save then load reproduces the same scene, netlist and instrument settings
 (round-trip test), and the examples load from the menu.
 
-**M4.7 Potentiometer and switch.** Both component kinds, with live changes that keep the
+**M4 exit check:** draw the RC low-pass from an empty sheet, wire the generator and scope, save,
+reopen, and measure the corner frequency.
+
+## M5 More instruments and live parts
+
+The remaining MVP instruments and the parts a student changes while the circuit runs, built
+straight onto the schematic.
+
+**M5.1 DC power supply.** Placed and wired on the sheet like the other instruments (ADR 0009).
+Two channels, set voltage, output on/off, current limit as a plain value: the panel shows the
+current drawn and flags when it exceeds the limit (CC/CV behaviour comes after the MVP). `toSpice()` contributes a voltage source per channel; current is read from the source's
+branch current.
+*Done when:* a resistor load shows V/R on the supply's display; exceeding the limit shows the flag.
+
+**M5.2 Multimeter DC current.** The meter in current mode is a two-terminal series element that
+contributes a 0 V source; the reading is that source's branch current. It is wired in series on the
+sheet: the circuit must be broken to insert it, as on a real bench.
+*Done when:* current in a series circuit matches Ohm's law, and the voltage across the meter is
+zero.
+
+**M5.3 Multimeter resistance.** Starts with an ADR for decision D8 (analyses beyond transient and
+ngspice process isolation). Adds an operating-point analysis to the engine as D8 decides
+(ARCHITECTURE.md section 8 gets updated). The meter zeroes all sources in a copy of the circuit
+(voltage sources become shorts, current sources open), injects a test current sized for the range
+and reads the voltage.
+**Decision D4 (decided):** ngspice allows one instance per process, so the resistance run cannot
+happen while the transient run is going. Resistance mode only reads while the bench's sources are
+off and otherwise shows "power off to measure", which is also correct practice on a real bench.
+*Done when:* series, parallel and divider networks read their analytic resistance, and the
+powered case behaves as decided in D4.
+
+**M5.4 Potentiometer and switch.** Both component kinds, with live changes that keep the
 circuit's state, using the method from D7 (a potentiometer as two resistors whose split changes; a
 switch as an element whose resistance changes between on and off). A restart (D3) would not do:
 it computes a fresh operating point, so a switched RC would start already charged.
@@ -388,24 +389,25 @@ M1.5 prototype); the generator keeps restarting (D3).
 toggling a switch shows an RC charging and discharging on the scope, matching `1 - exp(-t / tau)`
 from the moment of the toggle.
 
-**M4 exit check:** draw the RC low-pass from an empty sheet, wire the generator and scope, save,
-reopen, and measure the corner frequency.
+**M5 exit check:** draw the voltage divider, power it from the supply, measure V, I and R with the
+multimeter and watch two nodes on the scope; then make one resistor a potentiometer and watch the
+reading follow it live.
 
-## M5 Components and release
+## M6 Components and release
 
-**M5.1 Diodes.** Generic original models: diode, LED by colour (forward drop per colour), Zener
+**M6.1 Diodes.** Generic original models: diode, LED by colour (forward drop per colour), Zener
 (breakdown voltage as the value). Parameters documented in `docs/LICENSING.md` as original.
-These are the first elements that need `.model` lines (and, for the op-amp in M5.3, a
+These are the first elements that need `.model` lines (and, for the op-amp in M6.3, a
 `.subckt`): `buildNetlist()` gains a model section, written once per model used and in a stable
 order, and `validate()` learns the new element letters.
 *Done when:* tests check forward drop at a known current and Zener regulation at a known load,
 and golden netlists cover the model section.
 
-**M5.2 Transistors.** Generic NPN and PNP BJT, generic N- and P-channel MOSFET.
+**M6.2 Transistors.** Generic NPN and PNP BJT, generic N- and P-channel MOSFET.
 *Done when:* tests check a BJT's current gain in a bias circuit and a MOSFET switching a load
 on and off at the expected gate voltage.
 
-**M5.3 Op-amp.** One subcircuit: finite open-loop gain, single-pole gain-bandwidth product,
+**M6.3 Op-amp.** One subcircuit: finite open-loop gain, single-pole gain-bandwidth product,
 output saturating at the supply rails; an "ideal" mode with very high gain and no bandwidth limit,
 still clamped to the rails.
 **Decision D5:** default values of the generic op-amp. Default: gain 100 dB, GBW 1 MHz, rails
@@ -413,17 +415,17 @@ reached within 1 V (a classic general-purpose part).
 *Done when:* an inverting amplifier has the expected gain and -3 dB point, and it clips at the
 rails when overdriven.
 
-**M5.4 Acceptance suite.** Each circuit from the roadmap's "Done when" list as a project in
+**M6.4 Acceptance suite.** Each circuit from the roadmap's "Done when" list as a project in
 `examples/`, plus a headless test that runs it through the bench and checks the instrument
 readings against the analytic answer.
 *Done when:* all roadmap circuits pass on CI.
 
-**M5.5 Windows package.** `windeployqt`, the ngspice DLL and all license texts in a zip (an
+**M6.5 Windows package.** `windeployqt`, the ngspice DLL and all license texts in a zip (an
 installer can come later); a "Getting started" section in the README.
 *Done when:* the zip runs on a clean Windows install (Windows Sandbox) and the M4 exit check can
 be repeated from it.
 
-**M5 exit check (MVP):** a student can unzip Proton, open an example or draw a circuit, and
+**M6 exit check (MVP):** a student can unzip Proton, open an example or draw a circuit, and
 complete every circuit on the roadmap's list with the bench instruments.
 
 ## Risks
@@ -431,15 +433,15 @@ complete every circuit on the roadmap's list with the bench instruments.
 | Risk | Where | Mitigation |
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
-| One ngspice instance per process | M1.3, M3.5 | One process per ngspice test; D4 for resistance |
+| One ngspice instance per process | M1.3, M5.3 | One process per ngspice test; D4 for resistance |
 | Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.7 with the alter prototype |
-| A restart loses the circuit's state (a switched RC starts charged) | M4.7 | Switches and potentiometers keep state (D7) |
+| A restart loses the circuit's state (a switched RC starts charged) | M5.4 | Switches and potentiometers keep state (D7) |
 | Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Decided in M1.7 (D6, ADR 0007): pacing by the consumer, endless runs without a plot; fast timebases stay slower than real time (x0.4 at 100 us/div) |
 | The engine's threading code is never run under TSan | M1.8 | Done in M1.8: ngspice 46 built on Linux, every ngspice test under TSan and ASan (ADR 0008) |
-| One ngspice per process blocks resistance while running, the Bode plotter and a grader | M3.5, after the MVP | D8 decides analyses and process isolation together |
-| A user's `.spiceinit` changes ngspice's behaviour (ADR 0002) | M5.5 | Keep ngspice from reading it in the package, or test that it does not matter |
+| One ngspice per process blocks resistance while running, the Bode plotter and a grader | M5.3, after the MVP | D8 decides analyses and process isolation together |
+| A user's `.spiceinit` changes ngspice's behaviour (ADR 0002) | M6.5 | Keep ngspice from reading it in the package, or test that it does not matter |
 | ngspice memory growth over many runs | M1.4 | Measured in M1.4: about 1 KiB per run, accepted (ADR 0002). Reloading the DLL does not give it back; a helper process would |
-| Convergence failures on student circuits | M4, M5 | `validate()` catches the common causes first; ngspice errors shown as diagnostics, never a crash |
+| Convergence failures on student circuits | M4 to M6 | `validate()` catches the common causes first; ngspice errors shown as diagnostics, never a crash |
 | Scope too slow to draw at 60 fps | M2.3 | Draw decimated min/max columns; `QRhi` only if still too slow (ADR 0004) |
 
 ## Decisions
@@ -449,10 +451,10 @@ complete every circuit on the roadmap's list with the bench instruments.
 | D1 | Hosting and CI | GitHub, GitHub Actions | decided | M0.3 |
 | D2 | Proton's own license | AGPL-3.0-only plus a commercial license; dependencies permissive or LGPL only | decided | M0.4 |
 | D3 | Restart or `alter` for live changes | Restart: both fit far under 100 ms, restart is simpler (ADR 0005). Changes that must keep state: D7 | decided | M1.5 |
-| D4 | Resistance while the circuit is powered | Only with sources off; otherwise "power off to measure" | decided | M3.5 |
-| D5 | Generic op-amp values | Proposed: 100 dB gain, 1 MHz GBW, rails within 1 V | open | M5.3 |
+| D4 | Resistance while the circuit is powered | Only with sources off; otherwise "power off to measure" | decided | M5.3 |
+| D5 | Generic op-amp values | Proposed: 100 dB gain, 1 MHz GBW, rails within 1 V | open | M6.3 |
 | D6 | Time model: pacing, maximum step, end of a run | Paced to wall-clock time by the consumer, slipping when behind; `maxStep` one sample of the fastest timebase, a change restarts; endless runs with `.save none` (ADR 0007) | decided | M1.7 |
-| D7 | Live changes that keep the circuit's state (switch, potentiometer) | Proposed: `alter` on the running simulation; the generator keeps restarting | open | M4.7 |
-| D8 | Analyses beyond transient; ngspice in a helper process | Proposed: decide together in an ADR at the start of M3.5 | open | M3.5 |
+| D7 | Live changes that keep the circuit's state (switch, potentiometer) | Proposed: `alter` on the running simulation; the generator keeps restarting | open | M5.4 |
+| D8 | Analyses beyond transient; ngspice in a helper process | Proposed: decide together in an ADR at the start of M5.3 | open | M5.3 |
 | D9 | Linux libngspice for sanitizer CI | The pinned ngspice 46 built from source in CI, cached, not shipped (ADR 0008) | decided | M1.8 |
 | D10 | How instruments connect to the circuit | As parts on the schematic, wired to their terminals, front panel opened from the symbol (Multisim's way, ADR 0009) | decided | M3.1 |

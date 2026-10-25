@@ -45,4 +45,4 @@ commercial) and ngspice (mostly BSD-3-Clause), and will add more dependencies ov
 - Some useful libraries are ruled out. The roadmap already notes this for microcontroller
   emulation: simavr and QEMU are GPL, so a permissively licensed emulator is needed.
 - Contributions take an extra step (the CLA), which may discourage some contributors.
-- Packages must ship the license texts of every shipped dependency (M5.5).
+- Packages must ship the license texts of every shipped dependency (M6.5).
