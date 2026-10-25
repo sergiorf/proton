@@ -1,24 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "scope_panel.h"
 
+#include "panel/knob_widget.h"
+#include "panel/lit_button.h"
+#include "panel/panel_style.h"
 #include "scope_widget.h"
 
 #include "proton/core/format.h"
+#include "proton/instruments/knob.h"
 #include "proton/instruments/knob_steps.h"
 
-#include <QComboBox>
-#include <QDoubleSpinBox>
-#include <QFormLayout>
-#include <QGroupBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
-#include <QLabel>
-#include <QPushButton>
-#include <QSignalBlocker>
 #include <QString>
 #include <QVBoxLayout>
-#include <QVariant>
 
-#include <cmath>
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -28,62 +25,35 @@ namespace proton::app {
 
 namespace {
 
+using instruments::Knob;
 using instruments::Scope;
 using instruments::ScopeFrontEnd;
+using panel::KnobWidget;
+using panel::LitButton;
 
-QString text(const std::string& s)
+const std::array<QColor, Scope::kChannels> kChannelColours = {panel::kChannel1, panel::kChannel2};
+
+QString engineering(double value, int digits, const char* unit)
 {
-    return QString::fromStdString(s);
+    return QString::fromStdString(core::formatEngineering(value, digits, unit));
 }
 
-// A combo box of the 1-2-5 steps from `min` to `max`, labelled in engineering notation.
-QComboBox* steppedKnob(double min, double max, const char* unit, QWidget* parent)
+// A 1-2-5 knob from `min` to `max` that turns clockwise towards smaller values: a larger trace.
+Knob shrinkingSteps(double min, double max, double initial)
 {
-    auto* box = new QComboBox(parent);
-    for (const double step : instruments::oneTwoFiveSteps(min, max)) {
-        box->addItem(text(core::formatEngineering(step, 1, unit)) + QStringLiteral("/div"), step);
-    }
-    return box;
+    std::vector<double> steps = instruments::oneTwoFiveSteps(min, max);
+    std::reverse(steps.begin(), steps.end());
+    return Knob::stepped(std::move(steps), initial);
 }
 
-// Selects the entry of a stepped knob nearest `value`.
-void selectStep(QComboBox* box, double value, double min, double max)
+std::size_t sourceIndex(const Scope::Config& config)
 {
-    const double step = instruments::turnOneTwoFive(value, 0, min, max);
-    for (int i = 0; i < box->count(); ++i) {
-        if (box->itemData(i).toDouble() == step) {
-            box->setCurrentIndex(i);
-            return;
-        }
-    }
-}
-
-// The entry of a combo box whose data is `value`.
-template <typename Enum>
-void selectEnum(QComboBox* box, Enum value)
-{
-    box->setCurrentIndex(box->findData(static_cast<int>(value)));
-}
-
-template <typename Enum>
-Enum currentEnum(const QComboBox* box)
-{
-    return static_cast<Enum>(box->currentData().toInt());
-}
-
-QDoubleSpinBox* voltageBox(QWidget* parent)
-{
-    auto* box = new QDoubleSpinBox(parent);
-    box->setRange(-ScopeFrontEnd::kMaxOffset, ScopeFrontEnd::kMaxOffset);
-    box->setDecimals(3);
-    box->setSuffix(QStringLiteral(" V"));
-    box->setKeyboardTracking(false);
-    return box;
+    return config.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
 }
 
 } // namespace
 
-ScopePanel::ScopePanel(QWidget* parent) : QWidget(parent)
+ScopePanel::ScopePanel(QWidget* parent) : panel::PanelFace(parent)
 {
     config_ = Scope::sanitise(config_);
     build();
@@ -94,97 +64,133 @@ void ScopePanel::build()
 {
     screen_ = new ScopeWidget(this);
 
-    auto* horizontal = new QGroupBox(tr("Horizontal"), this);
-    auto* horizontalLayout = new QFormLayout(horizontal);
-    timePerDiv_ = steppedKnob(ScopeFrontEnd::kMinTimePerDiv, ScopeFrontEnd::kMaxTimePerDiv, "s",
-                              horizontal);
-    horizontalLayout->addRow(tr("Time"), timePerDiv_);
+    runStop_ = new LitButton(tr("Run / Stop"), panel::kLampRun, this);
+    single_ = new LitButton(tr("Single"), panel::kLampSingle, this);
+    auto* runButtons = new QHBoxLayout;
+    runButtons->addWidget(runStop_);
+    runButtons->addWidget(single_);
 
-    std::vector<QGroupBox*> verticals;
+    auto* horizontal = new panel::PanelSection(tr("Horizontal"), this);
+    timePerDiv_ = new KnobWidget(tr("Time/div"),
+                                 shrinkingSteps(ScopeFrontEnd::kMinTimePerDiv,
+                                                ScopeFrontEnd::kMaxTimePerDiv, config_.timePerDiv),
+                                 KnobWidget::Size::Large, horizontal);
+    auto* horizontalLayout = new QHBoxLayout(horizontal);
+    horizontalLayout->addWidget(timePerDiv_, 0, Qt::AlignHCenter);
+
+    auto* vertical = new panel::PanelSection(tr("Vertical"), this);
+    auto* verticalLayout = new QGridLayout(vertical);
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
-        auto* group = new QGroupBox(tr("CH%1").arg(c + 1), this);
-        auto* layout = new QFormLayout(group);
         ChannelControls& controls = channels_[c];
-        controls.voltsPerDiv = steppedKnob(ScopeFrontEnd::kMinVoltsPerDiv,
-                                           ScopeFrontEnd::kMaxVoltsPerDiv, "V", group);
-        controls.position = voltageBox(group);
-        controls.position->setToolTip(tr("The voltage at the centre of the screen"));
-        controls.coupling = new QComboBox(group);
-        controls.coupling->addItem(tr("DC"), static_cast<int>(Scope::Coupling::Dc));
-        controls.coupling->addItem(tr("AC"), static_cast<int>(Scope::Coupling::Ac));
-        layout->addRow(tr("Scale"), controls.voltsPerDiv);
-        layout->addRow(tr("Position"), controls.position);
-        layout->addRow(tr("Coupling"), controls.coupling);
-        verticals.push_back(group);
+        const QString name = tr("CH%1").arg(c + 1);
+        controls.scale = new KnobWidget(
+            tr("%1 Scale").arg(name),
+            shrinkingSteps(ScopeFrontEnd::kMinVoltsPerDiv, ScopeFrontEnd::kMaxVoltsPerDiv, 1.0),
+            KnobWidget::Size::Large, vertical);
+        controls.position = new KnobWidget(
+            tr("%1 Position").arg(name),
+            Knob::continuous(-ScopeFrontEnd::kMaxOffset, ScopeFrontEnd::kMaxOffset, 0.1, 0.0, 0.0),
+            KnobWidget::Size::Small, vertical);
+        controls.ac = new LitButton(tr("%1 AC").arg(name), kChannelColours[c], vertical);
+        controls.scale->setAccent(kChannelColours[c]);
+        controls.position->setAccent(kChannelColours[c]);
+        const int column = static_cast<int>(c);
+        verticalLayout->addWidget(controls.scale, 0, column, Qt::AlignHCenter);
+        verticalLayout->addWidget(controls.position, 1, column, Qt::AlignHCenter);
+        verticalLayout->addWidget(controls.ac, 2, column, Qt::AlignHCenter);
     }
 
-    auto* trigger = new QGroupBox(tr("Trigger"), this);
-    auto* triggerLayout = new QFormLayout(trigger);
-    triggerSource_ = new QComboBox(trigger);
-    triggerSource_->addItem(tr("CH1"), static_cast<int>(Scope::TriggerSource::Channel1));
-    triggerSource_->addItem(tr("CH2"), static_cast<int>(Scope::TriggerSource::Channel2));
-    triggerLevel_ = voltageBox(trigger);
-    triggerLevel_->setRange(-Scope::kMaxTriggerLevel, Scope::kMaxTriggerLevel);
-    triggerSlope_ = new QComboBox(trigger);
-    triggerSlope_->addItem(tr("Rising"), static_cast<int>(Scope::Slope::Rising));
-    triggerSlope_->addItem(tr("Falling"), static_cast<int>(Scope::Slope::Falling));
-    triggerMode_ = new QComboBox(trigger);
-    triggerMode_->addItem(tr("Auto"), static_cast<int>(Scope::Mode::Auto));
-    triggerMode_->addItem(tr("Normal"), static_cast<int>(Scope::Mode::Normal));
-    triggerLayout->addRow(tr("Source"), triggerSource_);
-    triggerLayout->addRow(tr("Level"), triggerLevel_);
-    triggerLayout->addRow(tr("Slope"), triggerSlope_);
-    triggerLayout->addRow(tr("Mode"), triggerMode_);
-
-    runStop_ = new QPushButton(tr("Run / Stop"), this);
-    single_ = new QPushButton(tr("Single"), this);
-    runState_ = new QLabel(this);
-    runState_->setAlignment(Qt::AlignCenter);
-    auto* buttons = new QHBoxLayout;
-    buttons->addWidget(runStop_);
-    buttons->addWidget(single_);
-
-    auto* knobs = new QVBoxLayout;
-    knobs->addWidget(horizontal);
-    for (QGroupBox* group : verticals) {
-        knobs->addWidget(group);
+    auto* trigger = new panel::PanelSection(tr("Trigger"), this);
+    triggerLevel_ = new KnobWidget(
+        tr("Level"),
+        Knob::continuous(-Scope::kMaxTriggerLevel, Scope::kMaxTriggerLevel, 0.1, 0.0, 0.0),
+        KnobWidget::Size::Large, trigger);
+    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+        triggerSource_[c] = new LitButton(tr("CH%1").arg(c + 1), kChannelColours[c], trigger);
     }
-    knobs->addWidget(trigger);
-    knobs->addLayout(buttons);
-    knobs->addWidget(runState_);
-    knobs->addStretch();
+    slope_ = new LitButton(tr("Slope"), panel::kLampWhite, trigger);
+    auto_ = new LitButton(tr("Auto"), panel::kLampWhite, trigger);
+    normal_ = new LitButton(tr("Normal"), panel::kLampWhite, trigger);
+    auto* triggerLayout = new QGridLayout(trigger);
+    triggerLayout->addWidget(triggerLevel_, 0, 0, 1, 2, Qt::AlignHCenter);
+    triggerLayout->addWidget(triggerSource_[0], 1, 0);
+    triggerLayout->addWidget(triggerSource_[1], 1, 1);
+    triggerLayout->addWidget(slope_, 2, 0, 1, 2);
+    triggerLayout->addWidget(auto_, 3, 0);
+    triggerLayout->addWidget(normal_, 3, 1);
 
-    readout_ = new QLabel(this);
-    auto* display = new QVBoxLayout;
-    display->addWidget(screen_, 1);
-    display->addWidget(readout_);
+    auto* controls = new QVBoxLayout;
+    controls->addLayout(runButtons);
+    controls->addWidget(horizontal);
+    controls->addWidget(vertical);
+    controls->addWidget(trigger);
+    controls->addStretch();
 
     auto* layout = new QHBoxLayout(this);
-    layout->addLayout(display, 1);
-    layout->addLayout(knobs);
+    layout->setContentsMargins(14, 14, 14, 14);
+    layout->setSpacing(14);
+    layout->addWidget(screen_, 1);
+    layout->addLayout(controls);
 
-    const auto knob = [this] {
-        readKnobs();
-        emit changed();
-    };
-    connect(timePerDiv_, &QComboBox::currentIndexChanged, this, knob);
-    for (ChannelControls& controls : channels_) {
-        connect(controls.voltsPerDiv, &QComboBox::currentIndexChanged, this, knob);
-        connect(controls.position, &QDoubleSpinBox::valueChanged, this, knob);
-        connect(controls.coupling, &QComboBox::currentIndexChanged, this, knob);
+    // Knobs.
+    connect(timePerDiv_, &KnobWidget::valueChanged, this, [this](double value) {
+        config_.timePerDiv = value;
+        apply();
+    });
+    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+        connect(channels_[c].scale, &KnobWidget::valueChanged, this, [this, c](double value) {
+            config_.channels[c].voltsPerDiv = value;
+            apply();
+        });
+        connect(channels_[c].position, &KnobWidget::valueChanged, this, [this, c](double value) {
+            config_.channels[c].offset = -value;
+            apply();
+        });
+        connect(channels_[c].ac, &LitButton::clicked, this, [this, c] {
+            Scope::Coupling& coupling = config_.channels[c].coupling;
+            coupling = coupling == Scope::Coupling::Ac ? Scope::Coupling::Dc : Scope::Coupling::Ac;
+            apply();
+        });
     }
-    connect(triggerSource_, &QComboBox::currentIndexChanged, this, knob);
-    connect(triggerLevel_, &QDoubleSpinBox::valueChanged, this, knob);
-    connect(triggerSlope_, &QComboBox::currentIndexChanged, this, knob);
-    connect(triggerMode_, &QComboBox::currentIndexChanged, this, knob);
-    connect(runStop_, &QPushButton::clicked, this, [this] {
+    connect(triggerLevel_, &KnobWidget::valueChanged, this, [this](double value) {
+        config_.trigger.level = value;
+        apply();
+    });
+    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+        connect(triggerSource_[c], &LitButton::clicked, this, [this, c] {
+            config_.trigger.source =
+                c == 0 ? Scope::TriggerSource::Channel1 : Scope::TriggerSource::Channel2;
+            apply();
+        });
+    }
+    connect(slope_, &LitButton::clicked, this, [this] {
+        config_.trigger.slope = config_.trigger.slope == Scope::Slope::Rising
+                                    ? Scope::Slope::Falling
+                                    : Scope::Slope::Rising;
+        apply();
+    });
+    connect(auto_, &LitButton::clicked, this, [this] {
+        runMode_ = Scope::Mode::Auto;
+        if (config_.mode != Scope::Mode::Single) {
+            config_.mode = runMode_;
+        }
+        apply();
+    });
+    connect(normal_, &LitButton::clicked, this, [this] {
+        runMode_ = Scope::Mode::Normal;
+        if (config_.mode != Scope::Mode::Single) {
+            config_.mode = runMode_;
+        }
+        apply();
+    });
+    connect(runStop_, &LitButton::clicked, this, [this] {
         if (frozen_ || config_.mode == Scope::Mode::Single) {
             run();
         } else {
             stop();
         }
     });
-    connect(single_, &QPushButton::clicked, this, &ScopePanel::single);
+    connect(single_, &LitButton::clicked, this, &ScopePanel::single);
 }
 
 void ScopePanel::setConfig(const Scope::Config& config)
@@ -206,7 +212,7 @@ void ScopePanel::showFrame(instruments::ScopeFrame frame, bool stopped)
     lastTriggered_ = frame.triggered;
     screen_->setFrame(std::move(frame));
     ++framesShown_;
-    showRunState();
+    showState();
 }
 
 void ScopePanel::clear()
@@ -214,95 +220,69 @@ void ScopePanel::clear()
     screen_->clear();
     lastTriggered_.reset();
     lastStopped_ = false;
-    showRunState();
+    showState();
 }
 
-void ScopePanel::readKnobs()
+// The student changed a setting in config_: show it and tell the owner.
+void ScopePanel::apply()
 {
-    config_.timePerDiv = timePerDiv_->currentData().toDouble();
-    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
-        config_.channels[c].voltsPerDiv = channels_[c].voltsPerDiv->currentData().toDouble();
-        config_.channels[c].offset = channels_[c].position->value();
-        config_.channels[c].coupling = currentEnum<Scope::Coupling>(channels_[c].coupling);
-    }
-    config_.trigger.source = currentEnum<Scope::TriggerSource>(triggerSource_);
-    config_.trigger.level = triggerLevel_->value();
-    config_.trigger.slope = currentEnum<Scope::Slope>(triggerSlope_);
-    runMode_ = currentEnum<Scope::Mode>(triggerMode_);
-    if (config_.mode != Scope::Mode::Single) {
-        config_.mode = runMode_;
-    }
-    updateSteps();
-    screen_->setConfig(config_);
-    showRunState();
+    showKnobs();
+    emit changed();
 }
 
+// Every control from config_.
 void ScopePanel::showKnobs()
 {
-    const QSignalBlocker blockTime(timePerDiv_);
-    selectStep(timePerDiv_, config_.timePerDiv, ScopeFrontEnd::kMinTimePerDiv,
-               ScopeFrontEnd::kMaxTimePerDiv);
+    timePerDiv_->setValue(config_.timePerDiv);
+    timePerDiv_->setCaption(engineering(config_.timePerDiv, 1, "s") + QStringLiteral("/div"));
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
-        const ChannelControls& controls = channels_[c];
-        const QSignalBlocker blockScale(controls.voltsPerDiv);
-        const QSignalBlocker blockPosition(controls.position);
-        const QSignalBlocker blockCoupling(controls.coupling);
-        selectStep(controls.voltsPerDiv, config_.channels[c].voltsPerDiv,
-                   ScopeFrontEnd::kMinVoltsPerDiv, ScopeFrontEnd::kMaxVoltsPerDiv);
-        controls.position->setValue(config_.channels[c].offset);
-        selectEnum(controls.coupling, config_.channels[c].coupling);
+        const Scope::ChannelConfig& channel = config_.channels[c];
+        ChannelControls& controls = channels_[c];
+        controls.scale->setValue(channel.voltsPerDiv);
+        controls.scale->setCaption(engineering(channel.voltsPerDiv, 1, "V") +
+                                   QStringLiteral("/div"));
+        controls.position->setStep(channel.voltsPerDiv / 10.0);
+        controls.position->setValue(-channel.offset);
+        controls.position->setCaption(engineering(-channel.offset, 3, "V"));
+        controls.ac->setLit(channel.coupling == Scope::Coupling::Ac);
     }
-    const QSignalBlocker blockSource(triggerSource_);
-    const QSignalBlocker blockLevel(triggerLevel_);
-    const QSignalBlocker blockSlope(triggerSlope_);
-    const QSignalBlocker blockMode(triggerMode_);
-    selectEnum(triggerSource_, config_.trigger.source);
+    const std::size_t source = sourceIndex(config_);
+    const Scope::ChannelConfig& sourceChannel = config_.channels[source];
+    triggerLevel_->setStep(sourceChannel.voltsPerDiv / 10.0);
+    triggerLevel_->setReset(sourceChannel.offset); // the centre of the source's screen
     triggerLevel_->setValue(config_.trigger.level);
-    selectEnum(triggerSlope_, config_.trigger.slope);
-    selectEnum(triggerMode_, runMode_);
-    updateSteps();
-    screen_->setConfig(config_);
-    showRunState();
-}
-
-// Position and level step by a tenth of a division of their channel, as a fine knob would.
-void ScopePanel::updateSteps()
-{
+    triggerLevel_->setCaption(engineering(config_.trigger.level, 3, "V"));
+    triggerLevel_->setAccent(kChannelColours[source]);
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
-        channels_[c].position->setSingleStep(config_.channels[c].voltsPerDiv / 10.0);
+        triggerSource_[c]->setLit(c == source);
     }
-    const std::size_t source = config_.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
-    triggerLevel_->setSingleStep(config_.channels[source].voltsPerDiv / 10.0);
+    const bool rising = config_.trigger.slope == Scope::Slope::Rising;
+    slope_->setText(rising ? tr("Slope: rising") : tr("Slope: falling"));
+    auto_->setLit(runMode_ == Scope::Mode::Auto);
+    normal_->setLit(runMode_ == Scope::Mode::Normal);
+    screen_->setConfig(config_);
+    showState();
 }
 
-void ScopePanel::showRunState()
+void ScopePanel::showState()
 {
-    QString state;
-    if (frozen_ || (config_.mode == Scope::Mode::Single && lastStopped_)) {
-        state = tr("STOP");
-    } else if (config_.mode == Scope::Mode::Single) {
-        state = tr("SINGLE: waiting for a trigger");
-    } else if (!lastTriggered_) {
-        state = tr("RUN: waiting for a trigger");
-    } else {
-        state = *lastTriggered_ ? tr("RUN: triggered") : tr("RUN: auto, not triggered");
-    }
-    runState_->setText(state);
+    const bool singleDone = config_.mode == Scope::Mode::Single && lastStopped_;
+    const bool stopped = frozen_ || singleDone;
+    runStop_->setLamp(stopped ? panel::kLampStop : panel::kLampRun);
+    runStop_->setLit(true);
+    single_->setLit(config_.mode == Scope::Mode::Single && !lastStopped_ && !frozen_);
 
-    const auto perDiv = [](double value, const char* unit) {
-        return text(core::formatEngineering(value, 1, unit)) + QStringLiteral("/div");
-    };
-    const std::size_t source = config_.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
-    readout_->setText(
-        tr("CH1 %1 %2    CH2 %3 %4    %5    Trigger CH%6 %7 %8")
-            .arg(perDiv(config_.channels[0].voltsPerDiv, "V"),
-                 config_.channels[0].coupling == Scope::Coupling::Ac ? tr("AC") : tr("DC"),
-                 perDiv(config_.channels[1].voltsPerDiv, "V"),
-                 config_.channels[1].coupling == Scope::Coupling::Ac ? tr("AC") : tr("DC"),
-                 perDiv(config_.timePerDiv, "s"))
-            .arg(source + 1)
-            .arg(config_.trigger.slope == Scope::Slope::Rising ? tr("rising") : tr("falling"),
-                 text(core::formatEngineering(config_.trigger.level, 3, "V"))));
+    if (stopped) {
+        screen_->setStatus(tr("Stop"), panel::kLampStop);
+    } else if (!lastTriggered_) {
+        screen_->setStatus(config_.mode == Scope::Mode::Single ? tr("Single: waiting")
+                                                               : tr("Waiting"),
+                           panel::kLampSingle);
+    } else if (*lastTriggered_) {
+        screen_->setStatus(tr("Trig'd"), panel::kLampRun);
+    } else {
+        screen_->setStatus(tr("Auto"), panel::kLampSingle);
+    }
 }
 
 void ScopePanel::run()
@@ -312,24 +292,25 @@ void ScopePanel::run()
         config_.mode = runMode_;
         emit changed();
     }
-    showRunState();
+    showState();
 }
 
 void ScopePanel::stop()
 {
     frozen_ = true;
-    showRunState();
+    showState();
 }
 
 void ScopePanel::single()
 {
     frozen_ = false;
     lastStopped_ = false;
+    lastTriggered_.reset();
     config_.mode = Scope::Mode::Single;
     screen_->setConfig(config_);
     emit changed();
     emit armed();
-    showRunState();
+    showState();
 }
 
 } // namespace proton::app

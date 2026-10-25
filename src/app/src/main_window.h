@@ -38,6 +38,7 @@ public:
 
     const bench::RunControl& control() const { return control_; }
     const ScopePanel& scope() const { return *scope_; }
+    ScopePanel& scope() { return *scope_; }
     // Frames shown, and pumps run, per second over the last second or so.
     double frameRate() const { return frameRate_; }
     double pumpRate() const { return pumpRate_; }

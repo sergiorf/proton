@@ -5,10 +5,19 @@ add_executable(proton WIN32
     src/main.cpp
     src/main_window.cpp
     src/main_window.h
+    src/panel/knob_widget.cpp
+    src/panel/knob_widget.h
+    src/panel/lit_button.cpp
+    src/panel/lit_button.h
+    src/panel/panel_section.cpp
+    src/panel/panel_section.h
+    src/panel/panel_style.h
     src/scope_panel.cpp
     src/scope_panel.h
     src/scope_widget.cpp
     src/scope_widget.h
+    src/smoke.cpp
+    src/smoke.h
     resources/resources.qrc
 )
 # The app's icon: proton.png for the window (Qt resource), proton.ico for the executable.
@@ -34,7 +43,9 @@ endif()
 
 # The app opens its main window, closes it and exits 0.
 add_test(NAME app_starts COMMAND proton --smoke-test)
-# Every example runs in the app, one after the other, as when chosen from the menu (M2.2).
+# Every example runs in the app, one after the other, as when chosen from the menu (M2.2), and
+# every scope control answers wheel, keys, drag and clicks (M2.4).
 if(PROTON_NGSPICE_FOUND)
     add_test(NAME app_runs_examples COMMAND proton --smoke-examples)
+    add_test(NAME app_panel_controls COMMAND proton --smoke-panel)
 endif()

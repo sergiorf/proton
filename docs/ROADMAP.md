@@ -22,7 +22,7 @@ brand-neutral: no manufacturer's layout, logo or trade dress (PLAN.md, M2.4).
 |---|---|---|
 | DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | planned (M3) |
 | Function generator | sine, square, triangle, DC, offset, output impedance | model done (M0), front panel planned (M2.6) |
-| Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | model done (M0), screen and faceplate done (M2.3), front panel planned (M2.4) |
+| Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | model done (M0), screen and front panel done (M2.4) |
 | Multimeter | DC V, AC V (true RMS), auto/fixed range | model done (M0), front panel planned (M2.5) |
 | Multimeter | DC current | planned (M3) |
 | Multimeter | resistance | planned (M3) |
