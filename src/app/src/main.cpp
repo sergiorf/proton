@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // proton: the Qt Widgets app.
 //
-//     proton [--smoke-test | --smoke-examples | --smoke-panel | --screenshot <file.png>]
+//     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
+//             --screenshot <file.png>]
 //
 // --smoke-test opens the main window, closes it once the event loop runs and exits 0: the CI
 // check that the app, its Qt DLLs and plugins start.
 //
-// --smoke-examples and --smoke-panel are CI checks (smoke.h): every example runs in turn, and
-// every control of the scope's front panel answers wheel, keys, drag and clicks. Each exits 0 when
-// it passes and 1 otherwise.
+// --smoke-examples, --smoke-panel and --smoke-latency are CI checks (smoke.h): every example runs
+// in turn, every front-panel control answers wheel, keys, drag and clicks, and a generator knob
+// reaches the scope in time. Each exits 0 when it passes and 1 otherwise.
 //
 // --screenshot loads the first example, lets it run for kScreenshotDelay, saves the window as a
 // PNG and exits: for checking a panel's look and for documentation.
@@ -59,6 +60,9 @@ int main(int argc, char** argv)
     const QCommandLineOption smokePanelOption(QStringLiteral("smoke-panel"),
         QStringLiteral("Operate every control of the scope panel, check each, then exit."));
     parser.addOption(smokePanelOption);
+    const QCommandLineOption smokeLatencyOption(QStringLiteral("smoke-latency"),
+        QStringLiteral("Turn the generator's frequency and time the first new frame, then exit."));
+    parser.addOption(smokeLatencyOption);
     parser.addOption(screenshot);
     parser.process(app);
 
@@ -76,6 +80,8 @@ int main(int argc, char** argv)
         proton::app::smokeExamples(window);
     } else if (parser.isSet(smokePanelOption)) {
         proton::app::smokePanel(window);
+    } else if (parser.isSet(smokeLatencyOption)) {
+        proton::app::smokeLatency(window);
     } else if (parser.isSet(screenshot)) {
         window.loadExample(0);
         const QString file = parser.value(screenshot);

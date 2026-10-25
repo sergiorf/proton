@@ -21,4 +21,10 @@ void smokeExamples(MainWindow& window);
 // each changes the instrument's settings or state as it should (PLAN.md M2.4, M2.5).
 void smokePanel(MainWindow& window);
 
+// Turns the generator's frequency knob one click on the running RC example and measures the
+// wall-clock time until the scope shows the first frame of the restarted run (PLAN.md M2.6). It
+// prints the time and passes when it is under kLatencyBound: generous, since CI runners are slow;
+// ADR 0005 holds the numbers from a quiet machine.
+void smokeLatency(MainWindow& window);
+
 } // namespace proton::app

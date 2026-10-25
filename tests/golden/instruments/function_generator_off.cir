@@ -1,0 +1,3 @@
+* function generator gen1, output off
+Vgen1 gen1_int 0 DC 0
+Rgen1 gen1_int out 1g

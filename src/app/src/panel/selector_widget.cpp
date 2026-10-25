@@ -65,7 +65,7 @@ void SelectorWidget::changed(bool moved)
 {
     if (moved) {
         update();
-        emit positionChanged(selector_.position());
+        Q_EMIT positionChanged(selector_.position());
     }
 }
 

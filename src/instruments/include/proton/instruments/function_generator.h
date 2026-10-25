@@ -34,6 +34,9 @@ public:
     static constexpr double kMaxVoltage = 10.0;        // V, open circuit
     static constexpr double kMaxOutputImpedance = 1e6; // ohm
     static constexpr double kEdgeFraction = 1e-3;      // square and triangle corners, of a period
+    // An output switched off is open; SPICE cannot solve a net with nothing on it, so the open
+    // output keeps this leak to the reference: no load on any circuit a student builds.
+    static constexpr double kOffResistance = 1e9; // ohm
 
     // Voltages are open-circuit values, before the output impedance: a 50 ohm load sees half.
     struct Config
@@ -43,6 +46,7 @@ public:
         double amplitude = 1.0;        // V peak (half of Vpp); ignored for DC
         double offset = 0.0;           // V; the level for DC
         double outputImpedance = 50.0; // ohm
+        bool output = true;            // the output switch; off opens the output
 
         friend bool operator==(const Config&, const Config&) = default;
     };
@@ -71,6 +75,8 @@ public:
     // - DC is `DC offset`.
     // - With an output impedance of 0 there is no resistor and the source sits directly between
     //   `outputNet` and `referenceNet`.
+    // - With the output off, whatever the waveform and impedance, the output is open: a 0 V source
+    //   behind kOffResistance, headed `* function generator gen1, output off`.
     //
     // Numbers are written with formatSpiceNumber, rounded to 12 significant digits first so that
     // derived times read as written (`499u`, not `498.99999999999994u`). Deterministic.

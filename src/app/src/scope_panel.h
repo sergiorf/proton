@@ -61,7 +61,7 @@ public:
     // Frames shown since the panel was made, for the frame rate.
     long long framesShown() const { return framesShown_; }
 
-signals:
+Q_SIGNALS:
     // The student changed a knob; config() has the new settings.
     void changed();
     // The student pressed Single: the scope starts a single acquisition again, even if its
