@@ -20,11 +20,15 @@ enum class DiagnosticCode {
     DuplicateDesignator, // same element name twice, components and fragments, ignoring case
     InvalidTerminals,    // wrong number of nets, or an empty net name
     InvalidNetName,      // a net name SPICE would not read as one node name
+    ReservedName,        // an element or net name the simulator adds itself (core/reserved_names.h)
     InvalidValue,        // empty or not a SPICE number
     ZeroValue,           // a resistor, capacitor or inductor of zero
     InvalidFragmentLine, // a fragment line validate() cannot read (see validate)
     SingleConnectionNet, // a net only one terminal connects to (warning)
     NoDcPathToGround,    // a net with no DC path to ground: SPICE's "singular matrix"
+    // From the scene conversion (scene.h), not validate():
+    UnconnectedTerminal, // an instrument terminal wired to nothing in the circuit (warning)
+    ConflictingLabels,   // one net with two different labels
 };
 
 // Stable name of a code, "NoGround", for logs and tests.
