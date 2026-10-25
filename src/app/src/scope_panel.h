@@ -18,8 +18,8 @@ class LitButton;
 class ScopeWidget;
 
 // The oscilloscope's front panel (PLAN.md M2.4), laid out like a generic two-channel bench scope:
-// the screen on the left, and on the right Run/Stop and Single, then the Horizontal, Vertical and
-// Trigger sections.
+// the screen on the left, and on the right, side by side, Run/Stop and Single above the Horizontal
+// section, then the Vertical and Trigger sections.
 //
 // - Horizontal: the time/div knob, 1-2-5 steps; clockwise is faster.
 // - Vertical, per channel: the scale knob (V/div, 1-2-5 steps, clockwise is larger), the position

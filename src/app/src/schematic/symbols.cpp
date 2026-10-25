@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+#include "symbols.h"
+
+#include <QPainter>
+#include <QPainterPath>
+#include <QPointF>
+#include <QPolygonF>
+#include <QRectF>
+
+namespace proton::app::sheet {
+
+namespace {
+
+using schematic::ComponentKind;
+
+void line(QPainter& painter, double x1, double y1, double x2, double y2)
+{
+    painter.drawLine(QPointF(x1, y1), QPointF(x2, y2));
+}
+
+void resistor(QPainter& painter)
+{
+    line(painter, -2.0, 0.0, -1.2, 0.0);
+    line(painter, 1.2, 0.0, 2.0, 0.0);
+    QPolygonF zigzag;
+    zigzag << QPointF(-1.2, 0.0);
+    constexpr int kPeaks = 6;
+    for (int i = 0; i < kPeaks; ++i) {
+        const double x = -1.2 + 2.4 * (i + 0.5) / kPeaks;
+        zigzag << QPointF(x, i % 2 == 0 ? -0.5 : 0.5);
+    }
+    zigzag << QPointF(1.2, 0.0);
+    painter.drawPolyline(zigzag);
+}
+
+void capacitor(QPainter& painter)
+{
+    line(painter, -2.0, 0.0, -0.25, 0.0);
+    line(painter, 0.25, 0.0, 2.0, 0.0);
+    line(painter, -0.25, -0.9, -0.25, 0.9);
+    line(painter, 0.25, -0.9, 0.25, 0.9);
+}
+
+void inductor(QPainter& painter)
+{
+    line(painter, -2.0, 0.0, -1.6, 0.0);
+    line(painter, 1.6, 0.0, 2.0, 0.0);
+    QPainterPath coil(QPointF(-1.6, 0.0));
+    for (int i = 0; i < 4; ++i) {
+        const double left = -1.6 + 0.8 * i;
+        coil.arcTo(QRectF(left, -0.4, 0.8, 0.8), 180.0, -180.0);
+    }
+    painter.drawPath(coil);
+}
+
+void source(QPainter& painter, bool current)
+{
+    line(painter, 0.0, -2.0, 0.0, -1.0);
+    line(painter, 0.0, 1.0, 0.0, 2.0);
+    painter.drawEllipse(QPointF(0.0, 0.0), 1.0, 1.0);
+    if (current) {
+        // The current flows from the + pin through the source to the other: an arrow downwards.
+        line(painter, 0.0, -0.6, 0.0, 0.6);
+        painter.drawPolyline(QPolygonF{QPointF(-0.3, 0.25), QPointF(0.0, 0.6), QPointF(0.3, 0.25)});
+    } else {
+        line(painter, -0.25, -0.5, 0.25, -0.5); // +
+        line(painter, 0.0, -0.75, 0.0, -0.25);
+        line(painter, -0.25, 0.5, 0.25, 0.5); // -
+    }
+}
+
+void ground(QPainter& painter)
+{
+    line(painter, 0.0, 0.0, 0.0, 0.8);
+    line(painter, -1.0, 0.8, 1.0, 0.8);
+    line(painter, -0.6, 1.2, 0.6, 1.2);
+    line(painter, -0.2, 1.6, 0.2, 1.6);
+}
+
+} // namespace
+
+void drawSymbol(QPainter& painter, ComponentKind kind)
+{
+    switch (kind) {
+    case ComponentKind::Resistor:
+        resistor(painter);
+        break;
+    case ComponentKind::Capacitor:
+        capacitor(painter);
+        break;
+    case ComponentKind::Inductor:
+        inductor(painter);
+        break;
+    case ComponentKind::VoltageSource:
+        source(painter, false);
+        break;
+    case ComponentKind::CurrentSource:
+        source(painter, true);
+        break;
+    case ComponentKind::Ground:
+        ground(painter);
+        break;
+    }
+}
+
+void enterPlacement(QPainter& painter, const schematic::Placement& placement)
+{
+    painter.translate(placement.position.x, placement.position.y);
+    painter.rotate(90.0 * static_cast<int>(placement.rotation));
+    if (placement.mirrored) {
+        painter.scale(-1.0, 1.0);
+    }
+}
+
+} // namespace proton::app::sheet

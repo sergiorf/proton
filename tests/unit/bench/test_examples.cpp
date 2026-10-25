@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/bench/examples.h"
+#include "proton/schematic/scene.h"
 #include "proton/schematic/netlist.h"
 #include "proton/schematic/validate.h"
 #include "proton/test/test.h"
@@ -59,6 +60,16 @@ TEST(there_are_three_examples_with_distinct_names)
     CHECK_EQ(all[0].name, std::string("RC low-pass"));
     CHECK_EQ(all[1].name, std::string("Voltage divider"));
     CHECK_EQ(all[2].name, std::string("RC high-pass"));
+}
+
+TEST(every_example_is_drawn_and_converts_cleanly)
+{
+    for (const Example& example : proton::bench::examples()) {
+        const proton::schematic::Conversion conversion = proton::schematic::convert(example.scene);
+        CHECK(conversion.diagnostics.empty());
+        CHECK(conversion.circuit == example.circuit);
+        CHECK(!example.scene.parts.empty());
+    }
 }
 
 TEST(every_example_validates_without_diagnostics)
