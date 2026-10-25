@@ -5,6 +5,8 @@ add_executable(proton WIN32
     src/main.cpp
     src/main_window.cpp
     src/main_window.h
+    src/multimeter_panel.cpp
+    src/multimeter_panel.h
     src/panel/knob_widget.cpp
     src/panel/knob_widget.h
     src/panel/lit_button.cpp
@@ -12,6 +14,10 @@ add_executable(proton WIN32
     src/panel/panel_section.cpp
     src/panel/panel_section.h
     src/panel/panel_style.h
+    src/panel/segment_display.cpp
+    src/panel/segment_display.h
+    src/panel/selector_widget.cpp
+    src/panel/selector_widget.h
     src/scope_panel.cpp
     src/scope_panel.h
     src/scope_widget.cpp

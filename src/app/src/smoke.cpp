@@ -2,8 +2,10 @@
 #include "smoke.h"
 
 #include "main_window.h"
+#include "multimeter_panel.h"
 #include "panel/knob_widget.h"
 #include "panel/lit_button.h"
+#include "panel/selector_widget.h"
 #include "scope_panel.h"
 #include "scope_widget.h"
 
@@ -24,6 +26,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace proton::app {
@@ -119,10 +122,31 @@ void smokeExamples(MainWindow& window)
             progress->clock.elapsed() < std::chrono::milliseconds(kExampleDwell).count()) {
             return;
         }
+        // The meter's display shows the reading as the meter formats it, as proton-spike prints
+        // it; the voltage divider reads half its 5 V battery, on the 20 V range.
+        const MultimeterPanel& meter = window.multimeter();
+        const std::optional<instruments::DmmReading>& reading = window.reading();
+        const QString shown = meter.displayText() + QLatin1Char(' ') + meter.displayUnit();
+        if (!reading || meter.displayText() != QString::fromStdString(reading->display.text) ||
+            meter.displayUnit() != QString::fromStdString(reading->display.unit)) {
+            std::fprintf(stderr, "proton: example %zu: the meter shows '%s', not its reading\n",
+                         progress->example, shown.toStdString().c_str());
+            timer->stop();
+            QApplication::exit(1);
+            return;
+        }
+        if (progress->example == 1 && shown != QStringLiteral("2.500 V")) {
+            std::fprintf(stderr, "proton: the voltage divider reads '%s', not 2.500 V\n",
+                         shown.toStdString().c_str());
+            timer->stop();
+            QApplication::exit(1);
+            return;
+        }
         const ScopeWidget& screen = window.scope().screen();
-        std::printf("proton: example %zu: %.0f pumps/s, %.0f frames/s shown, speed %.2f; "
-                    "paint mean %.2f ms, max %.2f ms over %lld paints\n",
-                    progress->example, window.pumpRate(), window.frameRate(),
+        std::printf("proton: example %zu: meter %s; %.0f pumps/s, %.0f frames/s shown, "
+                    "speed %.2f; paint mean %.2f ms, max %.2f ms over %lld paints\n",
+                    progress->example, shown.toStdString().c_str(), window.pumpRate(),
+                    window.frameRate(),
                     window.control().speed(), screen.meanPaintMs(), screen.maxPaintMs(),
                     screen.paints());
         std::fflush(stdout);
@@ -218,6 +242,36 @@ void smokePanel(MainWindow& window)
             button->click(); // stop
             checker.check(panel.screen().status() == QStringLiteral("Stop"),
                           QStringLiteral("Run / Stop: stops"));
+        }
+    }
+
+    // The multimeter: the dial turns by wheel and keys, RANGE fixes the range and steps it, AUTO
+    // goes back to auto range.
+    MultimeterPanel& meter = window.multimeter();
+    using Mode = instruments::Multimeter::Mode;
+    for (panel::SelectorWidget* dial : meter.findChildren<panel::SelectorWidget*>()) {
+        const Mode before = meter.config().mode;
+        wheel(dial, before == Mode::DcVoltage ? 1 : -1);
+        checker.check(meter.config().mode != before, QStringLiteral("Function: wheel"));
+        dial->setFocus();
+        key(dial, meter.config().mode == Mode::DcVoltage ? Qt::Key_Up : Qt::Key_Down);
+        checker.check(meter.config().mode == before, QStringLiteral("Function: arrow key"));
+    }
+    using Range = instruments::Multimeter::Range;
+    for (panel::LitButton* button : meter.findChildren<panel::LitButton*>()) {
+        if (button->accessibleName() == QStringLiteral("Range")) {
+            button->click();
+            const Range fixed = meter.config().range;
+            checker.check(fixed != Range::Auto, QStringLiteral("Range: fixes the range"));
+            button->click();
+            checker.check(meter.config().range != fixed && meter.config().range != Range::Auto,
+                          QStringLiteral("Range: steps"));
+        }
+    }
+    for (panel::LitButton* button : meter.findChildren<panel::LitButton*>()) {
+        if (button->accessibleName() == QStringLiteral("Auto")) {
+            button->click();
+            checker.check(meter.config().range == Range::Auto, QStringLiteral("Auto: auto range"));
         }
     }
 

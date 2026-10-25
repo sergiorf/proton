@@ -273,7 +273,7 @@ dress.
 *Done when:* every scope control from M2.3 is operable by drag, wheel and keyboard on the new
 panel, the knob tests pass, and M2.3's knob behaviour still holds.
 
-**M2.5 Multimeter front panel.** On the M2.4 widgets: a 4.5-digit 7-segment-style display with
+**M2.5 Multimeter front panel.** *(done 2026-10-25)* On the M2.4 widgets: a 4.5-digit 7-segment-style display with
 range and mode annunciators, a rotary mode dial (DC V, AC V; current and resistance positions
 arrive in M3), range (auto or fixed), probe binding to a net of the example.
 *Done when:* readings match `proton-spike` for the same example.
