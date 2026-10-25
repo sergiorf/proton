@@ -16,11 +16,10 @@
 
 namespace proton::spike {
 
-// The whole M0 pipeline, headless (ARCHITECTURE.md section 3): circuit -> validate ->
-// netlist -> MockEngine or NgspiceEngine on a SimWorker thread -> scope and multimeters on the
-// calling thread.
-// It is the temporary glue that src/bench replaces in M2.2, shared by proton-spike and the
-// integration test so the test checks exactly what the demo runs.
+// The whole pipeline, headless (ARCHITECTURE.md section 3): the RC example on the bench
+// (bench::RunControl), with MockEngine or NgspiceEngine on the worker thread and the instruments on
+// the calling thread. Shared by proton-spike and the integration test, so the test checks exactly
+// what the demo runs.
 
 // The RC example: a function generator on net `in`, R1 from `in` to `out`, C1 from `out` to
 // ground. The defaults give an RC low-pass with tau = 100 us (corner 1.59 kHz) driven by a
@@ -56,14 +55,13 @@ struct PipelineSettings
 
     Engine engine = Engine::Mock;
     double duration = 0.35; // s of simulation time; points after it are not fed
-    // s, the longest step ngspice may take; defaultSettings() makes it maxStepFor(scope).
-    double maxStep = 1e-5;
     // Feed the instruments in step with wall-clock time (RealTimePacer) instead of as fast as the
     // engine runs. Changes when the instruments are fed, never what they give.
     bool realTime = false;
     sim::SimWorker::Config worker;
-    // Both channels at 1 V/div, 200 us/div (two periods of 1 kHz on the screen), Normal mode,
-    // triggered by CH1 rising through the generator's offset; see defaultSettings().
+    // CH1 on v(in), CH2 on v(out). Both channels at 1 V/div, 200 us/div (two periods of 1 kHz on
+    // the screen), Normal mode, triggered by CH1 rising through the generator's offset; see
+    // defaultSettings(). The engine's longest step is bench::maxStepFor() it.
     instruments::Scope::Config scope;
     double gateTime = 0.1; // s, for both multimeters: 100 periods of 1 kHz
     // For tests of error handling: the mock engine fails after this simulation time. Ignored by
@@ -75,27 +73,21 @@ struct PipelineSettings
 // other name.
 std::optional<PipelineSettings::Engine> parseEngine(std::string_view name);
 
-// The engine's longest step for a scope set up as `scope`: one sample interval of its timebase
-// (decision D6, ADR 0007), so the engine gives at least one point per sample and the scope's
-// linear interpolation between points is faithful. Moves to src/bench in M2.2, where the fastest
-// of the bench's scopes sets it and a change restarts the run.
-double maxStepFor(const instruments::Scope::Config& scope);
-
 // The settings proton-spike uses for `example`.
 PipelineSettings defaultSettings(const RcExample& example);
 
-// The example's circuit, with the generator's fragment under the name "gen1".
+// The example's circuit, with the generator's fragment as the bench contributes it ("gen1").
 schematic::Circuit buildCircuit(const RcExample& example);
 
 struct PipelineResult
 {
     std::vector<schematic::Diagnostic> diagnostics; // from validate()
     std::string netlist;                            // empty when validate() found errors
-    // Everything the instruments gave, in order. The pump pops after every chunk, so with chunks
-    // shorter than a frame and a gate, none is missed.
+    // Everything the instruments gave, in order. The run pops after every chunk's worth of
+    // simulation time, so with chunks shorter than a frame and a gate, none is missed.
     std::vector<instruments::ScopeFrame> frames;
-    std::vector<instruments::DmmReading> dcReadings; // DC V on v(out)
-    std::vector<instruments::DmmReading> acReadings; // AC V on v(out)
+    std::vector<instruments::DmmReading> dcReadings; // DMM1, DC V on v(out)
+    std::vector<instruments::DmmReading> acReadings; // DMM2, AC V on v(out)
     double lastTime = 0.0;                           // simulation time of the last point fed
     // With realTime, the pacer's speed at the end of the run (RealTimePacer::speed()); 1 without.
     double speed = 1.0;

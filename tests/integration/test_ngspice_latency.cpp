@@ -273,7 +273,7 @@ TEST(latency_at_the_engine_default_step)
     measure(NgspiceEngine::Config{}.maxStep); // 1 us
 }
 
-TEST(latency_at_the_pipeline_step)
+TEST(latency_at_10_us_steps)
 {
-    measure(proton::spike::PipelineSettings{}.maxStep); // 10 us
+    measure(10e-6); // the step ADR 0005 measured at
 }

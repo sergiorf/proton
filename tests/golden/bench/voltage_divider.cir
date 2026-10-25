@@ -1,0 +1,4 @@
+* Proton netlist
+R1 in out 10k
+R2 out 0 10k
+V1 in 0 DC 5

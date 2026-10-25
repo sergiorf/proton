@@ -7,7 +7,11 @@ add_executable(proton WIN32
     src/main_window.h
 )
 set_target_properties(proton PROPERTIES AUTOMOC ON)
-target_link_libraries(proton PRIVATE proton::core Qt6::Widgets proton_warnings)
+target_link_libraries(proton PRIVATE proton::bench proton::core Qt6::Widgets proton_warnings)
+# The examples run on ngspice, loaded from the executable's directory.
+if(PROTON_NGSPICE_FOUND)
+    proton_copy_ngspice_dlls(proton)
+endif()
 
 # Qt's DLLs and plugins next to proton.exe after every build, so it starts without Qt on PATH,
 # from VS Code as from the smoke test. Dynamic linking keeps them replaceable (LGPL, LICENSING.md).
@@ -21,3 +25,7 @@ endif()
 
 # The app opens its main window, closes it and exits 0.
 add_test(NAME app_starts COMMAND proton --smoke-test)
+# Every example runs in the app, one after the other, as when chosen from the menu (M2.2).
+if(PROTON_NGSPICE_FOUND)
+    add_test(NAME app_runs_examples COMMAND proton --smoke-examples)
+endif()

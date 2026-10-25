@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/spike/pipeline.h"
 
+#include "proton/bench/bench.h"
+#include "proton/bench/run_control.h"
 #include "proton/core/spice_number.h"
 #include "proton/schematic/netlist.h"
 #include "proton/sim/mock_engine.h"
-#include "proton/sim/real_time_pacer.h"
 #ifdef PROTON_HAVE_NGSPICE
 #include "proton/sim/ngspice_engine.h"
 #endif
@@ -53,98 +54,88 @@ Multimeter::Config meter(Multimeter::Mode mode, double gateTime)
     return config;
 }
 
-// Feeds simulation output to the instruments and collects what they give.
-class Pump
+// The bench for the example: the generator on `in`, CH1 on `in`, CH2 on `out`, and two
+// multimeters on `out`, DC V and AC V.
+bench::Bench::Config benchConfig(const RcExample& example, const PipelineSettings& settings)
 {
-public:
-    Pump(const PipelineSettings& settings, PipelineResult& result)
-        : scope_(settings.scope), dc_(meter(Multimeter::Mode::DcVoltage, settings.gateTime)),
-          ac_(meter(Multimeter::Mode::AcVoltage, settings.gateTime)), duration_(settings.duration),
-          result_(result)
-    {}
+    bench::Bench::Config config;
+    config.generator = example.generator;
+    config.generatorNet = kInputNet;
+    config.scope = settings.scope;
+    config.scopeNets = {kInputNet, kOutputNet};
+    config.multimeters = {
+        {meter(Multimeter::Mode::DcVoltage, settings.gateTime), kOutputNet},
+        {meter(Multimeter::Mode::AcVoltage, settings.gateTime), kOutputNet},
+    };
+    return config;
+}
 
-    // Feeds the points of `chunk` from index `from` up to simulation time `limit` (at most the
-    // duration), and returns the index of the first point not fed.
-    std::size_t feed(const sim::SimChunk& chunk, std::size_t from, double limit, std::size_t in,
-                     std::size_t out)
-    {
-        const auto begin = chunk.time.begin() + static_cast<std::ptrdiff_t>(from);
-        const auto end = std::upper_bound(begin, chunk.time.end(), std::min(limit, duration_));
-        const auto count = static_cast<std::size_t>(end - begin);
-        const std::span<const double> time(chunk.time.data() + from, count);
-        const std::span<const double> vin(chunk.signals[in].data() + from, count);
-        const std::span<const double> vout(chunk.signals[out].data() + from, count);
-        scope_.feed(time, vin, vout);
-        dc_.feed(time, vout);
-        ac_.feed(time, vout);
-        if (std::optional<ScopeFrame> frame = scope_.popFrame()) {
-            result_.frames.push_back(std::move(*frame));
-        }
-        if (std::optional<instruments::DmmReading> reading = dc_.popReading()) {
-            result_.dcReadings.push_back(std::move(*reading));
-        }
-        if (std::optional<instruments::DmmReading> reading = ac_.popReading()) {
-            result_.acReadings.push_back(std::move(*reading));
-        }
-        if (count > 0) {
-            result_.lastTime = time.back();
-        }
-        return from + count;
-    }
-
-    // Whether every point up to the duration has been fed, given that `chunk` was fed up to
-    // `next` with a limit of `limit`.
-    bool reached(const sim::SimChunk& chunk, std::size_t next, double limit) const
-    {
-        if (chunk.time.empty() || limit < duration_) {
-            return false;
-        }
-        // The points left are past the duration, or the chunk ends at it.
-        return next < chunk.time.size() || chunk.time.back() >= duration_;
-    }
-
-private:
-    Scope scope_;
-    Multimeter dc_;
-    Multimeter ac_;
-    double duration_;
-    PipelineResult& result_;
-};
-
-// The engine `settings` choose, or nullptr with `error` saying why there is none.
-std::unique_ptr<sim::ISimEngine> makeEngine(const RcExample& example,
-                                            const PipelineSettings& settings, std::string& error)
+// R1 and C1, without the generator, which the bench adds.
+Circuit components(const RcExample& example)
 {
-    if (settings.engine == PipelineSettings::Engine::Ngspice) {
+    Circuit circuit;
+    circuit.components = {
+        Component{ComponentKind::Resistor, "R1", {kInputNet, kOutputNet}, example.resistance},
+        Component{ComponentKind::Capacitor,
+                  "C1",
+                  {kOutputNet, std::string(schematic::kGroundNet)},
+                  example.capacitance},
+    };
+    return circuit;
+}
+
+// Pops everything the bench's instruments have given into `result`.
+void collect(bench::Bench& bench, PipelineResult& result)
+{
+    if (std::optional<ScopeFrame> frame = bench.popFrame()) {
+        result.frames.push_back(std::move(*frame));
+    }
+    if (std::optional<instruments::DmmReading> reading = bench.popReading(0)) {
+        result.dcReadings.push_back(std::move(*reading));
+    }
+    if (std::optional<instruments::DmmReading> reading = bench.popReading(1)) {
+        result.acReadings.push_back(std::move(*reading));
+    }
+}
+
+// The engines `settings` choose; a factory that makes none says why.
+bench::RunControl::EngineFactory engines(const RcExample& example,
+                                         const PipelineSettings& settings)
+{
+    return [example, settings](double maxStep,
+                               std::string& error) -> std::unique_ptr<sim::ISimEngine> {
+        if (settings.engine == PipelineSettings::Engine::Ngspice) {
 #ifdef PROTON_HAVE_NGSPICE
-        sim::NgspiceEngine::Config config;
-        // A chunk past the duration, so the chunk that reaches the duration is never cut short
-        // by the end of the run.
-        const double chunk = sim::SimWorker::sanitise(settings.worker).chunkDuration;
-        config.stopTime = settings.duration + chunk;
-        config.maxStep = settings.maxStep;
-        return std::make_unique<sim::NgspiceEngine>(config);
+            sim::NgspiceEngine::Config config;
+            // A chunk past the duration, so the chunk that reaches the duration is never cut
+            // short by the end of the run.
+            const double chunk = sim::SimWorker::sanitise(settings.worker).chunkDuration;
+            config.stopTime = settings.duration + chunk;
+            config.maxStep = maxStep;
+            return std::make_unique<sim::NgspiceEngine>(config);
 #else
-        error = "this build has no ngspice";
-        return nullptr;
+            error = "this build has no ngspice";
+            return nullptr;
 #endif
-    }
+        }
 
-    // The mock engine simulates the same circuit, set up from the same settings.
-    const FunctionGenerator::Config generator = FunctionGenerator::sanitise(example.generator);
-    if (generator.waveform != FunctionGenerator::Waveform::Sine) {
-        error = "the mock engine simulates only a sine generator";
-        return nullptr;
-    }
-    sim::MockEngine::Config mock;
-    mock.amplitude = generator.amplitude;
-    mock.offset = generator.offset;
-    mock.frequency = generator.frequency;
-    // validate() passed, so both values parse.
-    mock.resistance = core::parseSpiceNumber(example.resistance).value_or(mock.resistance);
-    mock.capacitance = core::parseSpiceNumber(example.capacitance).value_or(mock.capacitance);
-    mock.failAt = settings.failAt;
-    return std::make_unique<sim::MockEngine>(mock);
+        // The mock engine simulates the same circuit, set up from the same settings; it picks
+        // its own steps.
+        const FunctionGenerator::Config generator = FunctionGenerator::sanitise(example.generator);
+        if (generator.waveform != FunctionGenerator::Waveform::Sine) {
+            error = "the mock engine simulates only a sine generator";
+            return nullptr;
+        }
+        sim::MockEngine::Config mock;
+        mock.amplitude = generator.amplitude;
+        mock.offset = generator.offset;
+        mock.frequency = generator.frequency;
+        // validate() passed, so both values parse.
+        mock.resistance = core::parseSpiceNumber(example.resistance).value_or(mock.resistance);
+        mock.capacitance = core::parseSpiceNumber(example.capacitance).value_or(mock.capacitance);
+        mock.failAt = settings.failAt;
+        return std::make_unique<sim::MockEngine>(mock);
+    };
 }
 
 } // namespace
@@ -160,11 +151,6 @@ std::optional<PipelineSettings::Engine> parseEngine(std::string_view name)
     return std::nullopt;
 }
 
-double maxStepFor(const Scope::Config& scope)
-{
-    return Scope(scope).sampleInterval();
-}
-
 PipelineSettings defaultSettings(const RcExample& example)
 {
     PipelineSettings settings;
@@ -173,104 +159,60 @@ PipelineSettings defaultSettings(const RcExample& example)
     settings.scope.trigger.source = Scope::TriggerSource::Channel1;
     settings.scope.trigger.slope = Scope::Slope::Rising;
     settings.scope.trigger.level = FunctionGenerator::sanitise(example.generator).offset;
-    settings.maxStep = maxStepFor(settings.scope);
     return settings;
 }
 
 Circuit buildCircuit(const RcExample& example)
 {
-    Circuit circuit;
-    circuit.components = {
-        Component{ComponentKind::Resistor, "R1", {kInputNet, kOutputNet}, example.resistance},
-        Component{ComponentKind::Capacitor,
-                  "C1",
-                  {kOutputNet, std::string(schematic::kGroundNet)},
-                  example.capacitance},
-    };
-    const FunctionGenerator generator(example.generator);
-    circuit.fragments = {
-        {kGenerator, generator.toSpice(kGenerator, kInputNet, schematic::kGroundNet).lines},
-    };
+    Circuit circuit = components(example);
+    bench::Bench bench(benchConfig(example, defaultSettings(example)));
+    bench.contributeTo(circuit);
     return circuit;
 }
 
 PipelineResult run(const RcExample& example, const PipelineSettings& settings)
 {
-    PipelineResult result;
-    const Circuit circuit = buildCircuit(example);
-    result.diagnostics = schematic::validate(circuit);
-    if (schematic::hasErrors(result.diagnostics)) {
-        const auto error = std::find_if(result.diagnostics.begin(), result.diagnostics.end(),
-                                        [](const schematic::Diagnostic& d) {
-                                            return d.severity == schematic::Severity::Error;
-                                        });
-        result.error = error->message;
-        return result;
-    }
-    result.netlist = schematic::buildNetlist(circuit);
+    bench::RunControl control(engines(example, settings), {settings.worker, settings.realTime});
+    control.bench().configure(benchConfig(example, settings));
+    control.setCircuit(components(example));
+    control.start();
 
-    std::unique_ptr<sim::ISimEngine> engine = makeEngine(example, settings, result.error);
-    if (!engine) {
-        return result;
-    }
-    sim::SimWorker worker(std::move(engine), settings.worker);
-    if (!worker.start(result.netlist)) {
-        result.error = worker.error();
-        return result;
-    }
-    const std::optional<std::size_t> in =
-        sim::indexOfSignal(worker.signalNames(), std::string("v(") + kInputNet + ")");
-    const std::optional<std::size_t> out =
-        sim::indexOfSignal(worker.signalNames(), std::string("v(") + kOutputNet + ")");
-    if (!in || !out) {
-        result.error = "the simulation has no v(in) or v(out)";
-        return result;
-    }
-
-    // With realTime, the points of a chunk past what is due wait in `held` for the wall clock.
-    Pump pump(settings, result);
-    sim::RealTimePacer pacer;
     const auto clockStart = std::chrono::steady_clock::now();
     const auto wallNow = [&] {
         return std::chrono::duration<double>(std::chrono::steady_clock::now() - clockStart).count();
     };
-    pacer.start(wallNow());
-    std::optional<sim::SimChunk> held;
-    std::size_t next = 0;  // first point of `held` not fed yet
-    bool ending = false;   // the run failed; the chunks left in the ring are fed, then it stops
+    // Each pump feeds at most a chunk's worth of simulation time, and what the instruments gave is
+    // popped after it.
+    const double chunk = sim::SimWorker::sanitise(settings.worker).chunkDuration;
+    double target = std::min(settings.duration, chunk);
+    PipelineResult result;
     for (;;) {
-        if (!held) {
-            held = worker.tryPop();
-            next = 0;
-            if (!held) {
-                if (ending) {
-                    result.error = worker.error();
-                    break;
-                }
-                // A run that failed pushed every chunk before saying so: pop them all first.
-                ending = !worker.running();
-                std::this_thread::yield();
-                continue;
-            }
-        }
-        const double now = wallNow();
-        const double limit = settings.realTime ? pacer.due(now) : settings.duration;
-        next = pump.feed(*held, next, limit, *in, *out);
-        pacer.fed(now, result.lastTime);
-        if (pump.reached(*held, next, limit)) {
+        control.pump(wallNow(), target);
+        collect(control.bench(), result);
+        if (control.state() != bench::RunControl::State::Running) {
+            result.error = control.error();
             break;
         }
-        if (next == held->time.size()) {
-            held.reset();
-        } else {
+        if (!control.probeErrors().empty()) {
+            result.error = control.probeErrors().front().message;
+            break;
+        }
+        if (control.fedThrough() >= settings.duration) {
+            break;
+        }
+        if (control.fedThrough() >= target) {
+            target = std::min(settings.duration, target + chunk);
+        } else if (settings.realTime) {
             // The rest is not due yet.
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } else {
+            std::this_thread::yield();
         }
     }
-    if (settings.realTime) {
-        result.speed = pacer.speed();
-    }
-    worker.stop();
+    result.diagnostics = control.diagnostics();
+    result.netlist = control.netlist();
+    result.lastTime = control.lastTime();
+    result.speed = control.speed();
     return result;
 }
 
