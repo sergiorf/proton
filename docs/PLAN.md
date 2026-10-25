@@ -241,7 +241,7 @@ analytic answer.
 The first time it looks like a bench. Circuits are built in code from a small list of examples;
 the schematic editor comes in M4.
 
-**M2.1 App shell.** `src/app` with `QMainWindow`, `PROTON_BUILD_APP`, `windeployqt` as a post-build
+**M2.1 App shell.** *(done 2026-10-25)* `src/app` with `QMainWindow`, `PROTON_BUILD_APP`, `windeployqt` as a post-build
 step, CI Windows job with Qt installed.
 *Done when:* the app builds and starts in CI (a smoke test that opens and closes the window) and
 locally from VS Code.

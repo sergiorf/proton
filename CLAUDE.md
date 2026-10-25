@@ -23,6 +23,12 @@ On Windows, `powershell -ExecutionPolicy Bypass -File tools/fetch-ngspice.ps1` o
 configuring fetches the pinned ngspice into `third_party/ngspice`; without it the build skips ngspice.
 On Linux, `bash tools/fetch-ngspice.sh` builds the same release from source instead (ADR 0008).
 
+The Windows presets also build the Qt app (`src/app`, option `PROTON_BUILD_APP`), which needs Qt
+6.8 or newer from the official installer (6.12 locally; CI uses 6.8.3 until aqtinstall can install
+6.12): set the environment variable `QT_ROOT_DIR` to its MSVC kit (e.g.
+`C:\Qt\6.12.0\msvc2022_64`; CI's install-qt-action sets the same variable), or configure with
+`-DPROTON_BUILD_APP=OFF`. `windeployqt` puts Qt next to `proton.exe`, so it runs from the build tree.
+
 Linux (clang + Ninja, Qt-free): `linux-clang-asan` (ASan + UBSan) and `linux-clang-tsan`, same
 three commands. CI (`.github/workflows/ci.yml`) runs both Windows presets and both Linux presets
 on every push to main and every pull request, adding `-DPROTON_WARNINGS_AS_ERRORS=ON` at configure

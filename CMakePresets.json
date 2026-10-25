@@ -13,6 +13,7 @@
       "inherits": "base",
       "description": "Default Visual Studio generator (VS 2022 or newer), x64",
       "architecture": { "value": "x64", "strategy": "set" },
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
