@@ -13,12 +13,17 @@ saturates at its rails and a diode drops about 0.6 V, otherwise circuits teach t
 
 ### Instruments
 
+The instruments look like generic bench instruments, because recognising a real bench is part of
+what a student learns: a front panel with a screen, labelled sections, rotary knobs that step
+like real ones (1-2-5 for time/div and V/div) and lit buttons. The styling is original and
+brand-neutral: no manufacturer's layout, logo or trade dress (PLAN.md, M2.4).
+
 | Instrument | MVP scope | State |
 |---|---|---|
 | DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | planned (M3) |
-| Function generator | sine, square, triangle, DC, offset, output impedance | model done (M0), UI planned (M2) |
-| Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | model done (M0), UI planned (M2) |
-| Multimeter | DC V, AC V (true RMS), auto/fixed range | model done (M0), UI planned (M2) |
+| Function generator | sine, square, triangle, DC, offset, output impedance | model done (M0), front panel planned (M2.6) |
+| Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | model done (M0), screen and faceplate done (M2.3), front panel planned (M2.4) |
+| Multimeter | DC V, AC V (true RMS), auto/fixed range | model done (M0), front panel planned (M2.5) |
 | Multimeter | DC current | planned (M3) |
 | Multimeter | resistance | planned (M3) |
 

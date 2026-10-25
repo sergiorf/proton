@@ -7,11 +7,15 @@
 // check that the app, its Qt DLLs and plugins start.
 //
 // --smoke-examples opens the main window and runs every example in menu order, switching to the
-// next once the multimeter has read, as a student choosing them from the menu would. It exits 0
-// after the last one has read, and 1 if one fails or takes longer than kExampleTimeout: the CI
-// check that the examples run in the app and that switching restarts cleanly.
+// next once the multimeter has read, the scope has shown a frame and kExampleDwell has passed, as
+// a student choosing them from the menu would. It prints the frame rate shown and the scope's
+// paint times (ADR 0004), and exits 0 after the last example, 1 if one fails or takes longer than
+// kExampleTimeout: the CI check that the examples run in the app and that switching restarts
+// cleanly.
 
 #include "main_window.h"
+#include "scope_panel.h"
+#include "scope_widget.h"
 
 #include "proton/core/version.h"
 
@@ -19,6 +23,7 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QElapsedTimer>
+#include <QIcon>
 #include <QString>
 #include <QTimer>
 
@@ -31,6 +36,7 @@
 namespace {
 
 constexpr std::chrono::seconds kExampleTimeout{30}; // generous: CI runners are slow
+constexpr std::chrono::milliseconds kExampleDwell{1500}; // over a second for the frame rate
 
 // Runs the examples of `window` one after the other; see --smoke-examples.
 void smokeExamples(proton::app::MainWindow& window)
@@ -55,9 +61,17 @@ void smokeExamples(proton::app::MainWindow& window)
             QApplication::exit(1);
             return;
         }
-        if (!window.hasReading()) {
+        if (!window.hasReading() ||
+            progress->clock.elapsed() < std::chrono::milliseconds(kExampleDwell).count()) {
             return;
         }
+        const proton::app::ScopeWidget& screen = window.scope().screen();
+        std::printf("proton: example %zu: %.0f pumps/s, %.0f frames/s shown, speed %.2f; paint mean %.2f ms, max %.2f ms "
+                    "over %lld paints\n",
+                    progress->example, window.pumpRate(), window.frameRate(),
+                    window.control().speed(), screen.meanPaintMs(),
+                    screen.maxPaintMs(), screen.paints());
+        std::fflush(stdout);
         if (++progress->example == window.exampleCount()) {
             timer->stop();
             window.close();
@@ -75,6 +89,7 @@ int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Proton"));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/proton.png")));
     const std::string_view version = proton::core::versionString();
     QApplication::setApplicationVersion(
         QString::fromUtf8(version.data(), static_cast<qsizetype>(version.size())));

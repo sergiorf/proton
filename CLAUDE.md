@@ -72,6 +72,8 @@ linking `proton::test_support` (the harness in `tests/support`: `TEST`, `CHECK`,
   operated (timebase, trigger, coupling, ranges, clipping), not how they degrade.
   Quantisation and bandwidth limits are optional and default to ideal.
 - Components are not ideal: op-amps saturate at the rails, diodes have a forward drop.
+- Instruments look like generic bench instruments: front panels with knobs, buttons and a screen,
+  original and brand-neutral (no manufacturer's layout, logo or trade dress).
 - Out of scope: noise, probe loading, CPU design from gates.
 
 ## How to work here

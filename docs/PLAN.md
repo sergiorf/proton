@@ -26,7 +26,7 @@ says in what order things get built and how each step is known to be done.
 |---|---|---|
 | M0 Foundations | Build, CI, and the whole pipeline running headless on the mock engine | - |
 | M1 ngspice | Real simulation, validated against analytic answers; latency measured; time model decided | M0 |
-| M2 First UI | Qt-free bench core; Qt app: 2-channel scope, multimeter, generator on built-in example circuits | M1 |
+| M2 First UI | Qt-free bench core; Qt app: 2-channel scope, multimeter, generator with realistic front panels, on built-in example circuits | M1 |
 | M3 Bench model | Any number of instruments, DC supply, DMM current and resistance | M2 |
 | M4 Schematic editor | Draw circuits, probe them, save and load projects | M3 |
 | M5 Components and release | Full MVP component set, acceptance suite, Windows package | M4 |
@@ -255,21 +255,35 @@ does not simulate: the mock engine ignores the circuit, so it stays in tests and
 *Done when:* headless bench tests cover a run, a restart and a missing net; choosing an example in
 the app runs it, and switching examples restarts cleanly.
 
-**M2.3 ScopeWidget and faceplate.** ADR 0004 (custom `QPainter`, no Qt Charts). Graticule, two
+**M2.3 ScopeWidget and faceplate.** *(done 2026-10-25)* ADR 0004 (custom `QPainter`, no Qt Charts). Graticule, two
 traces, trigger level and position markers; faceplate with time/div, V/div, position, coupling,
 trigger source / level / slope / mode, Run / Stop / Single.
 *Done when:* every knob changes the display as on a real scope, and the trace stays stable at
 60 frames per second on the RC example (with the time model from D6).
 
-**M2.4 Multimeter display and faceplate.** Mode (DC V, AC V), range (auto or fixed), probe binding
-to a net of the example.
+**M2.4 Front-panel widgets.** The instruments look like generic bench instruments (ROADMAP.md):
+a front panel per instrument, drawn with `QPainter` and scaling with its dock. Widgets: a rotary
+knob (drag, mouse wheel and keyboard; detented for stepped settings such as the 1-2-5 sequence,
+continuous for position and level, with push-to-reset where a real knob has it), a lit push
+button, and a panel with a bezel and labelled sections. The angle-to-value mapping, detents and
+acceleration are Qt-free and tested. The scope's faceplate moves onto them, laid out like a
+two-channel bench scope: screen on the left; Vertical, Horizontal and Trigger sections; lit
+Run/Stop and Single. Original, brand-neutral styling: no manufacturer's layout, logo or trade
+dress.
+*Done when:* every scope control from M2.3 is operable by drag, wheel and keyboard on the new
+panel, the knob tests pass, and M2.3's knob behaviour still holds.
+
+**M2.5 Multimeter front panel.** On the M2.4 widgets: a 4.5-digit 7-segment-style display with
+range and mode annunciators, a rotary mode dial (DC V, AC V; current and resistance positions
+arrive in M3), range (auto or fixed), probe binding to a net of the example.
 *Done when:* readings match `proton-spike` for the same example.
 
-**M2.5 Generator faceplate.** Waveform, frequency, amplitude, offset, output on/off, using the
-live-change method from D3.
+**M2.6 Generator front panel.** On the M2.4 widgets: waveform buttons, frequency, amplitude and
+offset on knobs with a numeric entry, output on/off with a lit button, using the live-change
+method from D3.
 *Done when:* turning the frequency updates the scope within the latency measured in M1.5.
 
-**M2.6 Usability pass.** Use the app for a scripted session (measure the RC corner frequency with
+**M2.7 Usability pass.** Use the app for a scripted session (measure the RC corner frequency with
 the scope and the generator) and fix what gets in the way.
 *Done when:* the session is possible without reading code, and fixes are in.
 
@@ -406,7 +420,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M3.5 | One process per ngspice test; D4 for resistance |
-| Restarting on every knob turn feels sluggish | M1.5, M2.5 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.6 with the alter prototype |
+| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M2.7 with the alter prototype |
 | A restart loses the circuit's state (a switched RC starts charged) | M4.7 | Switches and potentiometers keep state (D7) |
 | Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Decided in M1.7 (D6, ADR 0007): pacing by the consumer, endless runs without a plot; fast timebases stay slower than real time (x0.4 at 100 us/div) |
 | The engine's threading code is never run under TSan | M1.8 | Done in M1.8: ngspice 46 built on Linux, every ngspice test under TSan and ASan (ADR 0008) |

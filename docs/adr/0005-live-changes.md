@@ -155,12 +155,12 @@ With it:
 
 ## Consequences
 
-- M2.5 (generator faceplate) rebuilds the netlist and calls `SimWorker::start()` on each change,
+- M2.6 (generator front panel) rebuilds the netlist and calls `SimWorker::start()` on each change,
   coalescing changes to at most one per UI tick, and restarts the scope's acquisition.
 - Netlists may not use the names `Vproton_halt` and `proton_halt`; `validate()` should reject a
   designator or net with those names when user-named nets arrive (M4).
 - Endless runs are still open: a run ends at `stopTime` (10 s by default) and its plot is
   reserved up front. The bench (M2.2) needs a policy: a long stop time with a larger `.tran`
   step, or a restart when the run ends.
-- If a slow circuit's restart start-up is a problem in practice (M2.6), revisit with the alter
+- If a slow circuit's restart start-up is a problem in practice (M2.7), revisit with the alter
   prototype for that case.

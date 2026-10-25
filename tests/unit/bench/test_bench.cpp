@@ -239,3 +239,31 @@ TEST(configure_restarts_only_the_instruments_that_change)
     CHECK(reading.has_value());
     CHECK(reading && std::abs(reading->time - 1e-3) < 1e-12);
 }
+
+TEST(rearming_takes_another_single_frame)
+{
+    Bench::Config config = wired();
+    config.scope.mode = Scope::Mode::Single;
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    bench.attach(kSignals);
+    // A rising edge through 0 V on CH1 every millisecond.
+    SimChunk c;
+    c.signals.resize(2);
+    for (int i = 0; i <= 20000; ++i) {
+        const double t = static_cast<double>(i) * 1e-6;
+        c.time.push_back(t);
+        c.signals[0].push_back(std::sin(2.0 * 3.14159265358979 * 1e3 * t));
+        c.signals[1].push_back(0.0);
+    }
+    bench.feed(c, 0, 10000);
+    CHECK(bench.popFrame().has_value());
+    CHECK(bench.scopeStopped());
+    bench.feed(c, 10000, 15000);
+    CHECK(!bench.popFrame()); // stopped after its frame
+    bench.rearmScope();
+    CHECK(!bench.scopeStopped());
+    bench.feed(c, 15000, c.time.size());
+    CHECK(bench.popFrame().has_value());
+}

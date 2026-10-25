@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>proton.png</file>
+    </qresource>
+</RCC>

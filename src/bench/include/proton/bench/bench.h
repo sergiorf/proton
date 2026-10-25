@@ -97,6 +97,11 @@ public:
     // Feeds points [begin, end) of `chunk` to every instrument whose probes are attached.
     void feed(const sim::SimChunk& chunk, std::size_t begin, std::size_t end);
 
+    // Starts the scope's acquisition again with the same settings: pressing Single once more.
+    void rearmScope() { scope_.configure(config_.scope); }
+    // True once the scope in Single mode has taken its frame (Scope::stopped).
+    bool scopeStopped() const { return scope_.stopped(); }
+
     // The newest frame or reading not yet popped, as Scope::popFrame and Multimeter::popReading.
     std::optional<instruments::ScopeFrame> popFrame() { return scope_.popFrame(); }
     std::optional<instruments::DmmReading> popReading(std::size_t multimeter);
