@@ -71,6 +71,10 @@ analytic answer:
 
 - **Bode plotter:** frequency response from an ngspice AC analysis in one sweep. Cheap to build and
   the most useful next instrument for design work.
+- **Spectrum analyzer:** the spectrum of a node, from an FFT of the transient run, sampled exactly
+  as the scope samples. A front panel like a bench analyser: centre and span (or start and stop),
+  resolution bandwidth, reference level, dB per division and window. Tested against analytic
+  answers: a sine is one line at its frequency and level, a square's odd harmonics fall as 1/n.
 - **Function generator:** pulse with duty cycle.
 - **Oscilloscope:** cursors, measurements, averaging, FFT/math; holdoff; delayed timebase; non-edge
   triggers; sin(x)/x display interpolation; 4 channels. (Optional quantisation and bandwidth
@@ -120,7 +124,8 @@ timing bugs debugged against real signals.
 
 - VNA on lumped circuits: AC small-signal sweep turned into S-parameters, Smith chart. A natural
   extension of the Bode plotter.
-- Spectrum analyzer: FFT of transient data first.
+- Spectrum analyzer at RF: the FFT analyser from after the MVP (above), over higher frequency
+  ranges.
 - Distributed RF (transmission lines, microstrip, harmonic balance) needs different solvers and is
   well served by existing tools (Qucs, ADS). Only on clear demand.
 
