@@ -11,12 +11,14 @@ class MainWindow;
 
 // Runs every example in menu order, switching to the next once the multimeter has read, the
 // scope has shown a frame and a second and a half has passed, as a student choosing them from the
-// menu would. Prints the frame rate shown and the scope's paint times (ADR 0004).
+// menu would. Checks that the meter's display shows its reading as the meter formats it (as
+// proton-spike prints it) and that the voltage divider reads 2.500 V. Prints the readings, the
+// frame rate shown and the scope's paint times (ADR 0004).
 void smokeExamples(MainWindow& window);
 
-// Operates every control of the scope's front panel with real input events (wheel, arrow keys,
-// drag, click to push, button clicks) on the first example, and checks that each changes the
-// scope's settings or state as it should (PLAN.md M2.4).
+// Operates every control of the scope's and the multimeter's front panels with real input events
+// (wheel, arrow keys, drag, click to push, button clicks) on the first example, and checks that
+// each changes the instrument's settings or state as it should (PLAN.md M2.4, M2.5).
 void smokePanel(MainWindow& window);
 
 } // namespace proton::app

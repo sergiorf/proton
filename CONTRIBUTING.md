@@ -68,8 +68,9 @@ A change that needs to break one of these rules needs an ADR first.
   the ngspice tests. The Windows presets build the Qt app too: set `QT_ROOT_DIR` to a Qt 6.8 or newer
   MSVC kit (see CLAUDE.md).
 - The app has smoke tests only (`app_starts` opens the main window and closes it;
-  `app_runs_examples` runs every example in turn; `app_panel_controls` operates every front-panel
-  control with real input events). Logic goes below `src/app`, where it is tested without Qt.
+  `app_runs_examples` runs every example in turn and checks the meter's display;
+  `app_panel_controls` operates every scope and multimeter control with real input events). Logic
+  goes below `src/app`, where it is tested without Qt.
   `proton --screenshot <file.png>` saves the window running the first example, to check a panel's
   look.
 - One test executable per module under `tests/unit/<module>/`, registered with `add_test`, linking

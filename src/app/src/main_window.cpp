@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "main_window.h"
 
+#include "multimeter_panel.h"
 #include "scope_panel.h"
 #include "scope_widget.h"
 
@@ -41,7 +42,10 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), examples_(bench::examples()), control_(bench::ngspiceEngines())
 {
     setWindowTitle(QStringLiteral("Proton"));
-    resize(1280, 800);
+    resize(1440, 900);
+    // Docks on the right run the full height, so the multimeter stands beside the scope.
+    setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
+    setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
 
     status_ = new QLabel(this);
     status_->setAlignment(Qt::AlignCenter);
@@ -56,6 +60,14 @@ MainWindow::MainWindow(QWidget* parent)
     resizeDocks({scopeDock}, {640}, Qt::Vertical);
     connect(scope_, &ScopePanel::changed, this, &MainWindow::applyScope);
     connect(scope_, &ScopePanel::armed, this, [this] { control_.bench().rearmScope(); });
+
+    meter_ = new MultimeterPanel(this);
+    auto* meterDock = new QDockWidget(tr("Multimeter"), this);
+    meterDock->setObjectName(QStringLiteral("multimeter"));
+    meterDock->setWidget(meter_);
+    addDockWidget(Qt::RightDockWidgetArea, meterDock);
+    resizeDocks({meterDock}, {380}, Qt::Horizontal);
+    connect(meter_, &MultimeterPanel::changed, this, &MainWindow::applyMultimeter);
 
     QMenu* file = menuBar()->addMenu(tr("&File"));
     QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
@@ -99,6 +111,10 @@ void MainWindow::loadExample(std::size_t index)
     framesAtLoad_ = framesShown();
     scope_->setConfig(examples_[index].bench.scope);
     scope_->clear();
+    if (!examples_[index].bench.multimeters.empty()) {
+        const bench::Bench::MultimeterSettings& meter = examples_[index].bench.multimeters[0];
+        meter_->setConfig(meter.config, text(meter.net));
+    }
     control_.bench().configure(examples_[index].bench);
     control_.setCircuit(examples_[index].circuit);
     control_.start();
@@ -110,6 +126,17 @@ void MainWindow::applyScope()
     bench::Bench::Config config = control_.bench().config();
     config.scope = scope_->config();
     control_.bench().configure(config);
+}
+
+void MainWindow::applyMultimeter()
+{
+    bench::Bench::Config config = control_.bench().config();
+    if (config.multimeters.empty()) {
+        return;
+    }
+    config.multimeters[0].config = meter_->config();
+    control_.bench().configure(config);
+    meter_->clear(); // a new gate: dashes until its reading
 }
 
 long long MainWindow::framesShown() const
@@ -126,6 +153,7 @@ void MainWindow::pump()
         scope_->showFrame(std::move(*frame), control_.bench().scopeStopped());
     }
     if (std::optional<instruments::DmmReading> reading = control_.bench().popReading(0)) {
+        meter_->showReading(*reading);
         reading_ = std::move(reading);
     }
     if (now - rateStart_ >= 1.0) {
@@ -166,16 +194,6 @@ void MainWindow::showStatus()
         lines << text(error.message);
     }
     const bench::Bench::Config& config = control_.bench().config();
-    if (!config.multimeters.empty()) {
-        const char* mode =
-            config.multimeters[0].config.mode == instruments::Multimeter::Mode::AcVoltage ? "AC"
-                                                                                           : "DC";
-        lines << tr("DMM1 on %1, %2 V: %3")
-                     .arg(text(config.multimeters[0].net), QString::fromLatin1(mode),
-                          reading_ ? text(reading_->display.text) + QLatin1Char(' ') +
-                                         text(reading_->display.unit)
-                                   : tr("no reading yet"));
-    }
     lines << tr("Scope: CH1 on %1, CH2 on %2; %3 frames/s shown, %4 ms per paint")
                  .arg(text(config.scopeNets[0]), text(config.scopeNets[1]))
                  .arg(frameRate_, 0, 'f', 0)

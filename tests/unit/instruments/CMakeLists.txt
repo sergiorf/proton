@@ -7,6 +7,8 @@ add_executable(proton_instruments_tests
     test_scope.cpp
     test_scope_display.cpp
     test_scope_front_end.cpp
+    test_selector.cpp
+    test_seven_segment.cpp
 )
 # schematic only to check that fragments pass validate(); the library itself does not use it.
 target_link_libraries(proton_instruments_tests

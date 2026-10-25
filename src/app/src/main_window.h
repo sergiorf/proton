@@ -16,16 +16,17 @@
 class QLabel;
 
 namespace proton::app {
+class MultimeterPanel;
 class ScopePanel;
-}
+} // namespace proton::app
 
 namespace proton::app {
 
 // The app's main window: the bench, run by a bench::RunControl that a 16 ms UI timer pumps, and an
 // Examples menu that loads a built-in circuit into it. Choosing an example sets the circuit and
-// the bench's wiring; the next pump restarts the run. The scope is a dock panel bound to the
-// bench's scope (ARCHITECTURE.md section 11); the multimeter and generator panels follow in M2.5
-// and M2.6, until then the run's state and the multimeter's reading show as text.
+// the bench's wiring; the next pump restarts the run. The scope and the multimeter are front
+// panels in docks, bound to the bench's instruments (ARCHITECTURE.md section 11); the generator's
+// follows in M2.6. The run's state shows as text in the middle.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -39,6 +40,10 @@ public:
     const bench::RunControl& control() const { return control_; }
     const ScopePanel& scope() const { return *scope_; }
     ScopePanel& scope() { return *scope_; }
+    const MultimeterPanel& multimeter() const { return *meter_; }
+    MultimeterPanel& multimeter() { return *meter_; }
+    // The last reading of the bench's multimeter since the example was loaded.
+    const std::optional<instruments::DmmReading>& reading() const { return reading_; }
     // Frames shown, and pumps run, per second over the last second or so.
     double frameRate() const { return frameRate_; }
     double pumpRate() const { return pumpRate_; }
@@ -50,6 +55,7 @@ private:
     void pump();
     void showStatus();
     void applyScope();
+    void applyMultimeter();
     long long framesShown() const;
 
     std::vector<bench::Example> examples_;
@@ -59,6 +65,7 @@ private:
     QTimer timer_;
     QLabel* status_ = nullptr;
     ScopePanel* scope_ = nullptr;
+    MultimeterPanel* meter_ = nullptr;
 
     // What the multimeter read last, shown until it reads again.
     std::optional<instruments::DmmReading> reading_;
