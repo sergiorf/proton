@@ -22,12 +22,12 @@ its front panel (ADR 0009).
 
 | Instrument | MVP scope | State |
 |---|---|---|
-| DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | planned (M3) |
+| DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | planned (M5.1) |
 | Function generator | sine, square, triangle, DC, offset, output impedance | model done (M0), front panel planned (M2.6) |
 | Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | model done (M0), screen and front panel done (M2.4) |
 | Multimeter | DC V, AC V (true RMS), auto/fixed range | model done (M0), front panel done (M2.5) |
-| Multimeter | DC current | planned (M3) |
-| Multimeter | resistance | planned (M3) |
+| Multimeter | DC current | planned (M5.2) |
+| Multimeter | resistance | planned (M5.3) |
 
 How the multimeter measures what it cannot read directly from a node voltage:
 
