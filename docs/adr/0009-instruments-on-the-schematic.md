@@ -1,8 +1,8 @@
 # ADR 0009: Instruments as parts on the schematic (decision D10)
 
 - **Status:** accepted
-- **Date:** 2026-10-25
-- **Plan task:** M3.1, M4.1 to M4.7, decision D10
+- **Date:** 2026-10-25; amended 2026-10-26 (the parts panel in point 1, floating panels in point 4)
+- **Plan task:** M3.1, M4.1 to M4.8, decision D10
 
 ## Context
 
@@ -30,7 +30,8 @@ How other simulators do it:
 
 1. Every instrument instance is a part on the sheet: an original, brand-neutral instrument symbol
    with terminals, placed from the parts list like a component, with a unique instance name
-   (`scope1`, `dmm1`, `gen1`, `psu1`).
+   (`scope1`, `dmm1`, `gen1`, `psu1`). The parts list is a panel on the left of the sheet, with
+   the components and the instruments in groups.
 2. Terminals, and what they measure or drive:
    - **Scope:** `CH1` and `CH2`, each measuring its net against circuit ground (single-ended, as a
      bench scope whose ground clip is earthed). Differential probes come later.
@@ -43,9 +44,10 @@ How other simulators do it:
 3. Terminals are wired with ordinary schematic wires. The scene-to-`Circuit` conversion gives each
    instrument terminal its net exactly as it does a component pin, and the bench's connections are
    those net names: the bench model keeps taking connections as nets.
-4. Double-clicking an instrument opens its front panel (the M2.4 widgets) in a dock that can
-   float; there is one panel per instance, and deleting the symbol removes the instrument and its
-   panel.
+4. Double-clicking an instrument opens its front panel (the M2.4 widgets) in a window floating
+   over the sheet, as Multisim's instrument windows do, so a student can keep several beside the
+   circuit; it can be docked. There is one panel per instance, and deleting the symbol removes the
+   instrument and its panel.
 5. An instrument terminal with no wire is a warning on the instrument ("CH2 of scope1 is not
    connected") and reads 0 V.
 6. Until the editor exists (M4), the built-in examples place their instruments in code with the
@@ -77,6 +79,6 @@ their terminal nets, and source instruments still reach the netlist as `Fragment
   bench.
 - `validate()` (or the scene conversion) reports unconnected instrument terminals. Instance names
   share one name space with designators and fragments.
-- Project files (M4.7) store instruments as parts of the scene, with their settings.
+- Project files (M4.8) store instruments as parts of the scene, with their settings.
 - Measuring current means wiring the meter in series, which on a schematic is breaking a wire:
   the lesson a real bench teaches.

@@ -116,6 +116,6 @@ argument of `SIN`. Not needed for endless runs; kept in mind for decision D7.
   have to save them explicitly.
 - Real time at fast timebases is out of reach for now (x0.4 at 100 us/div); it does not show as
   long as frames come fast enough, and the pacer's speed tells the UI when it does. The engine's
-  per-point overhead and ngspice's background mode are where to look if it matters (M4.5).
+  per-point overhead and ngspice's background mode are where to look if it matters (M4.6).
 - A timebase change that restarts the run loses the circuit's state, as a generator change does;
   D7 revisits keeping state.
