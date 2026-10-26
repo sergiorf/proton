@@ -284,7 +284,7 @@ offset on knobs with a numeric entry, output on/off with a lit button, using the
 method from D3.
 *Done when:* turning the frequency updates the scope within the latency measured in M1.5.
 
-The usability pass that was M2.7 moved to M4.5: judging the bench needs the circuit in front of
+The usability pass that was M2.7 moved to M4.6: judging the bench needs the circuit in front of
 the student, which the editor brings.
 
 **M2 exit check:** *(met 2026-10-25)* the three built-in examples run in the app with the scope, multimeter and
@@ -329,24 +329,44 @@ built-in ones.
 **M4.3 Undo and redo.** *(done locally 2026-10-26, CI pending: Actions minutes ran out)* `QUndoStack` commands for every edit.
 *Done when:* any sequence of edits undoes back to the empty sheet and redoes to the same scene.
 
-**M4.4 Instruments on the sheet.** Place instruments from the parts list and wire their terminals
-like any part (ADR 0009). Double-clicking an instrument opens its front panel (the M2.4 widgets) in
-a dock that can float, one panel per instance; deleting it removes the instrument and its panel.
-*Done when:* every connection of the scope, multimeter and generator (M3.1) can be made by wiring
-on the sheet, without typing a net name; each instrument's panel opens from its symbol; and two
-scopes and two multimeters can be open at once, each bound to its own instance.
+**M4.4 Instruments on the sheet.** A parts panel on the left of the sheet replaces the toolbar's
+part buttons: components and instruments in groups (passives, sources, instruments), click one and
+then the sheet to place it. Place instruments from it and wire their terminals like any part
+(ADR 0009). Double-clicking an instrument opens its front panel (the M2.4 widgets) floating over
+the sheet, dockable, one panel per instance; deleting it removes the instrument and its panel. The
+fixed M2 docks go.
+*Done when:* every part and instrument can be placed from the parts panel; every connection of the
+scope, multimeter and generator (M3.1) can be made by wiring on the sheet, without typing a net
+name; each instrument's panel opens floating from its symbol; and two scopes and two multimeters
+can be open at once, each bound to its own instance.
 
-**M4.5 Usability pass.** With the circuit and its instruments on the sheet, use the app for a
+**M4.5 Scope front panel.** Lay the oscilloscope's panel out as a generic two-channel bench scope,
+as realistic as the product rules allow and brand-neutral: the screen on the left; on the right,
+Run/Stop and Single at the top, the Horizontal and Trigger sections side by side below them, then
+the Vertical section with one column per channel (channel button, scale knob above position knob,
+coupling), and the input connectors under it, each showing the net it is wired to. The panel keeps
+a bench scope's proportions in its floating window (M4.4). New controls, each first in the scope
+model with tests: a channel button that shows or hides its trace, lit in the channel's colour; a
+horizontal position knob that moves the trigger point across the screen (pushed, it returns to
+the centre); GND coupling beside DC and AC, which shows the channel's ground line; and Force,
+which takes a frame at once when Normal or Single is waiting for a trigger.
+*Done when:* model tests show that the horizontal position moves the trigger time on the screen by
+the set amount and the trace still crosses the trigger level there, a hidden channel draws no
+trace but can still be the trigger source, GND coupling reads 0 V, and Force takes a frame without
+a trigger; the panel smoke check operates every new control; and a screenshot of the panel is
+reviewed with me.
+
+**M4.6 Usability pass.** With the circuit and its instruments on the sheet, use the app for a
 scripted session as a student would: open the RC low-pass, find its corner frequency by sweeping
 the generator, reading -3 dB on the multimeter and checking the 45 degree lag on the scope, and
 compare with 1 / (2 pi R C). Fix what gets in the way.
 *Done when:* the session is possible without reading code, and fixes are in.
 
-**M4.6 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
+**M4.7 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.
 *Done when:* each M0.7 diagnostic is shown at the right place.
 
-**M4.7 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
+**M4.8 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to
 `examples/` as project files.
 *Done when:* save then load reproduces the same scene, netlist and instrument settings
@@ -439,7 +459,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M5.3 | One process per ngspice test; D4 for resistance |
-| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M4.5 with the alter prototype |
+| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M4.6 with the alter prototype |
 | A restart loses the circuit's state (a switched RC starts charged) | M5.4 | Switches and potentiometers keep state (D7) |
 | Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Decided in M1.7 (D6, ADR 0007): pacing by the consumer, endless runs without a plot; fast timebases stay slower than real time (x0.4 at 100 us/div) |
 | The engine's threading code is never run under TSan | M1.8 | Done in M1.8: ngspice 46 built on Linux, every ngspice test under TSan and ASan (ADR 0008) |

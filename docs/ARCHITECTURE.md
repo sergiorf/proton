@@ -253,12 +253,12 @@ failure and reports the engine's message. A failing simulation never takes down 
 - Qt 6 **Widgets**, custom `QPainter` drawing for the scope and meter displays (no Qt Charts: see
   ADR 0004). QML or `QRhi` can be revisited if rendering becomes a bottleneck.
 - **Schematic editor**: `QGraphicsScene`/`QGraphicsView` with its own scene model, converted to a
-  `Circuit` for simulation. Instruments are placed and wired on it like parts (ADR 0009). Undo/redo
-  with `QUndoStack`.
-- **Bench**: instrument front panels (faceplate widget + display widget) in docks that can float,
-  opened by double-clicking the instrument on the schematic, each bound to one instrument instance
-  of the `Bench` model (section 5.1). The app owns the UI timer that pumps the
-  bench; it holds no simulation logic of its own.
+  `Circuit` for simulation. Components and instruments are placed from a parts panel beside it and
+  wired like parts (ADR 0009). Undo/redo with `QUndoStack`.
+- **Bench**: instrument front panels (faceplate widget + display widget) in windows floating over
+  the sheet, which can be docked, opened by double-clicking the instrument on the schematic, each
+  bound to one instrument instance of the `Bench` model (section 5.1). The app owns the UI timer
+  that pumps the bench; it holds no simulation logic of its own.
 - **Project files**: versioned JSON holding the scene, instruments included, and their settings.
 
 ## 12. Extension points
