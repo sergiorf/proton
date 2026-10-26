@@ -54,6 +54,7 @@ ScopeFrontEnd::Config ScopeFrontEnd::sanitise(const Config& config)
         switch (in.coupling) {
         case Coupling::Dc:
         case Coupling::Ac:
+        case Coupling::Gnd:
             out.coupling = in.coupling;
             break;
         }
@@ -62,6 +63,7 @@ ScopeFrontEnd::Config ScopeFrontEnd::sanitise(const Config& config)
                                    kMinBandwidth, kMaxBandwidth);
         out.quantise = in.quantise;
         out.adcBits = std::clamp(in.adcBits, kMinAdcBits, kMaxAdcBits);
+        out.shown = in.shown;
     }
     return result;
 }
@@ -155,7 +157,9 @@ double ScopeFrontEnd::sample(std::size_t index, double x, const FilterState& sta
     // z_b - (low-pass b of z_a) = a (e_b - e_a) / (a - b) by partial fractions, with a and b the
     // time constants (b is at most a hundredth of a, so they never meet).
     double y = x;
-    if (c.coupling == Coupling::Ac && c.bandwidthLimit) {
+    if (c.coupling == Coupling::Gnd) {
+        y = 0.0; // the input is grounded
+    } else if (c.coupling == Coupling::Ac && c.bandwidthLimit) {
         const double a = channel.tauAc;
         const double b = channel.tauBandwidth;
         y = a * (state.bandwidth - state.ac) / (a - b);

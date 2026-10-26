@@ -14,6 +14,7 @@
 
 #include "proton/core/spice_number.h"
 #include "proton/instruments/knob.h"
+#include "proton/instruments/knob_steps.h"
 
 #include <QAction>
 #include <QApplication>
@@ -35,8 +36,10 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace proton::app {
@@ -49,11 +52,11 @@ constexpr std::chrono::seconds kExampleTimeout{30};      // generous: CI runners
 constexpr std::chrono::milliseconds kExampleDwell{1500}; // over a second for the frame rate
 constexpr std::chrono::milliseconds kLatencyBound{2000};  // as the latency test's loose bound
 
-void wheel(QWidget* widget, int notches)
+void wheel(QWidget* widget, int notches, Qt::KeyboardModifiers modifiers = Qt::NoModifier)
 {
     const QPointF at(widget->width() / 2.0, widget->height() / 4.0);
     QWheelEvent event(at, widget->mapToGlobal(at), QPoint(), QPoint(0, 120 * notches),
-                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+                      Qt::NoButton, modifiers, Qt::NoScrollPhase, false);
     QCoreApplication::sendEvent(widget, &event);
 }
 
@@ -194,9 +197,10 @@ void smokePanel(MainWindow& window)
     ScopePanel& panel = window.scope();
     Checker checker;
 
-    // Every knob turns by wheel, arrow key and drag, and each turn changes the settings.
+    // Every knob turns by wheel, arrow key and a straight drag, and each turn changes the settings.
+    panel::KnobWidget::setDragMode(panel::KnobWidget::DragMode::Straight);
     const QList<panel::KnobWidget*> knobs = panel.findChildren<panel::KnobWidget*>();
-    checker.check(knobs.size() == 6, QStringLiteral("six knobs, found %1").arg(knobs.size()));
+    checker.check(knobs.size() == 7, QStringLiteral("seven knobs, found %1").arg(knobs.size()));
     for (panel::KnobWidget* knob : knobs) {
         const QString name = knob->accessibleName();
         Scope::Config before = panel.config();
@@ -230,22 +234,27 @@ void smokePanel(MainWindow& window)
                 config.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
             checker.check(config.trigger.level == config.channels[source].offset,
                           name + QStringLiteral(": push centres"));
+        } else if (name == QStringLiteral("Horizontal position")) {
+            push(knob);
+            checker.check(panel.config().triggerPosition == 0.0,
+                          name + QStringLiteral(": push centres the trigger"));
         }
     }
 
     // Every setting button changes the settings; Run/Stop and Single change the state.
     for (panel::LitButton* button : panel.findChildren<panel::LitButton*>()) {
         const QString name = button->accessibleName();
-        if (name == QStringLiteral("Run / Stop") || name == QStringLiteral("Single")) {
+        if (name == QStringLiteral("Run / Stop") || name == QStringLiteral("Single") ||
+            name == QStringLiteral("Force")) {
             continue;
         }
         Scope::Config before = panel.config();
         // CH1 as trigger source and Auto are already chosen: choose the other first.
-        if (name == QStringLiteral("CH1") || name == QStringLiteral("Auto")) {
+        if (name == QStringLiteral("Trigger CH1") || name == QStringLiteral("Auto")) {
             for (panel::LitButton* other : panel.findChildren<panel::LitButton*>()) {
                 if (other->accessibleName() ==
-                    (name == QStringLiteral("CH1") ? QStringLiteral("CH2")
-                                                   : QStringLiteral("Normal"))) {
+                    (name == QStringLiteral("Trigger CH1") ? QStringLiteral("Trigger CH2")
+                                                           : QStringLiteral("Normal"))) {
                     other->click();
                 }
             }
@@ -253,6 +262,160 @@ void smokePanel(MainWindow& window)
         }
         button->click();
         checker.check(panel.config() != before, name + QStringLiteral(": click"));
+        // The channel buttons hide their trace: show it again.
+        if (name == QStringLiteral("CH1") || name == QStringLiteral("CH2")) {
+            const std::size_t c = name == QStringLiteral("CH1") ? 0 : 1;
+            checker.check(!panel.config().channels[c].shown, name + QStringLiteral(": hides"));
+            button->click();
+            checker.check(panel.config().channels[c].shown, name + QStringLiteral(": shows"));
+        }
+    }
+
+    const auto knobNamed = [&](const QString& name) -> panel::KnobWidget* {
+        for (panel::KnobWidget* knob : knobs) {
+            if (knob->accessibleName() == name) {
+                return knob;
+            }
+        }
+        return nullptr;
+    };
+    const auto buttonNamed = [&](const QString& name) -> panel::LitButton* {
+        for (panel::LitButton* button : panel.findChildren<panel::LitButton*>()) {
+            if (button->accessibleName() == name) {
+                return button;
+            }
+        }
+        return nullptr;
+    };
+
+    // Coupling goes DC, AC, GND and round (M4.5).
+    if (panel::LitButton* coupling = buttonNamed(QStringLiteral("CH2 coupling"))) {
+        std::vector<Scope::Coupling> seen;
+        for (int i = 0; i < 3; ++i) {
+            coupling->click();
+            seen.push_back(panel.config().channels[1].coupling);
+        }
+        checker.check(std::ranges::find(seen, Scope::Coupling::Gnd) != seen.end() &&
+                          std::ranges::find(seen, Scope::Coupling::Ac) != seen.end() &&
+                          std::ranges::find(seen, Scope::Coupling::Dc) != seen.end(),
+                      QStringLiteral("CH2 coupling: DC, AC and GND"));
+    }
+
+    // Force asks for a frame at once.
+    if (panel::LitButton* force = buttonNamed(QStringLiteral("Force"))) {
+        int forced = 0;
+        const QMetaObject::Connection counting =
+            QObject::connect(&panel, &ScopePanel::forced, [&forced] { ++forced; });
+        force->click();
+        QObject::disconnect(counting);
+        checker.check(forced == 1, QStringLiteral("Force: forced()"));
+    } else {
+        checker.check(false, QStringLiteral("a Force button"));
+    }
+
+    // Pushing a scale knob makes it variable between the 1-2-5 steps; pushing again puts it back.
+    if (panel::KnobWidget* scale = knobNamed(QStringLiteral("CH1 Scale"))) {
+        const auto onStep = [](double v) {
+            for (const double s : instruments::oneTwoFiveSteps(1e-3, 10.0)) {
+                if (std::abs(s - v) <= 1e-12 * s) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        push(scale);
+        checker.check(scale->variable(), QStringLiteral("CH1 Scale: push makes it variable"));
+        wheel(scale, 1);
+        checker.check(!onStep(panel.config().channels[0].voltsPerDiv),
+                      QStringLiteral("CH1 Scale: variable between the steps"));
+        push(scale);
+        checker.check(!scale->variable() && onStep(panel.config().channels[0].voltsPerDiv),
+                      QStringLiteral("CH1 Scale: push again puts it on a step"));
+    }
+
+    // Shift turns fine, Ctrl coarse: a tenth and ten clicks of the level knob.
+    if (panel::KnobWidget* level = knobNamed(QStringLiteral("Level"))) {
+        const auto source = static_cast<std::size_t>(panel.config().trigger.source);
+        const double click = panel.config().channels[source].voltsPerDiv / 10.0;
+        double before = panel.config().trigger.level;
+        std::this_thread::sleep_for(std::chrono::milliseconds(150)); // not a fast turn
+        wheel(level, 1, Qt::ShiftModifier);
+        checker.check(std::abs(panel.config().trigger.level - before - click / 10.0) < 1e-9,
+                      QStringLiteral("Level: Shift turns fine"));
+        before = panel.config().trigger.level;
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        wheel(level, -1, Qt::ControlModifier);
+        checker.check(std::abs(panel.config().trigger.level - before + click * 10.0) < 1e-9,
+                      QStringLiteral("Level: Ctrl turns coarse"));
+
+        // Dragged straight, a drag to the right turns it clockwise even when the hand drifts down,
+        // and one to the left anticlockwise.
+        const auto dragAcross = [&](double dx, double dy) {
+            QPointF at(level->width() / 2.0, level->height() / 4.0);
+            mouse(level, QEvent::MouseButtonPress, at, Qt::LeftButton);
+            for (int i = 0; i < 4; ++i) {
+                at += QPointF(dx / 4.0, dy / 4.0);
+                mouse(level, QEvent::MouseMove, at, Qt::LeftButton);
+            }
+            mouse(level, QEvent::MouseButtonRelease, at, Qt::NoButton);
+        };
+        const double pixels = 4 * instruments::Knob::kPixelsPerClick;
+        before = panel.config().trigger.level;
+        dragAcross(pixels, pixels / 4); // right, a little down
+        checker.check(panel.config().trigger.level > before,
+                      QStringLiteral("Level: a drag to the right turns it up"));
+        before = panel.config().trigger.level;
+        dragAcross(-pixels, -pixels / 4); // left, a little up
+        checker.check(panel.config().trigger.level < before,
+                      QStringLiteral("Level: a drag to the left turns it down"));
+
+        // Hovered, it shows that it can be turned.
+        QEvent enter(QEvent::Enter);
+        QCoreApplication::sendEvent(level, &enter);
+        checker.check(level->hovered() && level->cursor().shape() == Qt::OpenHandCursor,
+                      QStringLiteral("Level: hover feedback"));
+        QEvent leave(QEvent::Leave);
+        QCoreApplication::sendEvent(level, &leave);
+
+        // Dragged round its centre, the default: the hand turning it clockwise goes across the
+        // top and down the right side, and the knob turns with it all the way; anticlockwise the
+        // mirror image. A half turn is ten clicks.
+        panel::KnobWidget::setDragMode(panel::KnobWidget::DragMode::Circular);
+        const QPointF centre(level->width() / 2.0, 6.0 + 27.0); // a large continuous knob
+        const auto turnRound = [&](double fromDegrees, double toDegrees) {
+            const auto at = [&](double degrees) {
+                const double a = degrees * std::numbers::pi / 180.0;
+                return centre + QPointF(25 * std::sin(a), -25 * std::cos(a));
+            };
+            mouse(level, QEvent::MouseButtonPress, at(fromDegrees), Qt::LeftButton);
+            for (int step = 1; step <= 18; ++step) {
+                mouse(level, QEvent::MouseMove,
+                      at(fromDegrees + (toDegrees - fromDegrees) * step / 18.0), Qt::LeftButton);
+            }
+            mouse(level, QEvent::MouseButtonRelease, at(toDegrees), Qt::NoButton);
+        };
+        before = panel.config().trigger.level;
+        turnRound(0.0, 180.0); // from the top, right and down to the bottom
+        checker.check(std::abs(panel.config().trigger.level - before - 10 * click) < 1e-9,
+                      QStringLiteral("Level: a half turn clockwise round it is ten clicks up"));
+        before = panel.config().trigger.level;
+        turnRound(0.0, -180.0); // from the top, left and down to the bottom
+        checker.check(std::abs(panel.config().trigger.level - before + 10 * click) < 1e-9,
+                      QStringLiteral("Level: a half turn anticlockwise is ten clicks down"));
+        // A stepped knob the same way: clockwise is a faster timebase, its pointer going round.
+        if (panel::KnobWidget* time = knobNamed(QStringLiteral("Time/div"))) {
+            const double slower = panel.config().timePerDiv;
+            const QPointF timeCentre(time->width() / 2.0, 6.0 + 27.0 + 27.0);
+            mouse(time, QEvent::MouseButtonPress, timeCentre + QPointF(0, -25), Qt::LeftButton);
+            for (int step = 1; step <= 9; ++step) {
+                const double a = step * 10.0 * std::numbers::pi / 180.0;
+                mouse(time, QEvent::MouseMove,
+                      timeCentre + QPointF(25 * std::sin(a), -25 * std::cos(a)), Qt::LeftButton);
+            }
+            mouse(time, QEvent::MouseButtonRelease, timeCentre + QPointF(25, 0), Qt::NoButton);
+            checker.check(panel.config().timePerDiv < slower,
+                          QStringLiteral("Time/div: a turn clockwise round it is faster"));
+        }
     }
     for (panel::LitButton* button : panel.findChildren<panel::LitButton*>()) {
         if (button->accessibleName() == QStringLiteral("Single")) {
@@ -316,8 +479,8 @@ void smokePanel(MainWindow& window)
                                                                               : config.offset;
             checker.check(core::parseSpiceNumber(field->text().toStdString()) == value &&
                               field->text().size() <= 6,
-                          name + QStringLiteral(" shows ") + field->text() + QStringLiteral(" after ") +
-                              after);
+                          name + QStringLiteral(" shows ") + field->text() +
+                              QStringLiteral(" after ") + after);
         }
     };
     for (panel::KnobWidget* knob : generator.findChildren<panel::KnobWidget*>()) {
@@ -441,8 +604,8 @@ using schematic::ComponentKind;
 using schematic::InstrumentKind;
 using schematic::Point;
 
-// Clicks `what`'s icon in the parts panel, on its tab, turns it `turns` quarter turns with R, and clicks the sheet at
-// `at`, as a student places a part.
+// Clicks `what`'s icon in the parts panel, on its tab, turns it `turns` quarter turns with R, and
+// clicks the sheet at `at`, as a student places a part.
 void placeFromPanel(MainWindow& window, const sheet::SchematicView::Placing& what, Point at,
                     int turns = 0)
 {
@@ -555,8 +718,10 @@ void checkEditor(MainWindow& window)
     QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, clock] {
         const auto shown = [&](const char* name) {
             const MultimeterPanel* meter = window.multimeterPanel(QString::fromLatin1(name));
-            return meter == nullptr ? QString()
-                                    : meter->displayText() + QLatin1Char(' ') + meter->displayUnit();
+            if (meter == nullptr) {
+                return QString();
+            }
+            return meter->displayText() + QLatin1Char(' ') + meter->displayUnit();
         };
         // Ideal measurements: the frame holds the probed voltages exactly, give or take the
         // generator's 50 ohm into the 1k load.
@@ -565,7 +730,8 @@ void checkEditor(MainWindow& window)
             return e && std::abs(e->first - v) < 1e-3 && std::abs(e->second - v) < 1e-3;
         };
         const auto sine = [&](std::optional<std::pair<double, double>> e) {
-            return e && std::abs(e->second - sinePeak) < 0.02 && std::abs(e->first + sinePeak) < 0.02;
+            return e && std::abs(e->second - sinePeak) < 0.02 &&
+                   std::abs(e->first + sinePeak) < 0.02;
         };
         const ScopePanel* scope1 = window.scopePanel(QStringLiteral("scope1"));
         const ScopePanel* scope2 = window.scopePanel(QStringLiteral("scope2"));
@@ -576,7 +742,8 @@ void checkEditor(MainWindow& window)
         const bool other = sine(extent(scope2, 0));
         const bool generator = window.generatorPanel(QStringLiteral("gen1")) != nullptr;
         if (dmm1 && dmm2 && ch1 && ch2 && other && generator) {
-            std::printf("proton: drawn by hand: dmm1 %s, dmm2 %s, scope1 and scope2 on their nets\n",
+            std::printf("proton: drawn by hand: dmm1 %s, dmm2 %s, scope1 and scope2 on their "
+                        "nets\n",
                         shown("dmm1").toStdString().c_str(), shown("dmm2").toStdString().c_str());
             std::fflush(stdout);
             timer->stop();
@@ -587,8 +754,12 @@ void checkEditor(MainWindow& window)
         if (late || window.control().state() == bench::RunControl::State::Invalid ||
             window.control().state() == bench::RunControl::State::Failed) {
             const auto range = [](std::optional<std::pair<double, double>> e) {
-                return e ? QStringLiteral("%1..%2 V").arg(e->first, 0, 'f', 3).arg(e->second, 0, 'f', 3)
-                         : QStringLiteral("no frame");
+                if (!e) {
+                    return QStringLiteral("no frame");
+                }
+                return QStringLiteral("%1..%2 V")
+                    .arg(e->first, 0, 'f', 3)
+                    .arg(e->second, 0, 'f', 3);
             };
             std::fprintf(stderr,
                          "proton: the hand-drawn bench is wrong: dmm1 '%s', dmm2 '%s', scope1 CH1 "

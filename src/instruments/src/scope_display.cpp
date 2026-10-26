@@ -12,7 +12,19 @@ double toDivisions(double volts, const Scope::ChannelConfig& channel)
 
 double sampleX(const ScopeFrame& frame, std::size_t index, double timePerDiv)
 {
-    return (frame.startTime + static_cast<double>(index) * frame.sampleInterval) / timePerDiv;
+    return frame.triggerX +
+           (frame.startTime + static_cast<double>(index) * frame.sampleInterval) / timePerDiv;
+}
+
+std::vector<std::size_t> tracesToDraw(const Scope::Config& config)
+{
+    std::vector<std::size_t> channels;
+    for (std::size_t c = Scope::kChannels; c-- > 0;) {
+        if (config.channels[c].shown) {
+            channels.push_back(c);
+        }
+    }
+    return channels;
 }
 
 double triggerLevelY(const Scope::Config& config)

@@ -11,6 +11,7 @@ namespace {
 
 constexpr long long kRecord = Scope::kSamplesPerScreen;
 constexpr long long kHalf = kRecord / 2;
+constexpr long long kSamplesPerDivision = kRecord / ScopeFrontEnd::kHorizontalDivisions;
 
 double finiteOr(double value, double fallback)
 {
@@ -58,6 +59,9 @@ Scope::Config Scope::sanitise(const Config& config)
         break;
     }
     result.deadTime = std::clamp(finiteOr(config.deadTime, defaults.deadTime), 0.0, kMaxDeadTime);
+    result.triggerPosition =
+        std::clamp(finiteOr(config.triggerPosition, defaults.triggerPosition),
+                   -kMaxTriggerPosition, kMaxTriggerPosition);
     return result;
 }
 
@@ -73,6 +77,12 @@ void Scope::configure(const Config& config)
     const auto source = static_cast<std::size_t>(config_.trigger.source);
     hysteresis_ = config_.trigger.hysteresis * config_.channels[source].voltsPerDiv;
     deadSamples_ = static_cast<long long>(std::ceil(config_.deadTime / sampleInterval()));
+    // At least one sample on each side of the trigger, so it is always inside the record.
+    pre_ = std::clamp(kHalf + std::llround(config_.triggerPosition *
+                                           static_cast<double>(kSamplesPerDivision)),
+                      1LL, kRecord - 1);
+    triggerX_ = static_cast<double>(pre_ - kHalf) / static_cast<double>(kSamplesPerDivision);
+    forced_ = false;
 
     state_ = State::Waiting;
     next_ = 0;
@@ -100,6 +110,13 @@ std::optional<ScopeFrame> Scope::popFrame()
     return std::exchange(pending_, std::nullopt);
 }
 
+void Scope::force()
+{
+    if (state_ != State::Stopped) {
+        forced_ = true;
+    }
+}
+
 void Scope::process(const std::array<double, kChannels>& values)
 {
     const long long index = next_++;
@@ -112,16 +129,23 @@ void Scope::process(const std::array<double, kChannels>& values)
     }
     if (state_ == State::Waiting && index >= acquisitionStart_) {
         search(index);
-    } else if (state_ == State::Recording && index == triggerIndex_ + kHalf) {
+    }
+    // A trigger found on this sample may already end the record, when it is at the right edge.
+    if (state_ == State::Recording && index == triggerIndex_ + (kRecord - pre_)) {
         finishRecord(index);
     }
 }
 
 void Scope::search(long long index)
 {
-    // The trigger arms once the pre-trigger half of the record is full.
-    const long long armFrom = acquisitionStart_ + kHalf - 1;
+    // The trigger arms once the part of the record before it is full.
+    const long long armFrom = acquisitionStart_ + pre_ - 1;
     if (index < armFrom) {
+        return;
+    }
+    if (forced_) {
+        forced_ = false;
+        startRecord(index, 0.0, false);
         return;
     }
     // A falling edge is a rising edge of the negated signal.
@@ -154,12 +178,13 @@ void Scope::startRecord(long long index, double fraction, bool triggered)
 
 void Scope::finishRecord(long long index)
 {
-    // The record is the last kRecord samples: from triggerIndex_ - kHalf + 1 to index.
+    // The record is the last kRecord samples: from triggerIndex_ - pre_ + 1 to index.
     ScopeFrame frame;
     const double interval = sampleInterval();
     frame.triggerTime = frontEnd_.sampleTime(triggerIndex_) + triggerFraction_ * interval;
     frame.triggered = triggered_;
-    frame.startTime = (1.0 - triggerFraction_ - static_cast<double>(kHalf)) * interval;
+    frame.triggerX = triggerX_;
+    frame.startTime = (1.0 - triggerFraction_ - static_cast<double>(pre_)) * interval;
     frame.sampleInterval = interval;
     for (std::size_t c = 0; c < kChannels; ++c) {
         const std::vector<double>& history = history_[c];

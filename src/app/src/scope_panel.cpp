@@ -10,8 +10,10 @@
 #include "proton/instruments/knob.h"
 #include "proton/instruments/knob_steps.h"
 
+#include <QFontMetrics>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QPainter>
 #include <QString>
 #include <QVBoxLayout>
 
@@ -51,6 +53,76 @@ std::size_t sourceIndex(const Scope::Config& config)
     return config.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
 }
 
+QString couplingName(Scope::Coupling coupling)
+{
+    switch (coupling) {
+    case Scope::Coupling::Dc:
+        return QStringLiteral("DC");
+    case Scope::Coupling::Ac:
+        return QStringLiteral("AC");
+    case Scope::Coupling::Gnd:
+        return QStringLiteral("GND");
+    }
+    return {};
+}
+
+// The input connectors under the Vertical section: a BNC socket per channel, ringed in its colour,
+// with the net it is wired to on the sheet (ADR 0009).
+class Connectors : public QWidget
+{
+public:
+    explicit Connectors(QWidget* parent) : QWidget(parent) {}
+
+    void setNets(const QString& channel1, const QString& channel2)
+    {
+        nets_ = {channel1, channel2};
+        update();
+    }
+
+    QSize sizeHint() const override { return {200, 70}; }
+
+protected:
+    void paintEvent(QPaintEvent* /*event*/) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const QFontMetrics metrics(font());
+        const double r = 12.0;
+        for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+            const QPointF centre(width() * (0.25 + 0.5 * static_cast<double>(c)), r + 4);
+            // The socket: a metal ring with its bayonet studs, the insulator and the pin.
+            painter.setPen(QPen(kChannelColours[c], 2.0));
+            painter.setBrush(QColor(170, 174, 180));
+            painter.drawEllipse(centre, r, r);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(140, 144, 150));
+            painter.drawEllipse(centre + QPointF(-r, 0), 2.2, 2.2);
+            painter.drawEllipse(centre + QPointF(r, 0), 2.2, 2.2);
+            painter.setBrush(QColor(28, 28, 30));
+            painter.drawEllipse(centre, r * 0.58, r * 0.58);
+            painter.setBrush(QColor(215, 190, 120));
+            painter.drawEllipse(centre, r * 0.18, r * 0.18);
+
+            painter.setPen(kChannelColours[c]);
+            painter.drawText(QRectF(centre.x() - 50, centre.y() + r + 2, 100, metrics.height()),
+                             Qt::AlignCenter, QStringLiteral("CH%1").arg(c + 1));
+            QString net = nets_[c];
+            if (net.isEmpty()) {
+                net = tr("open");
+            } else if (net == QStringLiteral("0")) {
+                net = tr("ground");
+            }
+            painter.setPen(panel::kDimLettering);
+            painter.drawText(QRectF(centre.x() - 60, centre.y() + r + 2 + metrics.height(), 120,
+                                    metrics.height()),
+                             Qt::AlignCenter, tr("on %1").arg(net));
+        }
+    }
+
+private:
+    std::array<QString, Scope::kChannels> nets_;
+};
+
 } // namespace
 
 ScopePanel::ScopePanel(QWidget* parent) : panel::PanelFace(parent)
@@ -69,36 +141,21 @@ void ScopePanel::build()
     auto* runButtons = new QHBoxLayout;
     runButtons->addWidget(runStop_);
     runButtons->addWidget(single_);
+    runButtons->addStretch();
 
     auto* horizontal = new panel::PanelSection(tr("Horizontal"), this);
     timePerDiv_ = new KnobWidget(tr("Time/div"),
                                  shrinkingSteps(ScopeFrontEnd::kMinTimePerDiv,
                                                 ScopeFrontEnd::kMaxTimePerDiv, config_.timePerDiv),
                                  KnobWidget::Size::Large, horizontal);
-    auto* horizontalLayout = new QHBoxLayout(horizontal);
+    horizontalPosition_ = new KnobWidget(
+        tr("Position"),
+        Knob::continuous(-Scope::kMaxTriggerPosition, Scope::kMaxTriggerPosition, 0.1, 0.0, 0.0),
+        KnobWidget::Size::Small, horizontal);
+    horizontalPosition_->setAccessibleName(tr("Horizontal position"));
+    auto* horizontalLayout = new QVBoxLayout(horizontal);
     horizontalLayout->addWidget(timePerDiv_, 0, Qt::AlignHCenter);
-
-    auto* vertical = new panel::PanelSection(tr("Vertical"), this);
-    auto* verticalLayout = new QGridLayout(vertical);
-    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
-        ChannelControls& controls = channels_[c];
-        const QString name = tr("CH%1").arg(c + 1);
-        controls.scale = new KnobWidget(
-            tr("%1 Scale").arg(name),
-            shrinkingSteps(ScopeFrontEnd::kMinVoltsPerDiv, ScopeFrontEnd::kMaxVoltsPerDiv, 1.0),
-            KnobWidget::Size::Large, vertical);
-        controls.position = new KnobWidget(
-            tr("%1 Position").arg(name),
-            Knob::continuous(-ScopeFrontEnd::kMaxOffset, ScopeFrontEnd::kMaxOffset, 0.1, 0.0, 0.0),
-            KnobWidget::Size::Small, vertical);
-        controls.ac = new LitButton(tr("%1 AC").arg(name), kChannelColours[c], vertical);
-        controls.scale->setAccent(kChannelColours[c]);
-        controls.position->setAccent(kChannelColours[c]);
-        const int column = static_cast<int>(c);
-        verticalLayout->addWidget(controls.scale, 0, column, Qt::AlignHCenter);
-        verticalLayout->addWidget(controls.position, 1, column, Qt::AlignHCenter);
-        verticalLayout->addWidget(controls.ac, 2, column, Qt::AlignHCenter);
-    }
+    horizontalLayout->addWidget(horizontalPosition_, 0, Qt::AlignHCenter);
 
     auto* trigger = new panel::PanelSection(tr("Trigger"), this);
     triggerLevel_ = new KnobWidget(
@@ -107,10 +164,12 @@ void ScopePanel::build()
         KnobWidget::Size::Large, trigger);
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
         triggerSource_[c] = new LitButton(tr("CH%1").arg(c + 1), kChannelColours[c], trigger);
+        triggerSource_[c]->setAccessibleName(tr("Trigger CH%1").arg(c + 1));
     }
     slope_ = new LitButton(tr("Slope"), panel::kLampWhite, trigger);
     auto_ = new LitButton(tr("Auto"), panel::kLampWhite, trigger);
     normal_ = new LitButton(tr("Normal"), panel::kLampWhite, trigger);
+    force_ = new LitButton(tr("Force"), panel::kLampSingle, trigger);
     auto* triggerLayout = new QGridLayout(trigger);
     triggerLayout->addWidget(triggerLevel_, 0, 0, 1, 2, Qt::AlignHCenter);
     triggerLayout->addWidget(triggerSource_[0], 1, 0);
@@ -118,46 +177,97 @@ void ScopePanel::build()
     triggerLayout->addWidget(slope_, 2, 0, 1, 2);
     triggerLayout->addWidget(auto_, 3, 0);
     triggerLayout->addWidget(normal_, 3, 1);
+    triggerLayout->addWidget(force_, 4, 0, 1, 2);
 
-    // Three columns beside the screen, so the panel stays low enough to sit under the schematic.
-    auto* first = new QVBoxLayout;
-    first->addLayout(runButtons);
-    first->addWidget(horizontal);
-    first->addStretch();
-    auto* second = new QVBoxLayout;
-    second->addWidget(vertical);
-    second->addStretch();
-    auto* third = new QVBoxLayout;
-    third->addWidget(trigger);
-    third->addStretch();
-    auto* controls = new QHBoxLayout;
-    controls->addLayout(first);
-    controls->addLayout(second);
-    controls->addLayout(third);
+    auto* vertical = new panel::PanelSection(tr("Vertical"), this);
+    auto* verticalLayout = new QGridLayout(vertical);
+    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+        ChannelControls& controls = channels_[c];
+        const QString name = tr("CH%1").arg(c + 1);
+        controls.shown = new LitButton(name, kChannelColours[c], vertical);
+        controls.scale = new KnobWidget(
+            tr("%1 Scale").arg(name),
+            shrinkingSteps(ScopeFrontEnd::kMinVoltsPerDiv, ScopeFrontEnd::kMaxVoltsPerDiv, 1.0),
+            KnobWidget::Size::Large, vertical);
+        controls.scale->setVariableAllowed(true);
+        controls.position = new KnobWidget(
+            tr("%1 Position").arg(name),
+            Knob::continuous(-ScopeFrontEnd::kMaxOffset, ScopeFrontEnd::kMaxOffset, 0.1, 0.0, 0.0),
+            KnobWidget::Size::Small, vertical);
+        controls.coupling = new LitButton(QStringLiteral("DC"), kChannelColours[c], vertical);
+        controls.coupling->setAccessibleName(tr("%1 coupling").arg(name));
+        controls.scale->setAccent(kChannelColours[c]);
+        controls.position->setAccent(kChannelColours[c]);
+        // The channel button with its coupling beside it, then the scale and position knobs.
+        auto* buttons = new QHBoxLayout;
+        buttons->addWidget(controls.shown);
+        buttons->addWidget(controls.coupling);
+        const int column = static_cast<int>(c);
+        verticalLayout->addLayout(buttons, 0, column, Qt::AlignHCenter);
+        verticalLayout->addWidget(controls.scale, 1, column, Qt::AlignHCenter);
+        verticalLayout->addWidget(controls.position, 2, column, Qt::AlignHCenter);
+    }
+    connectors_ = new Connectors(this);
+    connectors_->setMinimumSize(connectors_->sizeHint()); // never squeezed out of the column
+
+    // The controls beside the screen, as on a bench scope: run buttons, then Horizontal and
+    // Trigger side by side, then Vertical over the connectors.
+    auto* upper = new QHBoxLayout;
+    upper->addWidget(horizontal);
+    upper->addWidget(trigger);
+    auto* side = new QVBoxLayout;
+    side->addLayout(runButtons);
+    side->addLayout(upper);
+    side->addWidget(vertical);
+    side->addWidget(connectors_);
+    side->addStretch();
 
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(14, 14, 14, 14);
     layout->setSpacing(14);
     layout->addWidget(screen_, 1);
-    layout->addLayout(controls);
+    layout->addLayout(side);
 
     // Knobs.
     connect(timePerDiv_, &KnobWidget::valueChanged, this, [this](double value) {
         config_.timePerDiv = value;
         apply();
     });
+    connect(horizontalPosition_, &KnobWidget::valueChanged, this, [this](double value) {
+        config_.triggerPosition = value;
+        apply();
+    });
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
-        connect(channels_[c].scale, &KnobWidget::valueChanged, this, [this, c](double value) {
+        const ChannelControls& controls = channels_[c];
+        connect(controls.shown, &LitButton::clicked, this, [this, c] {
+            config_.channels[c].shown = !config_.channels[c].shown;
+            apply();
+        });
+        connect(controls.scale, &KnobWidget::valueChanged, this, [this, c](double value) {
             config_.channels[c].voltsPerDiv = value;
             apply();
         });
-        connect(channels_[c].position, &KnobWidget::valueChanged, this, [this, c](double value) {
+        connect(controls.scale, &KnobWidget::variableChanged, this, [this, c](bool variable) {
+            screen_->setVariable(c, variable);
+            showKnobs();
+        });
+        connect(controls.position, &KnobWidget::valueChanged, this, [this, c](double value) {
             config_.channels[c].offset = -value;
             apply();
         });
-        connect(channels_[c].ac, &LitButton::clicked, this, [this, c] {
+        connect(controls.coupling, &LitButton::clicked, this, [this, c] {
             Scope::Coupling& coupling = config_.channels[c].coupling;
-            coupling = coupling == Scope::Coupling::Ac ? Scope::Coupling::Dc : Scope::Coupling::Ac;
+            switch (coupling) {
+            case Scope::Coupling::Dc:
+                coupling = Scope::Coupling::Ac;
+                break;
+            case Scope::Coupling::Ac:
+                coupling = Scope::Coupling::Gnd;
+                break;
+            case Scope::Coupling::Gnd:
+                coupling = Scope::Coupling::Dc;
+                break;
+            }
             apply();
         });
     }
@@ -192,6 +302,7 @@ void ScopePanel::build()
         }
         apply();
     });
+    connect(force_, &LitButton::clicked, this, [this] { Q_EMIT forced(); });
     connect(runStop_, &LitButton::clicked, this, [this] {
         if (frozen_ || config_.mode == Scope::Mode::Single) {
             run();
@@ -210,6 +321,11 @@ void ScopePanel::setConfig(const Scope::Config& config)
     }
     frozen_ = false;
     showKnobs();
+}
+
+void ScopePanel::setInputs(const QString& channel1, const QString& channel2)
+{
+    static_cast<Connectors*>(connectors_)->setNets(channel1, channel2);
 }
 
 void ScopePanel::showFrame(instruments::ScopeFrame frame, bool stopped)
@@ -244,16 +360,25 @@ void ScopePanel::showKnobs()
 {
     timePerDiv_->setValue(config_.timePerDiv);
     timePerDiv_->setCaption(engineering(config_.timePerDiv, 1, "s") + QStringLiteral("/div"));
+    horizontalPosition_->setStep(0.1); // a tenth of a division a click
+    horizontalPosition_->setValue(config_.triggerPosition);
+    // The trigger's place as a time from the centre of the screen.
+    horizontalPosition_->setCaption(
+        engineering(config_.triggerPosition * config_.timePerDiv, 3, "s"));
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
         const Scope::ChannelConfig& channel = config_.channels[c];
         ChannelControls& controls = channels_[c];
+        controls.shown->setLit(channel.shown);
         controls.scale->setValue(channel.voltsPerDiv);
-        controls.scale->setCaption(engineering(channel.voltsPerDiv, 1, "V") +
-                                   QStringLiteral("/div"));
+        // A variable scale has three digits: it is between the 1-2-5 steps.
+        controls.scale->setCaption(
+            engineering(channel.voltsPerDiv, controls.scale->variable() ? 3 : 1, "V") +
+            QStringLiteral("/div"));
         controls.position->setStep(channel.voltsPerDiv / 10.0);
         controls.position->setValue(-channel.offset);
         controls.position->setCaption(engineering(-channel.offset, 3, "V"));
-        controls.ac->setLit(channel.coupling == Scope::Coupling::Ac);
+        controls.coupling->setText(couplingName(channel.coupling));
+        controls.coupling->setLit(channel.coupling != Scope::Coupling::Dc);
     }
     const std::size_t source = sourceIndex(config_);
     const Scope::ChannelConfig& sourceChannel = config_.channels[source];
@@ -280,6 +405,8 @@ void ScopePanel::showState()
     runStop_->setLamp(stopped ? panel::kLampStop : panel::kLampRun);
     runStop_->setLit(true);
     single_->setLit(config_.mode == Scope::Mode::Single && !lastStopped_ && !frozen_);
+    // Force is lit while the scope waits for a trigger, when pressing it does something.
+    force_->setLit(!stopped && !lastTriggered_.value_or(false));
 
     if (stopped) {
         screen_->setStatus(tr("Stop"), panel::kLampStop);

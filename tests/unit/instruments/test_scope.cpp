@@ -93,6 +93,19 @@ Config withTrigger(Mode mode, double level, Slope slope = Slope::Rising)
     return config;
 }
 
+// Points [begin, end) of `signal`.
+Signal slice(const Signal& signal, std::size_t begin, std::size_t end)
+{
+    Signal part;
+    part.time.assign(signal.time.begin() + static_cast<std::ptrdiff_t>(begin),
+                     signal.time.begin() + static_cast<std::ptrdiff_t>(end));
+    part.channel1.assign(signal.channel1.begin() + static_cast<std::ptrdiff_t>(begin),
+                         signal.channel1.begin() + static_cast<std::ptrdiff_t>(end));
+    part.channel2.assign(signal.channel2.begin() + static_cast<std::ptrdiff_t>(begin),
+                         signal.channel2.begin() + static_cast<std::ptrdiff_t>(end));
+    return part;
+}
+
 // Distance from `t` to the nearest time in {first + n x period}.
 double distanceToGrid(double t, double first, double period)
 {
@@ -364,4 +377,107 @@ TEST(configure_drops_the_acquisition_and_unread_frame)
     scope.feed(signal.time, signal.channel1, signal.channel2);
     scope.configure(scope.config());
     CHECK(!scope.popFrame().has_value());
+}
+
+// The horizontal position knob (M4.5): the trigger sits triggerPosition divisions right of the
+// screen centre, and the trace still crosses the level there.
+TEST(the_trigger_position_moves_the_trigger_across_the_screen)
+{
+    Config config = withTrigger(Mode::Normal, 0.25);
+    config.triggerPosition = 2.5;
+    Scope scope(config);
+    const double dt = scope.sampleInterval();
+    const auto f = [](double t) { return std::sin(2.0 * kPi * 70.0 * t); };
+    const std::vector<ScopeFrame> frames = run(scope, sampleIrregular(f, zero, 0.1, dt, 3 * dt));
+    CHECK(!frames.empty());
+    // 100 samples per division: the trigger is 250 samples right of the centre.
+    const std::size_t at = kRecord / 2 + 250;
+    for (const ScopeFrame& frame : frames) {
+        CHECK_EQ(frame.triggerX, 2.5);
+        CHECK(frame.values[0][at - 1] < 0.25);
+        CHECK(frame.values[0][at] >= 0.25);
+        // The trigger time is between those two samples.
+        CHECK(frame.startTime > -static_cast<double>(at) * dt - 1e-15);
+        CHECK(frame.startTime <= (1.0 - static_cast<double>(at)) * dt + 1e-15);
+    }
+}
+
+TEST(the_trigger_position_stays_on_the_screen)
+{
+    Config config;
+    config.triggerPosition = 9.0;
+    CHECK_EQ(Scope::sanitise(config).triggerPosition, 5.0);
+    config.triggerPosition = -9.0;
+    CHECK_EQ(Scope::sanitise(config).triggerPosition, -5.0);
+    config.triggerPosition = kNaN;
+    CHECK_EQ(Scope::sanitise(config).triggerPosition, 0.0);
+    // At the very edge the trigger is on the last sample that still has one after it.
+    config = withTrigger(Mode::Normal, 0.0);
+    config.triggerPosition = 5.0;
+    Scope scope(config);
+    const double dt = scope.sampleInterval();
+    const auto f = [](double t) { return std::sin(2.0 * kPi * 70.0 * t); };
+    const std::vector<ScopeFrame> frames = run(scope, sampleIrregular(f, zero, 0.1, dt, 3 * dt));
+    CHECK(!frames.empty());
+    for (const ScopeFrame& frame : frames) {
+        CHECK(frame.triggerX <= 5.0 && frame.triggerX > 4.9);
+        CHECK_EQ(frame.values[0].size(), kRecord);
+    }
+}
+
+// A channel switched off is not drawn (scope_display), but it is still acquired and can trigger.
+TEST(a_hidden_channel_can_still_be_the_trigger_source)
+{
+    const double omega = 2.0 * kPi * 1234.0;
+    const auto f2 = [&](double t) { return std::sin(omega * t); };
+    Config config = withTrigger(Mode::Normal, 0.0);
+    config.trigger.source = TriggerSource::Channel2;
+    config.channels[1].shown = false;
+    Scope scope(config);
+    const double dt = scope.sampleInterval();
+    const std::vector<ScopeFrame> frames = run(scope, sampleIrregular(zero, f2, 0.2, dt / 4, dt));
+    CHECK(frames.size() >= 10u);
+    for (const ScopeFrame& frame : frames) {
+        CHECK(frame.triggered);
+        CHECK(distanceToGrid(frame.triggerTime, 0.0, 2.0 * kPi / omega) < 0.01 * dt);
+        CHECK_EQ(frame.values[1].size(), kRecord);
+    }
+}
+
+// Force (M4.5): one frame at once, untriggered, while Normal or Single waits for a trigger.
+TEST(force_takes_a_frame_without_a_trigger)
+{
+    const auto f = [](double t) { return std::sin(2.0 * kPi * 1000.0 * t); };
+    for (const Mode mode : {Mode::Normal, Mode::Single}) {
+        Scope scope(withTrigger(mode, 1.5)); // never crossed
+        const double dt = scope.sampleInterval();
+        const Signal signal = sampleIrregular(f, zero, 0.2, dt / 2, dt);
+        const std::size_t half = signal.time.size() / 2;
+        CHECK(run(scope, slice(signal, 0, half)).empty());
+        scope.force();
+        const std::vector<ScopeFrame> frames = run(scope, slice(signal, half, signal.time.size()));
+        CHECK_EQ(frames.size(), 1u); // one frame, then waiting again (Normal) or stopped (Single)
+        if (!frames.empty()) {
+            CHECK(!frames.front().triggered);
+            // From the first sample after the press: after the last point fed before it.
+            CHECK(frames.front().triggerTime > signal.time[half - 1]);
+            // It shows the signal as it was.
+            const ScopeFrame& frame = frames.front();
+            for (std::size_t i = 0; i < kRecord; i += 97) {
+                const double t = frame.triggerTime + frame.startTime + static_cast<double>(i) * dt;
+                CHECK_NEAR(frame.values[0][i], f(t), 1e-3);
+            }
+        }
+        CHECK_EQ(scope.stopped(), mode == Mode::Single);
+    }
+}
+
+TEST(configure_drops_a_pending_force)
+{
+    const auto f = [](double t) { return std::sin(2.0 * kPi * 1000.0 * t); };
+    Scope scope(withTrigger(Mode::Normal, 1.5));
+    const double dt = scope.sampleInterval();
+    scope.force();
+    scope.configure(scope.config());
+    CHECK(run(scope, sampleIrregular(f, zero, 0.1, dt / 2, dt)).empty());
 }

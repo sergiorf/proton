@@ -12,13 +12,16 @@
 namespace proton::instruments {
 
 // One acquisition of the oscilloscope: kSamplesPerScreen samples per channel with the trigger at
-// the centre of the screen.
+// triggerX divisions right of the centre of the screen (the centre unless the horizontal position
+// moved it).
 struct ScopeFrame
 {
-    double triggerTime = 0.0; // simulation time of the trigger, s, shown at the screen centre
-    bool triggered = false;   // false for an Auto frame taken because no trigger came
+    double triggerTime = 0.0; // simulation time of the trigger, s
+    bool triggered = false;   // false for an Auto or forced frame taken without a trigger
+    double triggerX = 0.0;    // divisions right of the screen centre where the trigger is
     // Time of the first sample relative to triggerTime, s. Sample i is at
-    // startTime + i x sampleInterval: every sample lies within the screen, +- 5 divisions.
+    // startTime + i x sampleInterval, which is triggerX + that / (time/div) divisions across the
+    // screen: every sample lies within it, +- 5 divisions.
     double startTime = 0.0;
     double sampleInterval = 0.0; // s
     std::array<std::vector<double>, ScopeFrontEnd::kChannels> values;
@@ -34,16 +37,18 @@ struct ScopeFrame
 // between that sample and the one before by linear interpolation, so it is accurate to a fraction
 // of a sample and a periodic signal stands still on the screen.
 //
-// Record. An acquisition first fills the pre-trigger half of the record, kSamplesPerScreen / 2
-// samples; only then does the trigger arm. After the trigger it takes the post-trigger half and
-// gives the frame. The next acquisition starts `deadTime` later (rounded up to whole samples), so
-// triggers during the post-trigger half, the dead time or the next pre-trigger half are missed,
-// as on a real instrument.
+// Record. The trigger is triggerPosition divisions right of the screen centre (the horizontal
+// position knob), so the record has more samples before it than after when that is positive. An
+// acquisition first fills the part of the record before the trigger; only then does the trigger
+// arm. After the trigger it takes the rest and gives the frame. The next acquisition starts
+// `deadTime` later (rounded up to whole samples), so triggers during the rest of the record, the
+// dead time or the next acquisition's part before the trigger are missed, as on a real instrument.
 //
 // Modes. Normal gives a frame only on a trigger. Auto does too, but if no trigger comes within
 // kAutoTimeoutScreens screens of simulation time after the trigger arms, it takes an untriggered
-// frame, ending kSamplesPerScreen / 2 samples after the timeout. Single is Normal that stops
-// after one frame; configure() starts it again.
+// frame from the timeout on. Single is Normal that stops after one frame; configure() starts it
+// again. force() takes an untriggered frame from the next sample on, as a bench scope's Force
+// button does, in any mode while the scope waits.
 //
 // Times are simulation times only. Settings are sanitised as ScopeFrontEnd does: unknown enum
 // values become the default, non-finite numbers become the default, and numbers are clamped to
@@ -77,6 +82,8 @@ public:
     static constexpr double kMaxTriggerLevel = 200.0; // V, either way
     static constexpr double kMaxHysteresis = 1.0;     // divisions
     static constexpr double kMaxDeadTime = 10.0;      // s
+    // The trigger stays on the screen: up to half the screen either way of the centre.
+    static constexpr double kMaxTriggerPosition = ScopeFrontEnd::kHorizontalDivisions / 2.0;
 
     struct Trigger
     {
@@ -95,6 +102,7 @@ public:
         Trigger trigger;
         Mode mode = Mode::Auto;
         double deadTime = 0.0; // s of simulation time between acquisitions
+        double triggerPosition = 0.0; // divisions right of the screen centre where the trigger is
 
         friend bool operator==(const Config&, const Config&) = default;
     };
@@ -124,6 +132,10 @@ public:
     // True once Single has taken its frame: the scope ignores further input until configure().
     bool stopped() const { return state_ == State::Stopped; }
 
+    // Takes an untriggered frame as soon as the part before the trigger is full, while the scope
+    // waits; nothing once Single has stopped. configure() drops a force not yet taken.
+    void force();
+
 private:
     enum class State {
         Waiting,   // filling the pre-trigger half, armed, or in the dead time before it
@@ -140,6 +152,9 @@ private:
     ScopeFrontEnd frontEnd_;
     double hysteresis_ = 0.0; // V
     long long deadSamples_ = 0;
+    long long pre_ = 0; // samples of the record up to and including the one before the trigger
+    double triggerX_ = 0.0;
+    bool forced_ = false;
 
     State state_ = State::Waiting;
     long long next_ = 0;             // index of the next sample from the front end

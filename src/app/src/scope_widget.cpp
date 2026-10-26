@@ -164,6 +164,14 @@ void ScopeWidget::setConfig(const Scope::Config& config)
     update();
 }
 
+void ScopeWidget::setVariable(std::size_t channel, bool variable)
+{
+    if (channel < variable_.size() && variable_[channel] != variable) {
+        variable_[channel] = variable;
+        update();
+    }
+}
+
 void ScopeWidget::setFrame(instruments::ScopeFrame frame)
 {
     frame_ = std::move(frame);
@@ -200,15 +208,15 @@ void ScopeWidget::paint()
     if (frame_) {
         painter.save();
         painter.setClipRect(screen);
-        // CH2 first, so CH1 is on top where they overlap.
-        drawTrace(painter, screen, map, *frame_, 1, config_);
-        drawTrace(painter, screen, map, *frame_, 0, config_);
+        for (const std::size_t channel : instruments::tracesToDraw(config_)) {
+            drawTrace(painter, screen, map, *frame_, channel, config_);
+        }
         painter.restore();
     }
 
     painter.setRenderHint(QPainter::Antialiasing);
-    // Ground markers on the left edge, pointing in.
-    for (std::size_t c = 0; c < Scope::kChannels; ++c) {
+    // Ground markers on the left edge, pointing in, for the channels shown.
+    for (const std::size_t c : instruments::tracesToDraw(config_)) {
         const double y = map.clampedY(instruments::toDivisions(0.0, config_.channels[c]));
         drawMarker(painter, QPointF(screen.left(), y), QPointF(1, 0), kTraceColours[c]);
     }
@@ -216,8 +224,10 @@ void ScopeWidget::paint()
     const std::size_t source = config_.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
     drawMarker(painter, QPointF(screen.right(), map.clampedY(instruments::triggerLevelY(config_))),
                QPointF(-1, 0), kTraceColours[source]);
-    // Trigger position at the centre of the top edge, pointing down.
-    drawMarker(painter, QPointF(map.x(0), screen.top()), QPointF(0, 1), QColor(255, 140, 40));
+    // Trigger position on the top edge, pointing down: the centre unless the horizontal position
+    // knob moved it.
+    drawMarker(painter, QPointF(map.x(config_.triggerPosition), screen.top()), QPointF(0, 1),
+               QColor(255, 140, 40));
 
     drawText(painter, screen, band);
 }
@@ -241,17 +251,38 @@ void ScopeWidget::drawText(QPainter& painter, const QRectF& screen, double band)
     };
     for (std::size_t c = 0; c < Scope::kChannels; ++c) {
         const Scope::ChannelConfig& channel = config_.channels[c];
+        if (!channel.shown) {
+            painter.setPen(panel::kDimLettering);
+            painter.drawText(cell(static_cast<int>(c)), Qt::AlignLeft | Qt::AlignVCenter,
+                             QStringLiteral("CH%1  off").arg(c + 1));
+            continue;
+        }
+        QString coupling = QStringLiteral("DC");
+        if (channel.coupling == Scope::Coupling::Ac) {
+            coupling = QStringLiteral("AC");
+        } else if (channel.coupling == Scope::Coupling::Gnd) {
+            coupling = QStringLiteral("GND");
+        }
+        // A variable V/div has three digits and is marked so: it is not a calibrated step.
+        const QString scale =
+            variable_[c] ? QString::fromStdString(core::formatEngineering(channel.voltsPerDiv, 3,
+                                                                          "V")) +
+                               QStringLiteral("/ VAR")
+                         : perDiv(channel.voltsPerDiv, "V");
         painter.setPen(kTraceColours[c]);
         painter.drawText(cell(static_cast<int>(c)), Qt::AlignLeft | Qt::AlignVCenter,
-                         QStringLiteral("CH%1  %2  %3")
-                             .arg(c + 1)
-                             .arg(perDiv(channel.voltsPerDiv, "V"),
-                                  channel.coupling == Scope::Coupling::Ac ? QStringLiteral("AC")
-                                                                          : QStringLiteral("DC")));
+                         QStringLiteral("CH%1  %2  %3").arg(c + 1).arg(scale, coupling));
     }
     painter.setPen(panel::kLettering);
-    painter.drawText(cell(2), Qt::AlignLeft | Qt::AlignVCenter,
-                     QStringLiteral("H  %1").arg(perDiv(config_.timePerDiv, "s")));
+    QString horizontal = QStringLiteral("H  %1").arg(perDiv(config_.timePerDiv, "s"));
+    if (config_.triggerPosition != 0.0) {
+        // Where the trigger is, as a time from the centre of the screen.
+        const double time = config_.triggerPosition * config_.timePerDiv;
+        horizontal += QStringLiteral("  %1%2")
+                          .arg(time > 0 ? QStringLiteral("+") : QString())
+                          .arg(QString::fromStdString(core::formatEngineering(time, 3, "s")));
+    }
+    painter.drawText(cell(2), Qt::AlignLeft | Qt::AlignVCenter, horizontal);
     const std::size_t source = config_.trigger.source == Scope::TriggerSource::Channel2 ? 1 : 0;
     const QChar slope(config_.trigger.slope == Scope::Slope::Rising ? 0x2191 : 0x2193); // arrows
     painter.setPen(kTraceColours[source]);

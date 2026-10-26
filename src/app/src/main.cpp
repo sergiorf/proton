@@ -14,8 +14,9 @@
 // sheet and redo. Each exits 0 when it passes
 // and 1 otherwise.
 //
-// --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the window as a
-// PNG and exits: for checking a panel's look and for documentation.
+// --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the
+// window as a PNG and each instrument's panel beside it (<file>-scope1.png, ...), and exits: for
+// checking a panel's look and for documentation.
 
 #include "main_window.h"
 #include "smoke.h"
@@ -25,6 +26,7 @@
 #include <QApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QFileInfo>
 #include <QIcon>
 #include <QPixmap>
 #include <QString>
@@ -100,7 +102,17 @@ int main(int argc, char** argv)
         window.setRunning(true);
         const QString file = parser.value(screenshot);
         QTimer::singleShot(kScreenshotDelay, &window, [&window, file] {
-            const bool saved = window.grab().save(file);
+            bool saved = window.grab().save(file);
+            const QFileInfo info(file);
+            for (const QString name :
+                 {QStringLiteral("gen1"), QStringLiteral("scope1"), QStringLiteral("dmm1")}) {
+                if (QWidget* panel = window.openPanel(name)) {
+                    const QString panelFile = info.path() + QLatin1Char('/') +
+                                              info.completeBaseName() + QLatin1Char('-') + name +
+                                              QLatin1Char('.') + info.suffix();
+                    saved = panel->window()->grab().save(panelFile) && saved;
+                }
+            }
             QApplication::exit(saved ? 0 : 1);
         });
     }

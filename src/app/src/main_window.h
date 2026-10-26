@@ -37,8 +37,8 @@ namespace proton::app {
 // instance per instrument symbol, on the nets its terminals are wired to (bench::benchFor), with
 // the settings that instance had. Double-clicking a symbol opens that instance's front panel in a
 // window of its own beside it, a tool window that stays above the main one and never docks into
-// it; closing it only hides it, and deleting the symbol removes the panel. Settings stay with an instance's name, so an instrument deleted and
-// brought back by undo has them again.
+// it; closing it only hides it, and deleting the symbol removes the panel. Settings stay with an
+// instance's name, so an instrument deleted and brought back by undo has them again.
 //
 // Nothing runs until the student switches the bench on with Run (F5), as on a real bench or in a
 // circuit simulator: then the drawing runs, and every edit or knob restarts it on the next pump;
@@ -94,6 +94,7 @@ private:
         QWidget* window = nullptr; // the tool window holding the face
         QWidget* face = nullptr; // a ScopePanel, MultimeterPanel or GeneratorPanel
         std::vector<QString> nets; // the nets the face shows: a meter's + and COM, a generator's
+                                   // output, a scope's CH1 and CH2
     };
 
     void showAbout();

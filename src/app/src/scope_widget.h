@@ -7,6 +7,8 @@
 #include <QString>
 #include <QWidget>
 
+#include <array>
+#include <cstddef>
 #include <optional>
 
 class QPainter;
@@ -31,6 +33,8 @@ public:
 
     // The settings the frame was taken with, for scaling and markers.
     void setConfig(const instruments::Scope::Config& config);
+    // Whether channel `channel`'s V/div is the scale knob's variable one, marked VAR in the bar.
+    void setVariable(std::size_t channel, bool variable);
     // The frame to show, until the next one.
     void setFrame(instruments::ScopeFrame frame);
     // Back to an empty screen.
@@ -57,6 +61,7 @@ private:
     void drawText(QPainter& painter, const QRectF& screen, double band) const;
 
     instruments::Scope::Config config_;
+    std::array<bool, instruments::Scope::kChannels> variable_{};
     std::optional<instruments::ScopeFrame> frame_;
     QString status_;
     QColor statusColour_;

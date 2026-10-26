@@ -342,7 +342,7 @@ scope, multimeter and generator (M3.1) can be made by wiring on the sheet, witho
 name; each instrument's panel opens floating from its symbol; two scopes and two multimeters
 can be open at once, each bound to its own instance; and a loaded example does not run until Run.
 
-**M4.5 Scope front panel.** Lay the oscilloscope's panel out as a generic two-channel bench scope,
+**M4.5 Scope front panel.** *(done locally 2026-10-26, CI pending: Actions minutes ran out)* Lay the oscilloscope's panel out as a generic two-channel bench scope,
 as realistic as the product rules allow and brand-neutral: the screen on the left; on the right,
 Run/Stop and Single at the top, the Horizontal and Trigger sections side by side below them, then
 the Vertical section with one column per channel (channel button, scale knob above position knob,
@@ -356,9 +356,9 @@ Every knob, on every panel, also gets, in `instruments::Knob` with tests: coarse
 with the wheel or a drag turns a continuous knob a tenth of a click, Ctrl ten clicks); a fine
 variable V/div, switched on by pushing the scale knob, that moves between the 1-2-5 steps and is
 marked as such on the screen, as on many bench scopes; a circular drag, turning the mouse around
-the knob's centre, as an option beside the vertical drag; scale marks around stepped knobs, a tick
-per position and the 1-2-5 values printed around time/div and V/div; and feedback on hover, a hand
-cursor and a light ring on a knob that can be turned.
+the knob's centre as a hand turns a knob, by default, with a straight drag as an option; scale
+marks around stepped knobs, a tick per position and the decade values printed around time/div and
+V/div; and feedback on hover, a hand cursor and a light ring on a knob that can be turned.
 *Done when:* model tests show that the horizontal position moves the trigger time on the screen by
 the set amount and the trace still crosses the trigger level there, a hidden channel draws no
 trace but can still be the trigger source, GND coupling reads 0 V, and Force takes a frame without
