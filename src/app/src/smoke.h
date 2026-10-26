@@ -33,4 +33,10 @@ void smokeLatency(MainWindow& window);
 // when the multimeter then reads 2.500 V, as on the built-in divider.
 void smokeEditor(MainWindow& window);
 
+// Makes every kind of edit on an empty sheet (place, wire, label, move, rotate, edit a value,
+// rename a label, delete, new sheet), then undoes them one by one with the Edit menu's Undo,
+// checking the scene against the one before each edit down to the empty sheet, and redoes them
+// back to the last scene the same way (PLAN.md M4.3).
+void smokeUndo(MainWindow& window);
+
 } // namespace proton::app

@@ -25,6 +25,7 @@
 #include <QString>
 #include <QStringList>
 #include <QToolBar>
+#include <QUndoStack>
 
 #include <chrono>
 #include <string>
@@ -97,6 +98,17 @@ MainWindow::MainWindow(QWidget* parent)
 
     buildToolBar();
     quit->setShortcut(QKeySequence::Quit);
+
+    // Undo and redo the sheet's edits (M4.3); the actions name the step they undo.
+    QMenu* edit = menuBar()->addMenu(tr("&Edit"));
+    QAction* undo = sheet_->undoStack().createUndoAction(this, tr("&Undo"));
+    undo->setObjectName(QStringLiteral("undo"));
+    undo->setShortcuts(QKeySequence::Undo);
+    edit->addAction(undo);
+    QAction* redo = sheet_->undoStack().createRedoAction(this, tr("&Redo"));
+    redo->setObjectName(QStringLiteral("redo"));
+    redo->setShortcuts(QKeySequence::Redo);
+    edit->addAction(redo);
 
     QMenu* examples = menuBar()->addMenu(tr("&Examples"));
     auto* group = new QActionGroup(this);
