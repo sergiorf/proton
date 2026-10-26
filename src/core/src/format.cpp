@@ -33,6 +33,22 @@ std::string withUnit(std::string number, std::string_view prefix, std::string_vi
 
 } // namespace
 
+double roundToSignificant(double value, int significantDigits)
+{
+    if (value == 0.0 || !std::isfinite(value)) {
+        return value;
+    }
+    // Written in scientific notation at that precision and read back: both conversions are exact
+    // and locale-free, so the result is the double nearest the rounded decimal.
+    std::array<char, 64> buffer{};
+    const auto written =
+        std::to_chars(buffer.data(), buffer.data() + buffer.size(), value,
+                      std::chars_format::scientific, std::clamp(significantDigits, 1, 17) - 1);
+    double rounded = value;
+    (void)std::from_chars(buffer.data(), written.ptr, rounded, std::chars_format::scientific);
+    return rounded;
+}
+
 std::string formatEngineering(double value, int significantDigits, std::string_view unit)
 {
     if (std::isnan(value)) {

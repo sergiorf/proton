@@ -35,6 +35,14 @@ constexpr std::array<Waveform, 4> kWaveforms = {Waveform::Sine, Waveform::Square
                                                 Waveform::Triangle, Waveform::Dc};
 constexpr double kDecadesPerClick = 0.01;
 constexpr double kVoltsPerClick = 0.01;
+// A knob sets a number the display shows whole, as a bench generator's knob changes a digit: the
+// frequency to the display's 4 significant digits, a voltage to the knob's 10 mV step.
+constexpr int kFrequencyDigits = 4;
+
+double onVoltStep(double volts)
+{
+    return std::round(volts / kVoltsPerClick) / (1.0 / kVoltsPerClick);
+}
 
 QString engineering(double value, int digits, const char* unit)
 {
@@ -211,15 +219,15 @@ void GeneratorPanel::build()
     layout->addLayout(outputRow);
 
     connect(frequency_, &panel::KnobWidget::valueChanged, this, [this](double decades) {
-        config_.frequency = std::pow(10.0, decades);
+        config_.frequency = core::roundToSignificant(std::pow(10.0, decades), kFrequencyDigits);
         apply();
     });
     connect(amplitude_, &panel::KnobWidget::valueChanged, this, [this](double volts) {
-        config_.amplitude = volts;
+        config_.amplitude = onVoltStep(volts);
         apply();
     });
     connect(offset_, &panel::KnobWidget::valueChanged, this, [this](double volts) {
-        config_.offset = volts;
+        config_.offset = onVoltStep(volts);
         apply();
     });
     const auto entry = [this](QLineEdit* field, double FunctionGenerator::Config::*setting) {
@@ -265,7 +273,7 @@ void GeneratorPanel::showSettings()
     frequency_->setValue(std::log10(config_.frequency));
     amplitude_->setValue(config_.amplitude);
     offset_->setValue(config_.offset);
-    frequency_->setCaption(engineering(config_.frequency, 4, "Hz"));
+    frequency_->setCaption(engineering(config_.frequency, kFrequencyDigits, "Hz"));
     amplitude_->setCaption(engineering(config_.amplitude, 3, "V") + tr(" pk"));
     offset_->setCaption(engineering(config_.offset, 3, "V"));
     const bool dc = config_.waveform == Waveform::Dc;

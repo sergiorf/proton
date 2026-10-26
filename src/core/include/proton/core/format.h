@@ -20,6 +20,11 @@ namespace proton::core {
 // Output does not depend on the C locale.
 std::string formatEngineering(double value, int significantDigits, std::string_view unit = {});
 
+// `value` rounded to the nearest number of `significantDigits` significant digits (clamped to
+// 1..17), as the nearest double to that decimal: roundToSignificant(1023.29, 4) is 1023 and
+// roundToSignificant(0.0123456, 4) is 0.01235. Zero, NaN and infinities are returned as they are.
+double roundToSignificant(double value, int significantDigits);
+
 // What a 4.5-digit (19999-count) meter shows. A unit-less overload shows `kOverloadText` with the
 // range's unit, as real meters do.
 inline constexpr std::string_view kOverloadText = "OL";

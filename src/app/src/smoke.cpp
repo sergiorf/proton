@@ -12,6 +12,7 @@
 #include "schematic/schematic_view.h"
 #include "scope_widget.h"
 
+#include "proton/core/spice_number.h"
 #include "proton/instruments/knob.h"
 
 #include <QAction>
@@ -305,10 +306,27 @@ void smokePanel(MainWindow& window)
     // value applies on Enter, and Output switches the output.
     GeneratorPanel& generator = window.generator();
     using Generator = instruments::FunctionGenerator;
+    // A knob sets a round number, so each entry field shows the whole setting, short.
+    const auto entriesShowTheSettings = [&](const QString& after) {
+        const Generator::Config& config = generator.config();
+        for (QLineEdit* field : generator.findChildren<QLineEdit*>()) {
+            const QString name = field->accessibleName();
+            const double value = name == QStringLiteral("Frequency entry") ? config.frequency
+                                 : name == QStringLiteral("Amplitude entry") ? config.amplitude
+                                                                              : config.offset;
+            checker.check(core::parseSpiceNumber(field->text().toStdString()) == value &&
+                              field->text().size() <= 6,
+                          name + QStringLiteral(" shows ") + field->text() + QStringLiteral(" after ") +
+                              after);
+        }
+    };
     for (panel::KnobWidget* knob : generator.findChildren<panel::KnobWidget*>()) {
         const Generator::Config before = generator.config();
-        wheel(knob, 1);
+        for (int click = 0; click < 3; ++click) {
+            wheel(knob, 1);
+        }
         checker.check(generator.config() != before, knob->accessibleName() + QStringLiteral(": wheel"));
+        entriesShowTheSettings(knob->accessibleName());
     }
     for (panel::LitButton* button : generator.findChildren<panel::LitButton*>()) {
         const QString name = button->accessibleName();

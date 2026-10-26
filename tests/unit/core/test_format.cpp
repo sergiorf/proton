@@ -9,6 +9,7 @@
 
 using proton::core::formatEngineering;
 using proton::core::formatMeterReading;
+using proton::core::roundToSignificant;
 using proton::core::MeterDisplay;
 
 namespace {
@@ -39,6 +40,21 @@ void checkMeter(const MeterCase& c)
 }
 
 } // namespace
+
+// A knob's setting is a number a student can read and type back (the generator's frequency).
+TEST(round_to_significant_keeps_that_many_digits)
+{
+    CHECK_EQ(roundToSignificant(1023.2929922807537, 4), 1023.0);
+    CHECK_EQ(roundToSignificant(1047.1285480508996, 4), 1047.0);
+    CHECK_EQ(roundToSignificant(0.012345678, 4), 0.01235);
+    CHECK_EQ(roundToSignificant(9999.6, 4), 10000.0); // carries into the next decade
+    CHECK_EQ(roundToSignificant(-2.71828, 3), -2.72);
+    CHECK_EQ(roundToSignificant(123456.0, 2), 120000.0);
+    CHECK_EQ(roundToSignificant(0.0, 4), 0.0);
+    CHECK_EQ(roundToSignificant(1.0e-3, 4), 1.0e-3);
+    // The result is the double nearest the rounded decimal, so it prints back short.
+    CHECK_EQ(roundToSignificant(2.0 * 0.15 + 1e-12, 4), 0.3);
+}
 
 TEST(engineering_uses_every_si_prefix)
 {
