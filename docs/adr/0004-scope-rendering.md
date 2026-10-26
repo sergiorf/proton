@@ -74,7 +74,7 @@ precise timer.
 - No new dependency; drawing code is plain Qt Widgets, and what it draws is tested without Qt.
 - Frames reach the screen at the simulator's pace: the display keeps up with 60 new frames per
   second, but at fast timebases ngspice gives fewer (ADR 0007). Making the simulator faster is
-  separate work: the engine's per-point overhead and ngspice's background mode (ADR 0007, M4.6).
+  separate work: the engine's per-point overhead and ngspice's background mode (ADR 0007, M4.7).
 - The front panels (M2.4) and the multimeter's display (M2.5) follow the same pattern: Qt-free
   formatting and geometry below, a thin `QPainter` widget in `src/app`.
 - Revisit with `QRhi` if a paint passes a few milliseconds: persistence, 4 channels or long records
