@@ -27,6 +27,11 @@ namespace proton::app::panel {
 // knob has its scale printed round it: a tick per step, longer at each decade, with the decade's
 // value. Hovered, the knob shows a light ring and an open hand, closed while it is dragged.
 //
+// An encoder knob (setEncoder) sets no value of its own: it reports the clicks it is turned by
+// (turned()), never accelerated, for a digit entry (instruments::DigitEntry) to apply to the digit
+// under its cursor, and its Left and Right keys move that cursor (cursorMoved()) instead of
+// turning it.
+//
 // valueChanged() is emitted only for the student's input, never for setValue().
 class KnobWidget : public QWidget {
     Q_OBJECT
@@ -58,6 +63,8 @@ public:
     void setCaption(const QString& caption);
     // A coloured ring around the cap, for a knob that belongs to a scope channel.
     void setAccent(const QColor& colour);
+    // Makes this an encoder knob: endless, unpushable, reporting clicks.
+    void setEncoder();
     bool hovered() const { return hovered_; }
 
     QSize sizeHint() const override;
@@ -67,6 +74,10 @@ Q_SIGNALS:
     void valueChanged(double value);
     // A push switched the variable mode on or off.
     void variableChanged(bool variable);
+    // An encoder knob was turned by `clicks` (negative anticlockwise), or Left (+1, to a larger
+    // digit) or Right (-1) was pressed on it.
+    void turned(int clicks);
+    void cursorMoved(int places);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -99,6 +110,9 @@ private:
     bool dragging_ = false;
     bool hovered_ = false;
     bool pushable_ = true;
+    bool encoder_ = false;
+    double encoderLast_ = 0.0;      // the value at the last click reported
+    double encoderRemainder_ = 0.0; // a fine turn's tenths not yet a click
     QElapsedTimer sinceWheel_;
     int wheelRemainder_ = 0; // eighths of a degree not yet a notch
 };

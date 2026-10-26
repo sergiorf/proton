@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_library(proton_instruments
+    src/digit_entry.cpp
     src/function_generator.cpp
     src/knob.cpp
     src/knob_steps.cpp

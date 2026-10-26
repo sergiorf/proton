@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_executable(proton_instruments_tests
     test_function_generator.cpp
+    test_digit_entry.cpp
     test_knob.cpp
     test_knob_steps.cpp
     test_multimeter.cpp
