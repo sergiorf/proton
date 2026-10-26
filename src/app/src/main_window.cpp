@@ -4,42 +4,84 @@
 #include "generator_panel.h"
 #include "multimeter_panel.h"
 #include "scope_panel.h"
+#include "schematic/parts_panel.h"
 #include "schematic/schematic_view.h"
 #include "scope_widget.h"
 
 #include "proton/bench/engines.h"
+#include "proton/bench/sheet_bench.h"
 #include "proton/core/version.h"
-#include "proton/schematic/scene.h"
+#include "proton/schematic/scene_edit.h"
 #include "proton/schematic/validate.h"
 
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
 #include <QDockWidget>
+#include <QGuiApplication>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QScreen>
+#include <QSignalBlocker>
 #include <QStatusBar>
 #include <QString>
 #include <QStringList>
 #include <QToolBar>
 #include <QUndoStack>
+#include <QVBoxLayout>
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace proton::app {
 
 namespace {
 
+using schematic::InstrumentKind;
+
 constexpr std::chrono::milliseconds kPumpInterval{16}; // one UI tick (ADR 0005)
+constexpr int kPanelGap = 24; // pixels between a symbol and its panel
 
 QString text(std::string_view s)
 {
     return QString::fromUtf8(s.data(), static_cast<qsizetype>(s.size()));
+}
+
+// The index of instance `name` among `instances`, if it is there.
+template <typename Settings>
+std::optional<std::size_t> indexOf(const std::vector<Settings>& instances, const QString& name)
+{
+    for (std::size_t i = 0; i < instances.size(); ++i) {
+        if (text(instances[i].name) == name) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+QString kindTitle(InstrumentKind kind)
+{
+    switch (kind) {
+    case InstrumentKind::Generator:
+        return MainWindow::tr("Function generator");
+    case InstrumentKind::Scope:
+        return MainWindow::tr("Oscilloscope");
+    case InstrumentKind::Multimeter:
+        return MainWindow::tr("Multimeter");
+    }
+    return {};
+}
+
+// What a generator panel shows as its output's net: none unless both terminals are wired.
+QString generatorNet(const bench::Bench::GeneratorSettings& generator)
+{
+    return generator.plus.empty() || generator.com.empty() ? QString() : text(generator.plus);
 }
 
 } // namespace
@@ -49,46 +91,32 @@ MainWindow::MainWindow(QWidget* parent)
 {
     setWindowTitle(QStringLiteral("Proton"));
     resize(1440, 900);
-    // Docks on the right run the full height, so the multimeter stands beside the scope.
-    setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
-    setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
 
-    // The schematic in the middle, the scope along the bottom, the meter and generator on the
-    // right: the circuit in front of the student with the instruments around it.
+    // The schematic in the middle with the parts to place on its left; the instruments' panels
+    // float beside their symbols.
     sheet_ = new sheet::SchematicView(this);
     setCentralWidget(sheet_);
     connect(sheet_, &sheet::SchematicView::edited, this, &MainWindow::applyScene);
+    connect(sheet_, &sheet::SchematicView::instrumentOpened, this,
+            [this](const QString& name) { openPanel(name); });
+
+    parts_ = new sheet::PartsPanel(this);
+    auto* partsDock = new QDockWidget(tr("Parts"), this);
+    partsDock->setObjectName(QStringLiteral("parts"));
+    partsDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    partsDock->setWidget(parts_);
+    addDockWidget(Qt::LeftDockWidgetArea, partsDock);
+    resizeDocks({partsDock}, {130}, Qt::Horizontal); // one icon a row
+    connect(parts_, &sheet::PartsPanel::chosen, this,
+            [this](const sheet::SchematicView::Placing& what) { sheet_->placeKind(what); });
 
     status_ = new QLabel(this);
     status_->setTextFormat(Qt::PlainText);
     statusBar()->addWidget(status_, 1);
 
-    scope_ = new ScopePanel(this);
-    auto* scopeDock = new QDockWidget(tr("Oscilloscope"), this);
-    scopeDock->setObjectName(QStringLiteral("scope"));
-    scopeDock->setWidget(scope_);
-    addDockWidget(Qt::BottomDockWidgetArea, scopeDock);
-    resizeDocks({scopeDock}, {400}, Qt::Vertical);
-    connect(scope_, &ScopePanel::changed, this, &MainWindow::applyScope);
-    connect(scope_, &ScopePanel::armed, this, [this] { control_.bench().rearmScope(0); });
-
-    meter_ = new MultimeterPanel(this);
-    auto* meterDock = new QDockWidget(tr("Multimeter"), this);
-    meterDock->setObjectName(QStringLiteral("multimeter"));
-    meterDock->setWidget(meter_);
-    addDockWidget(Qt::RightDockWidgetArea, meterDock);
-    resizeDocks({meterDock}, {380}, Qt::Horizontal);
-    connect(meter_, &MultimeterPanel::changed, this, &MainWindow::applyMultimeter);
-
-    generator_ = new GeneratorPanel(this);
-    auto* generatorDock = new QDockWidget(tr("Function generator"), this);
-    generatorDock->setObjectName(QStringLiteral("generator"));
-    generatorDock->setWidget(generator_);
-    splitDockWidget(meterDock, generatorDock, Qt::Vertical);
-    connect(generator_, &GeneratorPanel::changed, this, &MainWindow::applyGenerator);
-
     QMenu* file = menuBar()->addMenu(tr("&File"));
     QAction* newSheet = file->addAction(tr("&New sheet"), this, [this] {
+        example_.reset();
         sheet_->clearSheet();
         sheet_->setTool(sheet::SchematicView::Tool::Select);
     });
@@ -109,6 +137,10 @@ MainWindow::MainWindow(QWidget* parent)
     redo->setObjectName(QStringLiteral("redo"));
     redo->setShortcuts(QKeySequence::Redo);
     edit->addAction(redo);
+
+    // The bench's on switch (F5), in the toolbar and its own menu.
+    QMenu* simulate = menuBar()->addMenu(tr("&Simulate"));
+    simulate->addAction(run_);
 
     QMenu* examples = menuBar()->addMenu(tr("&Examples"));
     auto* group = new QActionGroup(this);
@@ -140,59 +172,247 @@ void MainWindow::loadExample(std::size_t index)
     }
     example_ = index;
     reading_.reset();
-    framesAtLoad_ = framesShown();
-    // Each panel shows the first instrument of its kind; one panel per instance comes with the
-    // editor (M4.4).
-    const bench::Bench::Config& bench = examples_[index].bench;
-    if (!bench.scopes.empty()) {
-        scope_->setConfig(bench.scopes[0].config);
-    }
-    scope_->clear();
-    if (!bench.multimeters.empty()) {
-        const bench::Bench::MultimeterSettings& meter = bench.multimeters[0];
-        meter_->setConfig(meter.config, text(meter.plus), text(meter.com));
-    }
-    if (!bench.generators.empty()) {
-        const bench::Bench::GeneratorSettings& generator = bench.generators[0];
-        generator_->setConfig(generator.config,
-                              generator.com.empty() ? QString() : text(generator.plus));
-    }
-    control_.bench().configure(bench);
+    settings_ = examples_[index].bench;
     sheet_->setScene(examples_[index].scene);
     applyScene();
+    for (const Panel& panel : panels_) {
+        if (auto* scope = qobject_cast<ScopePanel*>(panel.face)) {
+            scope->clear();
+        } else if (auto* meter = qobject_cast<MultimeterPanel*>(panel.face)) {
+            meter->clear();
+        }
+    }
+    for (const schematic::PlacedInstrument& instrument : examples_[index].scene.instruments) {
+        openPanel(text(instrument.name));
+    }
+    framesAtLoad_ = framesShown();
     pump();
 }
 
-void MainWindow::applyScope()
+const MainWindow::Panel* MainWindow::panelOf(const QString& name) const
 {
-    bench::Bench::Config config = control_.bench().config();
-    if (config.scopes.empty()) {
-        return;
-    }
-    config.scopes[0].config = scope_->config();
-    control_.bench().configure(config);
+    const auto found =
+        std::ranges::find_if(panels_, [&](const Panel& panel) { return panel.name == name; });
+    return found != panels_.end() ? &*found : nullptr;
 }
 
-void MainWindow::applyMultimeter()
+ScopePanel* MainWindow::scopePanel(const QString& name) const
+{
+    const Panel* panel = panelOf(name);
+    return panel != nullptr ? qobject_cast<ScopePanel*>(panel->face) : nullptr;
+}
+
+MultimeterPanel* MainWindow::multimeterPanel(const QString& name) const
+{
+    const Panel* panel = panelOf(name);
+    return panel != nullptr ? qobject_cast<MultimeterPanel*>(panel->face) : nullptr;
+}
+
+GeneratorPanel* MainWindow::generatorPanel(const QString& name) const
+{
+    const Panel* panel = panelOf(name);
+    return panel != nullptr ? qobject_cast<GeneratorPanel*>(panel->face) : nullptr;
+}
+
+ScopePanel& MainWindow::scope()
+{
+    return *qobject_cast<ScopePanel*>(openPanel(text(control_.bench().config().scopes.at(0).name)));
+}
+
+MultimeterPanel& MainWindow::multimeter()
+{
+    return *qobject_cast<MultimeterPanel*>(
+        openPanel(text(control_.bench().config().multimeters.at(0).name)));
+}
+
+GeneratorPanel& MainWindow::generator()
+{
+    return *qobject_cast<GeneratorPanel*>(
+        openPanel(text(control_.bench().config().generators.at(0).name)));
+}
+
+QWidget* MainWindow::openPanel(const QString& name)
+{
+    if (const Panel* panel = panelOf(name)) {
+        panel->window->show();
+        panel->window->raise();
+        panel->window->activateWindow();
+        return panel->face;
+    }
+    const bench::Bench::Config& config = control_.bench().config();
+    const schematic::Scene& scene = sheet_->scene();
+    const auto symbol = std::ranges::find_if(scene.instruments, [&](const auto& instrument) {
+        return text(instrument.name) == name;
+    });
+    if (symbol == scene.instruments.end()) {
+        return nullptr;
+    }
+
+    Panel panel{name, symbol->kind, nullptr, nullptr, {}};
+    switch (symbol->kind) {
+    case InstrumentKind::Scope: {
+        const auto index = indexOf(config.scopes, name);
+        if (!index) {
+            return nullptr;
+        }
+        auto* face = new ScopePanel(this);
+        face->setConfig(config.scopes[*index].config);
+        connect(face, &ScopePanel::changed, this, [this, name] { applyScope(name); });
+        connect(face, &ScopePanel::armed, this, [this, name] {
+            if (const auto i = indexOf(control_.bench().config().scopes, name)) {
+                control_.bench().rearmScope(*i);
+            }
+        });
+        panel.face = face;
+        break;
+    }
+    case InstrumentKind::Multimeter: {
+        const auto index = indexOf(config.multimeters, name);
+        if (!index) {
+            return nullptr;
+        }
+        const bench::Bench::MultimeterSettings& meter = config.multimeters[*index];
+        auto* face = new MultimeterPanel(this);
+        face->setConfig(meter.config, text(meter.plus), text(meter.com));
+        panel.nets = {text(meter.plus), text(meter.com)};
+        connect(face, &MultimeterPanel::changed, this, [this, name] { applyMultimeter(name); });
+        panel.face = face;
+        break;
+    }
+    case InstrumentKind::Generator: {
+        const auto index = indexOf(config.generators, name);
+        if (!index) {
+            return nullptr;
+        }
+        const bench::Bench::GeneratorSettings& generator = config.generators[*index];
+        auto* face = new GeneratorPanel(this);
+        face->setConfig(generator.config, generatorNet(generator));
+        panel.nets = {generatorNet(generator)};
+        connect(face, &GeneratorPanel::changed, this, [this, name] { applyGenerator(name); });
+        panel.face = face;
+        break;
+    }
+    }
+
+    // A window of its own beside the symbol, kept on the screen: a tool window, above the main
+    // window and minimised with it, that moves freely over the sheet without docking.
+    panel.window = new QWidget(this, Qt::Tool);
+    panel.window->setWindowTitle(tr("%1 %2").arg(kindTitle(symbol->kind), name));
+    panel.window->setObjectName(QStringLiteral("panel-%1").arg(name));
+    auto* layout = new QVBoxLayout(panel.window);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(panel.face);
+    const schematic::Box box = schematic::bounds(*symbol);
+    const QPoint anchor =
+        sheet_->viewport()->mapToGlobal(sheet_->viewPoint({box.right, box.top})) +
+        QPoint(kPanelGap, 0);
+    const QScreen* screen = QGuiApplication::screenAt(anchor);
+    const QRect area = (screen != nullptr ? screen : QGuiApplication::primaryScreen())
+                           ->availableGeometry();
+    const QSize hint = panel.face->sizeHint();
+    // No bigger than a bench instrument beside the sheet: several fit at once.
+    const QSize size(std::max(panel.face->minimumSizeHint().width(),
+                              std::min(hint.width(), area.width() * 45 / 100)),
+                     std::max(panel.face->minimumSizeHint().height(),
+                              std::min(hint.height(), area.height() * 45 / 100)));
+    panel.window->resize(size);
+    panel.window->move(std::clamp(anchor.x(), area.left(), area.right() - size.width()),
+                     std::clamp(anchor.y(), area.top(), area.bottom() - size.height()));
+    panel.window->show();
+    panels_.push_back(panel);
+    return panel.face;
+}
+
+void MainWindow::applyScope(const QString& name)
 {
     bench::Bench::Config config = control_.bench().config();
-    if (config.multimeters.empty()) {
+    const auto index = indexOf(config.scopes, name);
+    const ScopePanel* face = scopePanel(name);
+    if (!index || face == nullptr) {
         return;
     }
-    config.multimeters[0].config = meter_->config();
+    config.scopes[*index].config = face->config();
     control_.bench().configure(config);
-    meter_->clear(); // a new gate: dashes until its reading
+    bench::remember(settings_, config);
+}
+
+void MainWindow::applyMultimeter(const QString& name)
+{
+    bench::Bench::Config config = control_.bench().config();
+    const auto index = indexOf(config.multimeters, name);
+    MultimeterPanel* face = multimeterPanel(name);
+    if (!index || face == nullptr) {
+        return;
+    }
+    config.multimeters[*index].config = face->config();
+    control_.bench().configure(config);
+    bench::remember(settings_, config);
+    face->clear(); // a new gate: dashes until its reading
 }
 
 // A generator knob: the next pump rebuilds the netlist and restarts the run (decision D3).
-void MainWindow::applyGenerator()
+void MainWindow::applyGenerator(const QString& name)
 {
     bench::Bench::Config config = control_.bench().config();
-    if (config.generators.empty()) {
+    const auto index = indexOf(config.generators, name);
+    const GeneratorPanel* face = generatorPanel(name);
+    if (!index || face == nullptr) {
         return;
     }
-    config.generators[0].config = generator_->config();
+    config.generators[*index].config = face->config();
     control_.bench().configure(config);
+    bench::remember(settings_, config);
+}
+
+void MainWindow::syncPanels()
+{
+    const bench::Bench::Config& config = control_.bench().config();
+    std::vector<Panel> kept;
+    for (Panel& panel : panels_) {
+        bool present = false;
+        switch (panel.kind) {
+        case InstrumentKind::Scope:
+            if (const auto i = indexOf(config.scopes, panel.name)) {
+                present = true;
+                auto* face = qobject_cast<ScopePanel*>(panel.face);
+                if (!(face->config() == config.scopes[*i].config)) {
+                    face->setConfig(config.scopes[*i].config);
+                    face->clear();
+                }
+            }
+            break;
+        case InstrumentKind::Multimeter:
+            if (const auto i = indexOf(config.multimeters, panel.name)) {
+                present = true;
+                const bench::Bench::MultimeterSettings& meter = config.multimeters[*i];
+                auto* face = qobject_cast<MultimeterPanel*>(panel.face);
+                const std::vector<QString> nets = {text(meter.plus), text(meter.com)};
+                if (!(face->config() == meter.config) || panel.nets != nets) {
+                    face->setConfig(meter.config, nets[0], nets[1]); // clears the display
+                    panel.nets = nets;
+                }
+            }
+            break;
+        case InstrumentKind::Generator:
+            if (const auto i = indexOf(config.generators, panel.name)) {
+                present = true;
+                const bench::Bench::GeneratorSettings& generator = config.generators[*i];
+                auto* face = qobject_cast<GeneratorPanel*>(panel.face);
+                const std::vector<QString> nets = {generatorNet(generator)};
+                if (!(face->config() == generator.config) || panel.nets != nets) {
+                    face->setConfig(generator.config, nets[0]);
+                    panel.nets = nets;
+                }
+            }
+            break;
+        }
+        if (present) {
+            kept.push_back(panel);
+        } else {
+            panel.window->deleteLater(); // the symbol was deleted: its panel goes with it
+        }
+    }
+    panels_ = std::move(kept);
 }
 
 void MainWindow::buildToolBar()
@@ -201,41 +421,53 @@ void MainWindow::buildToolBar()
     QToolBar* tools = addToolBar(tr("Schematic"));
     tools->setObjectName(QStringLiteral("schematic-tools"));
     auto* group = new QActionGroup(this);
+    // None is checked while the Place tool is on: the parts panel shows what is being placed.
+    group->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
     const auto tool = [&](const QString& name, const QString& tip, const QKeySequence& key,
-                          auto choose) {
-        QAction* action = tools->addAction(name, this, choose);
+                          Tool which) {
+        QAction* action = tools->addAction(name, this, [this, which] { sheet_->setTool(which); });
         action->setToolTip(tip);
         action->setShortcut(key);
         action->setCheckable(true);
+        action->setData(static_cast<int>(which));
         group->addAction(action);
         return action;
     };
-    tool(tr("Select"), tr("Select, move (drag), turn (R), delete (Del); double-click to edit"),
-         QKeySequence(Qt::Key_S), [this] { sheet_->setTool(Tool::Select); })
+    tool(tr("Select"),
+         tr("Select, move (drag), turn (R), delete (Del); double-click to edit a part or open an "
+            "instrument"),
+         QKeySequence(Qt::Key_S), Tool::Select)
         ->setChecked(true);
     tool(tr("Wire"), tr("Click where the wire starts, then where it bends or ends"),
-         QKeySequence(Qt::Key_W), [this] { sheet_->setTool(Tool::Wire); });
-    tool(tr("Label"), tr("Click a net to name it"), QKeySequence(Qt::Key_L),
-         [this] { sheet_->setTool(Tool::Label); });
+         QKeySequence(Qt::Key_W), Tool::Wire);
+    tool(tr("Label"), tr("Click a net to name it"), QKeySequence(Qt::Key_L), Tool::Label);
     tools->addSeparator();
-    using schematic::ComponentKind;
-    const auto part = [&](const QString& name, ComponentKind kind) {
-        tool(name, tr("Place a %1: click to place, R to turn").arg(name.toLower()), QKeySequence(),
-             [this, kind] { sheet_->placeKind(kind); });
-    };
-    part(tr("Resistor"), ComponentKind::Resistor);
-    part(tr("Capacitor"), ComponentKind::Capacitor);
-    part(tr("Inductor"), ComponentKind::Inductor);
-    part(tr("Voltage source"), ComponentKind::VoltageSource);
-    part(tr("Current source"), ComponentKind::CurrentSource);
-    part(tr("Ground"), ComponentKind::Ground);
+    run_ = tools->addAction(tr("Run"));
+    run_->setObjectName(QStringLiteral("run"));
+    run_->setCheckable(true);
+    run_->setShortcut(QKeySequence(Qt::Key_F5));
+    run_->setToolTip(tr("Switch the bench on: simulate the circuit and run the instruments (F5)"));
+    connect(run_, &QAction::toggled, this, &MainWindow::setRunning);
+    connect(sheet_, &sheet::SchematicView::toolChanged, this, [this, group](Tool which) {
+        for (QAction* action : group->actions()) {
+            action->setChecked(action->data().toInt() == static_cast<int>(which));
+        }
+        parts_->showTool(which, sheet_->placing());
+    });
 }
 
-// The drawing changed: simulate the circuit it draws. A drawing the conversion rejects (two labels
-// on one net) does not run; the status says why.
+// The drawing changed: the bench takes the instruments it draws, and the circuit runs. A drawing
+// the conversion rejects (two labels on one net) does not run; the status says why.
 void MainWindow::applyScene()
 {
     const schematic::Conversion conversion = schematic::convert(sheet_->scene());
+    const bench::Bench::Config config = bench::benchFor(conversion.instruments, settings_);
+    if (!(config == control_.bench().config())) {
+        control_.bench().configure(config);
+    }
+    bench::remember(settings_, config);
+    syncPanels();
+
     sceneError_.clear();
     for (const schematic::Diagnostic& diagnostic : conversion.diagnostics) {
         if (diagnostic.severity == schematic::Severity::Error) {
@@ -249,13 +481,37 @@ void MainWindow::applyScene()
         return;
     }
     control_.setCircuit(conversion.circuit);
-    control_.start();
+    if (running_) {
+        control_.start();
+    }
+    showStatus();
+}
+
+void MainWindow::setRunning(bool running)
+{
+    running_ = running;
+    {
+        const QSignalBlocker blocker(run_);
+        run_->setChecked(running);
+    }
+    run_->setText(running ? tr("Stop") : tr("Run"));
+    run_->setToolTip(running ? tr("Switch the bench off: stop the simulation (F5)")
+                             : tr("Switch the bench on: simulate the circuit and run the "
+                                  "instruments (F5)"));
+    if (running && sceneError_.empty()) {
+        control_.start();
+    } else if (!running) {
+        control_.stop();
+    }
     showStatus();
 }
 
 long long MainWindow::framesShown() const
 {
-    return scope_->framesShown();
+    const bench::Bench::Config& config = control_.bench().config();
+    const ScopePanel* panel =
+        config.scopes.empty() ? nullptr : scopePanel(text(config.scopes[0].name));
+    return panel != nullptr ? panel->framesShown() : 0;
 }
 
 void MainWindow::pump()
@@ -263,12 +519,24 @@ void MainWindow::pump()
     const double now = static_cast<double>(clock_.nsecsElapsed()) * 1e-9;
     ++pumps_;
     control_.pump(now);
-    if (std::optional<instruments::ScopeFrame> frame = control_.bench().popFrame(0)) {
-        scope_->showFrame(std::move(*frame), control_.bench().scopeStopped(0));
+    // Every instance's frames and readings are popped; those with a panel show them.
+    const bench::Bench::Config& config = control_.bench().config();
+    for (std::size_t i = 0; i < config.scopes.size(); ++i) {
+        if (std::optional<instruments::ScopeFrame> frame = control_.bench().popFrame(i)) {
+            if (ScopePanel* panel = scopePanel(text(config.scopes[i].name))) {
+                panel->showFrame(std::move(*frame), control_.bench().scopeStopped(i));
+            }
+        }
     }
-    if (std::optional<instruments::DmmReading> reading = control_.bench().popReading(0)) {
-        meter_->showReading(*reading);
-        reading_ = std::move(reading);
+    for (std::size_t i = 0; i < config.multimeters.size(); ++i) {
+        if (std::optional<instruments::DmmReading> reading = control_.bench().popReading(i)) {
+            if (MultimeterPanel* panel = multimeterPanel(text(config.multimeters[i].name))) {
+                panel->showReading(*reading);
+            }
+            if (i == 0) {
+                reading_ = std::move(reading);
+            }
+        }
     }
     if (now - rateStart_ >= 1.0) {
         frameRate_ = static_cast<double>(framesShown() - rateFrames_) / (now - rateStart_);
@@ -286,17 +554,20 @@ void MainWindow::showStatus()
         status_->setText(tr("This build has no simulator: circuits will not run."));
         return;
     }
-    if (!example_) {
+    const schematic::Scene& scene = sheet_->scene();
+    if (scene.parts.empty() && scene.instruments.empty()) {
         status_->setText(
-            tr("Draw a circuit, or choose one from the Examples menu. The instruments are wired "
-               "to the nets labelled in and out."));
+            tr("Place parts and instruments from the panel on the left and wire them, or choose "
+               "an example from the Examples menu. Double-click an instrument to open it."));
         return;
     }
     QStringList lines;
-    lines << text(examples_[*example_].name);
+    lines << (example_ ? text(examples_[*example_].name) : tr("Sheet"));
     switch (control_.state()) {
     case bench::RunControl::State::Idle:
-        lines << (sceneError_.empty() ? tr("Stopped") : text(sceneError_));
+        lines << (!sceneError_.empty() ? text(sceneError_)
+                  : running_           ? tr("Starting")
+                                       : tr("Stopped: press Run (F5) to simulate"));
         break;
     case bench::RunControl::State::Invalid:
         lines << tr("The circuit cannot be simulated: %1").arg(text(control_.error()));
@@ -314,14 +585,19 @@ void MainWindow::showStatus()
         lines << text(error.message);
     }
     const bench::Bench::Config& config = control_.bench().config();
-    const bench::Bench::ScopeSettings scope =
-        config.scopes.empty() ? bench::Bench::ScopeSettings{} : config.scopes[0];
-    lines << tr("Scope %1: CH1 on %2, CH2 on %3; %4 frames/s shown, %5 ms per paint")
-                 .arg(text(scope.name), text(scope.channels[0]), text(scope.channels[1]))
-                 .arg(frameRate_, 0, 'f', 0)
-                 .arg(scope_->screen().meanPaintMs(), 0, 'f', 2);
+    if (!config.scopes.empty()) {
+        const bench::Bench::ScopeSettings& scope = config.scopes[0];
+        const ScopePanel* panel = scopePanel(text(scope.name));
+        const auto net = [](const std::string& name) {
+            return name.empty() ? tr("nothing") : text(name);
+        };
+        lines << tr("Scope %1: CH1 on %2, CH2 on %3; %4 frames/s shown, %5 ms per paint")
+                     .arg(text(scope.name), net(scope.channels[0]), net(scope.channels[1]))
+                     .arg(frameRate_, 0, 'f', 0)
+                     .arg(panel != nullptr ? panel->screen().meanPaintMs() : 0.0, 0, 'f', 2);
+    }
     lines << tr("Restarts: %1").arg(control_.restarts());
-    status_->setText(lines.join(QStringLiteral("   \u00b7   ")));
+    status_->setText(lines.join(QStringLiteral("   ·   ")));
 }
 
 void MainWindow::showAbout()

@@ -6,6 +6,7 @@ add_library(proton_bench
     src/engines.cpp
     src/examples.cpp
     src/run_control.cpp
+    src/sheet_bench.cpp
 )
 add_library(proton::bench ALIAS proton_bench)
 

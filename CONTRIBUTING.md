@@ -71,8 +71,9 @@ A change that needs to break one of these rules needs an ADR first.
   `app_runs_examples` runs every example in turn and checks the meter's display;
   `app_panel_controls` operates every scope, multimeter and generator control with real input
   events; `app_generator_latency` times a generator knob to the scope's first new frame;
-  `app_draws_divider` draws the voltage divider on the sheet and checks its reading). Logic
-  goes below `src/app`, where it is tested without Qt.
+  `app_draws_by_hand` places parts and instruments from the parts panel, wires them and checks
+  that each instrument reads its own nets; `app_undo_redo` undoes every kind of edit to the empty
+  sheet and redoes it). Logic goes below `src/app`, where it is tested without Qt.
 - The app is built with `QT_NO_KEYWORDS`: write `Q_SIGNALS`, `Q_SLOTS` and `Q_EMIT`, since Qt's
   `signals` macro would clash with names in the Qt-free libraries (`SimChunk::signals`).
   `proton --screenshot <file.png>` saves the window running the first example, to check a panel's

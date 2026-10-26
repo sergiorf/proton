@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/bench/examples.h"
+#include "proton/bench/sheet_bench.h"
 #include "proton/schematic/scene.h"
 #include "proton/schematic/netlist.h"
 #include "proton/schematic/validate.h"
@@ -69,6 +70,8 @@ TEST(every_example_is_drawn_and_converts_cleanly)
         CHECK(conversion.diagnostics.empty());
         CHECK(conversion.circuit == example.circuit);
         CHECK(!example.scene.parts.empty());
+        // The instruments are on the sheet, and the bench is what their wiring gives.
+        CHECK(proton::bench::benchFor(conversion.instruments, example.bench) == example.bench);
     }
 }
 
@@ -103,7 +106,8 @@ TEST(every_example_probes_in_and_out)
     for (const Example& example : proton::bench::examples()) {
         CHECK_EQ(example.bench.scopes.size(), 1u);
         CHECK_EQ(example.bench.multimeters.size(), 1u);
-        CHECK_EQ(example.bench.generators.size(), 1u);
+        // The divider runs on its battery.
+        CHECK_EQ(example.bench.generators.size(), example.name == "Voltage divider" ? 0u : 1u);
         if (example.bench.scopes.size() == 1 && example.bench.multimeters.size() == 1) {
             CHECK_EQ(example.bench.scopes[0].channels[0], std::string("in"));
             CHECK_EQ(example.bench.scopes[0].channels[1], std::string("out"));

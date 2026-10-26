@@ -38,6 +38,8 @@ public:
     // The acquisition state shown at the top right ("Trig'd", "Auto", "Stop"), in `colour`.
     void setStatus(const QString& status, const QColor& colour);
     const QString& status() const { return status_; }
+    // The frame on the screen, if any: for the smoke checks.
+    const std::optional<instruments::ScopeFrame>& frame() const { return frame_; }
 
     // Paint times since the widget was made, ms: how many, their mean and the longest.
     long long paints() const { return paints_; }

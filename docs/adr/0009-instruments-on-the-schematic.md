@@ -1,7 +1,8 @@
 # ADR 0009: Instruments as parts on the schematic (decision D10)
 
 - **Status:** accepted
-- **Date:** 2026-10-25; amended 2026-10-26 (the parts panel in point 1, floating panels in point 4)
+- **Date:** 2026-10-25; amended 2026-10-26 (the parts panel in point 1, panels in windows of their
+  own in point 4)
 - **Plan task:** M3.1, M4.1 to M4.8, decision D10
 
 ## Context
@@ -46,8 +47,9 @@ How other simulators do it:
    those net names: the bench model keeps taking connections as nets.
 4. Double-clicking an instrument opens its front panel (the M2.4 widgets) in a window floating
    over the sheet, as Multisim's instrument windows do, so a student can keep several beside the
-   circuit; it can be docked. There is one panel per instance, and deleting the symbol removes the
-   instrument and its panel.
+   circuit. It is a window of its own, not a dock: dragged over the main window, a dock snaps into
+   it, which gets in the way of a panel kept beside the circuit. There is one panel per instance,
+   and deleting the symbol removes the instrument and its panel.
 5. An instrument terminal with no wire is a warning on the instrument ("CH2 of scope1 is not
    connected") and reads 0 V.
 6. Until the editor exists (M4), the built-in examples place their instruments in code with the

@@ -101,14 +101,14 @@ TEST(a_meter_across_r1_reads_the_voltage_across_it)
 // A generator whose COM is not ground: 2 V DC on top of a 1 V battery reads 3 V against ground.
 TEST(a_generator_floats_on_its_com)
 {
-    Example example = proton::bench::examples()[1]; // the divider, gen1 not connected
+    Example example = proton::bench::examples()[1]; // the divider, which has no generator
     example.circuit.components = {
         {proton::schematic::ComponentKind::VoltageSource, "V1", {"mid", "0"}, "1"},
         {proton::schematic::ComponentKind::Resistor, "R1", {"in", "0"}, "1meg"},
         {proton::schematic::ComponentKind::Resistor, "R2", {"out", "0"}, "1k"},
         {proton::schematic::ComponentKind::Resistor, "R3", {"in", "out"}, "1"},
     };
-    proton::bench::Bench::GeneratorSettings& generator = example.bench.generators[0];
+    proton::bench::Bench::GeneratorSettings& generator = example.bench.generators.emplace_back();
     generator.config.waveform = proton::instruments::FunctionGenerator::Waveform::Dc;
     generator.config.offset = 2.0;
     generator.config.outputImpedance = 0.0;

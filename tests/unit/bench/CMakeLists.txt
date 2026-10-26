@@ -3,6 +3,7 @@ add_executable(proton_bench_tests
     test_bench.cpp
     test_examples.cpp
     test_run_control.cpp
+    test_sheet_bench.cpp
 )
 target_link_libraries(proton_bench_tests PRIVATE proton::bench proton::test_support proton_warnings)
 # Golden netlists live in the source tree; a mismatch writes the actual text to the build tree.

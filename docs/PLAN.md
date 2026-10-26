@@ -329,16 +329,18 @@ built-in ones.
 **M4.3 Undo and redo.** *(done locally 2026-10-26, CI pending: Actions minutes ran out)* `QUndoStack` commands for every edit.
 *Done when:* any sequence of edits undoes back to the empty sheet and redoes to the same scene.
 
-**M4.4 Instruments on the sheet.** A parts panel on the left of the sheet replaces the toolbar's
+**M4.4 Instruments on the sheet.** *(done locally 2026-10-26, CI pending: Actions minutes ran out)* A parts panel on the left of the sheet replaces the toolbar's
 part buttons: components and instruments in groups (passives, sources, instruments), click one and
 then the sheet to place it. Place instruments from it and wire their terminals like any part
 (ADR 0009). Double-clicking an instrument opens its front panel (the M2.4 widgets) floating over
-the sheet, dockable, one panel per instance; deleting it removes the instrument and its panel. The
-fixed M2 docks go.
+the sheet in a window of its own that never docks, one panel per instance; deleting it removes
+the instrument and its panel. The
+fixed M2 docks go. A Run/Stop switch (F5) on the toolbar switches the bench on: nothing runs until
+it is pressed, and loading an example does not press it.
 *Done when:* every part and instrument can be placed from the parts panel; every connection of the
 scope, multimeter and generator (M3.1) can be made by wiring on the sheet, without typing a net
-name; each instrument's panel opens floating from its symbol; and two scopes and two multimeters
-can be open at once, each bound to its own instance.
+name; each instrument's panel opens floating from its symbol; two scopes and two multimeters
+can be open at once, each bound to its own instance; and a loaded example does not run until Run.
 
 **M4.5 Scope front panel.** Lay the oscilloscope's panel out as a generic two-channel bench scope,
 as realistic as the product rules allow and brand-neutral: the screen on the left; on the right,
@@ -368,9 +370,10 @@ refer to, with the message on hover.
 
 **M4.8 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to
-`examples/` as project files.
+`examples/` as project files, joined by more ready-made circuits to start from (a loaded divider,
+RC charging from a square wave, RLC resonance), listed on a start page shown when the app opens.
 *Done when:* save then load reproduces the same scene, netlist and instrument settings
-(round-trip test), and the examples load from the menu.
+(round-trip test), and the examples load from the menu and from the start page.
 
 **M4 exit check:** draw the RC low-pass from an empty sheet, wire the generator and scope, save,
 reopen, and measure the corner frequency.

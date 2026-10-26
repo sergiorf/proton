@@ -20,6 +20,8 @@ add_executable(proton WIN32
     src/panel/segment_display.h
     src/panel/selector_widget.cpp
     src/panel/selector_widget.h
+    src/schematic/parts_panel.cpp
+    src/schematic/parts_panel.h
     src/schematic/schematic_view.cpp
     src/schematic/schematic_view.h
     src/schematic/symbols.cpp
@@ -67,6 +69,7 @@ if(PROTON_NGSPICE_FOUND)
     add_test(NAME app_panel_controls COMMAND proton --smoke-panel)
     # Turning the generator's frequency reaches the scope in time (M2.6, ADR 0005).
     add_test(NAME app_generator_latency COMMAND proton --smoke-latency)
-    # A circuit drawn on the sheet simulates like the built-in one (M4.2).
-    add_test(NAME app_draws_divider COMMAND proton --smoke-editor)
+    # Parts and instruments placed from the parts panel and wired by hand measure their own nets,
+    # two scopes and two multimeters at once (M4.2, M4.4).
+    add_test(NAME app_draws_by_hand COMMAND proton --smoke-editor)
 endif()
