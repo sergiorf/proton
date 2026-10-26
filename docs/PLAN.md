@@ -284,7 +284,7 @@ offset on knobs with a numeric entry, output on/off with a lit button, using the
 method from D3.
 *Done when:* turning the frequency updates the scope within the latency measured in M1.5.
 
-The usability pass that was M2.7 moved to M4.6: judging the bench needs the circuit in front of
+The usability pass that was M2.7 moved to M4.7: judging the bench needs the circuit in front of
 the student, which the editor brings.
 
 **M2 exit check:** *(met 2026-10-25)* the three built-in examples run in the app with the scope, multimeter and
@@ -352,23 +352,43 @@ model with tests: a channel button that shows or hides its trace, lit in the cha
 horizontal position knob that moves the trigger point across the screen (pushed, it returns to
 the centre); GND coupling beside DC and AC, which shows the channel's ground line; and Force,
 which takes a frame at once when Normal or Single is waiting for a trigger.
+Every knob, on every panel, also gets, in `instruments::Knob` with tests: coarse and fine (Shift
+with the wheel or a drag turns a continuous knob a tenth of a click, Ctrl ten clicks); a fine
+variable V/div, switched on by pushing the scale knob, that moves between the 1-2-5 steps and is
+marked as such on the screen, as on many bench scopes; a circular drag, turning the mouse around
+the knob's centre, as an option beside the vertical drag; scale marks around stepped knobs, a tick
+per position and the 1-2-5 values printed around time/div and V/div; and feedback on hover, a hand
+cursor and a light ring on a knob that can be turned.
 *Done when:* model tests show that the horizontal position moves the trigger time on the screen by
 the set amount and the trace still crosses the trigger level there, a hidden channel draws no
 trace but can still be the trigger source, GND coupling reads 0 V, and Force takes a frame without
-a trigger; the panel smoke check operates every new control; and a screenshot of the panel is
+a trigger; knob tests show fine and coarse turns of a tenth and ten clicks, a variable V/div
+between two steps that snaps back to a step when pushed again, and a full circular turn giving 20
+clicks; the panel smoke check operates every new control; and a screenshot of the panel is
 reviewed with me.
 
-**M4.6 Usability pass.** With the circuit and its instruments on the sheet, use the app for a
+**M4.6 Generator front panel.** Settings entered as on a bench generator: a cursor under one digit
+of the frequency on the display, moved with the arrow keys or by clicking the digit, and the knob
+changes that digit, carrying into the next, so 1.592 kHz is set exactly; the cursor's digit is
+lit. Amplitude and offset work the same way. This replaces the 0.01-decade frequency steps, coarse
+at the top of a decade and fine at its bottom. Each entry field gets a unit list (Hz, kHz, MHz;
+mV, V) for students who prefer typing. The digit logic is Qt-free, with tests.
+*Done when:* tests show the cursor's digit stepping with carry and borrow (999.9 Hz up one in the
+last digit is 1.000 kHz) and stopping at the generator's range, and every frequency the display
+can show reachable by digits alone; the panel smoke check sets 1.592 kHz with the cursor and the
+knob, and 2.2 kHz by typing 2.2 with kHz chosen.
+
+**M4.7 Usability pass.** With the circuit and its instruments on the sheet, use the app for a
 scripted session as a student would: open the RC low-pass, find its corner frequency by sweeping
 the generator, reading -3 dB on the multimeter and checking the 45 degree lag on the scope, and
 compare with 1 / (2 pi R C). Fix what gets in the way.
 *Done when:* the session is possible without reading code, and fixes are in.
 
-**M4.7 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
+**M4.8 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.
 *Done when:* each M0.7 diagnostic is shown at the right place.
 
-**M4.8 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
+**M4.9 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to
 `examples/` as project files, joined by more ready-made circuits to start from (a loaded divider,
 RC charging from a square wave, RLC resonance), listed on a start page shown when the app opens.
@@ -462,7 +482,7 @@ complete every circuit on the roadmap's list with the bench instruments.
 |---|---|---|
 | ngspice fatal errors end the library's state | M1.4 | The engine resets, unloads and reloads the DLL (done in M1.4, ADR 0002); a crash that is not a controlled exit would need a helper process (bigger change, ADR) |
 | One ngspice instance per process | M1.3, M5.3 | One process per ngspice test; D4 for resistance |
-| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M4.6 with the alter prototype |
+| Restarting on every knob turn feels sluggish | M1.5, M2.6 | Measured in M1.5: at most 22 ms to the first new frame (ADR 0005); a slow circuit visibly starting over is revisited in M4.7 with the alter prototype |
 | A restart loses the circuit's state (a switched RC starts charged) | M5.4 | Switches and potentiometers keep state (D7) |
 | Simulation runs at the simulator's speed, not the student's; long runs reserve memory up front | M1.7, M2 | Decided in M1.7 (D6, ADR 0007): pacing by the consumer, endless runs without a plot; fast timebases stay slower than real time (x0.4 at 100 us/div) |
 | The engine's threading code is never run under TSan | M1.8 | Done in M1.8: ngspice 46 built on Linux, every ngspice test under TSan and ASan (ADR 0008) |
