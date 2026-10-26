@@ -86,6 +86,16 @@ void KnobWidget::setValue(double value)
     update();
 }
 
+void KnobWidget::setEncoder()
+{
+    encoder_ = true;
+    pushable_ = false;
+    // A value of its own only to count clicks by: far more than a student turns it.
+    knob_ = instruments::Knob::continuous(-1e9, 1e9, 1.0, 0.0, 0.0);
+    encoderLast_ = 0.0;
+    encoderRemainder_ = 0.0;
+}
+
 void KnobWidget::setCaption(const QString& caption)
 {
     if (caption != caption_) {
@@ -131,9 +141,20 @@ QSize KnobWidget::sizeHint() const
 
 void KnobWidget::changed(bool changed)
 {
-    if (changed) {
-        update();
-        Q_EMIT valueChanged(knob_.value());
+    if (!changed) {
+        return;
+    }
+    update();
+    Q_EMIT valueChanged(knob_.value());
+    if (encoder_) {
+        // Whole clicks; a fine turn's tenths add up to one.
+        encoderRemainder_ += knob_.value() - encoderLast_;
+        encoderLast_ = knob_.value();
+        const double whole = std::trunc(encoderRemainder_ + std::copysign(1e-9, encoderRemainder_));
+        encoderRemainder_ -= whole;
+        if (whole != 0.0) {
+            Q_EMIT turned(static_cast<int>(whole));
+        }
     }
 }
 
@@ -267,10 +288,11 @@ void KnobWidget::mouseMoveEvent(QMouseEvent* event)
     dragTravel_ += std::abs(at.y() - dragFrom_.y()) + std::abs(at.x() - dragFrom_.x());
     // How the move turns the knob is instruments::Knob's, tested there.
     const QPointF c = centre();
-    const bool turned = knob_.dragBetween({static_cast<double>(dragFrom_.x()),
-                                           static_cast<double>(dragFrom_.y())},
-                                          {static_cast<double>(at.x()), static_cast<double>(at.y())},
-                                          {c.x(), c.y()}, dragMode_, speedOf(event->modifiers()));
+    const instruments::Knob::Point from{static_cast<double>(dragFrom_.x()),
+                                        static_cast<double>(dragFrom_.y())};
+    const instruments::Knob::Point to{static_cast<double>(at.x()), static_cast<double>(at.y())};
+    const bool turned =
+        knob_.dragBetween(from, to, {c.x(), c.y()}, dragMode_, speedOf(event->modifiers()));
     dragFrom_ = at;
     changed(turned);
 }
@@ -298,8 +320,10 @@ void KnobWidget::wheelEvent(QWheelEvent* event)
     const int clicks = wheelRemainder_ / kNotch;
     wheelRemainder_ -= clicks * kNotch;
     if (clicks != 0) {
-        const double since =
-            sinceWheel_.isValid() ? static_cast<double>(sinceWheel_.elapsed()) / 1000.0 : -1.0;
+        // An encoder moves a digit: a fast turn should not skip it ahead.
+        const double since = sinceWheel_.isValid() && !encoder_
+                                 ? static_cast<double>(sinceWheel_.elapsed()) / 1000.0
+                                 : -1.0;
         sinceWheel_.start();
         changed(knob_.turnAccelerated(clicks, since, speedOf(event->modifiers())));
     }
@@ -310,12 +334,18 @@ void KnobWidget::keyPressEvent(QKeyEvent* event)
 {
     const Speed speed = speedOf(event->modifiers());
     switch (event->key()) {
-    case Qt::Key_Up:
+    case Qt::Key_Left:
     case Qt::Key_Right:
+        if (encoder_) {
+            Q_EMIT cursorMoved(event->key() == Qt::Key_Left ? 1 : -1);
+        } else {
+            changed(knob_.turn(event->key() == Qt::Key_Right ? 1 : -1, speed));
+        }
+        break;
+    case Qt::Key_Up:
         changed(knob_.turn(1, speed));
         break;
     case Qt::Key_Down:
-    case Qt::Key_Left:
         changed(knob_.turn(-1, speed));
         break;
     case Qt::Key_PageUp:

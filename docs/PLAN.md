@@ -367,7 +367,7 @@ between two steps that snaps back to a step when pushed again, and a full circul
 clicks; the panel smoke check operates every new control; and a screenshot of the panel is
 reviewed with me.
 
-**M4.6 Generator front panel.** Settings entered as on a bench generator: a cursor under one digit
+**M4.6 Generator front panel.** *(done locally 2026-10-27, CI pending: Actions minutes ran out)* Settings entered as on a bench generator: a cursor under one digit
 of the frequency on the display, moved with the arrow keys or by clicking the digit, and the knob
 changes that digit, carrying into the next, so 1.592 kHz is set exactly; the cursor's digit is
 lit. Amplitude and offset work the same way. This replaces the 0.01-decade frequency steps, coarse

@@ -18,6 +18,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QKeyEvent>
@@ -465,56 +466,134 @@ void smokePanel(MainWindow& window)
         }
     }
 
-    // The generator: each knob turns by wheel, each waveform button selects its waveform, a typed
-    // value applies on Enter, and Output switches the output.
+    // The generator: each knob turns the digit under its cursor, each waveform button selects its
+    // waveform, a number typed in a unit applies on Enter or when the unit is chosen, and Output
+    // switches the output (M2.6, M4.6).
     GeneratorPanel& generator = window.generator();
     using Generator = instruments::FunctionGenerator;
-    // A knob sets a round number, so each entry field shows the whole setting, short.
+    using Setting = GeneratorPanel::Setting;
+    const auto unitList = [&](const QString& name) -> QComboBox* {
+        for (QComboBox* list : generator.findChildren<QComboBox*>()) {
+            if (list->accessibleName() == name) {
+                return list;
+            }
+        }
+        return nullptr;
+    };
+    const auto field = [&](const QString& name) -> QLineEdit* {
+        for (QLineEdit* edit : generator.findChildren<QLineEdit*>()) {
+            if (edit->accessibleName() == name) {
+                return edit;
+            }
+        }
+        return nullptr;
+    };
+    const auto knob = [&](const QString& name) -> panel::KnobWidget* {
+        for (panel::KnobWidget* widget : generator.findChildren<panel::KnobWidget*>()) {
+            if (widget->accessibleName() == name) {
+                return widget;
+            }
+        }
+        return nullptr;
+    };
+    // Each field shows its setting exactly, as a short number in the unit beside it.
     const auto entriesShowTheSettings = [&](const QString& after) {
         const Generator::Config& config = generator.config();
-        for (QLineEdit* field : generator.findChildren<QLineEdit*>()) {
-            const QString name = field->accessibleName();
-            const double value = name == QStringLiteral("Frequency entry") ? config.frequency
-                                 : name == QStringLiteral("Amplitude entry") ? config.amplitude
-                                                                              : config.offset;
-            checker.check(core::parseSpiceNumber(field->text().toStdString()) == value &&
-                              field->text().size() <= 6,
-                          name + QStringLiteral(" shows ") + field->text() +
-                              QStringLiteral(" after ") + after);
+        for (const QString name : {QStringLiteral("Frequency"), QStringLiteral("Amplitude"),
+                                   QStringLiteral("Offset")}) {
+            QLineEdit* edit = field(name + QStringLiteral(" entry"));
+            QComboBox* unit = unitList(name + QStringLiteral(" unit"));
+            if (edit == nullptr || unit == nullptr) {
+                checker.check(false, name + QStringLiteral(": an entry field and a unit list"));
+                continue;
+            }
+            const double value = name == QStringLiteral("Frequency")   ? config.frequency
+                                 : name == QStringLiteral("Amplitude") ? config.amplitude
+                                                                       : config.offset;
+            const std::optional<double> number =
+                core::parseSpiceNumber(edit->text().toStdString());
+            checker.check(number && std::abs(*number * unit->currentData().toDouble() - value) <=
+                                        1e-12 * std::max(1.0, std::abs(value)) &&
+                              edit->text().size() <= 8,
+                          name + QStringLiteral(" shows ") + edit->text() + QLatin1Char(' ') +
+                              unit->currentText() + QStringLiteral(" after ") + after);
         }
     };
-    for (panel::KnobWidget* knob : generator.findChildren<panel::KnobWidget*>()) {
+    for (panel::KnobWidget* widget : generator.findChildren<panel::KnobWidget*>()) {
         const Generator::Config before = generator.config();
         for (int click = 0; click < 3; ++click) {
-            wheel(knob, 1);
+            wheel(widget, 1);
         }
-        checker.check(generator.config() != before, knob->accessibleName() + QStringLiteral(": wheel"));
-        entriesShowTheSettings(knob->accessibleName());
+        checker.check(generator.config() != before,
+                      widget->accessibleName() + QStringLiteral(": wheel"));
+        entriesShowTheSettings(widget->accessibleName());
     }
     for (panel::LitButton* button : generator.findChildren<panel::LitButton*>()) {
         const QString name = button->accessibleName();
         const Generator::Config before = generator.config();
         button->click();
         if (name == QStringLiteral("Output")) {
-            checker.check(generator.config().output != before.output, name + QStringLiteral(": click"));
+            checker.check(generator.config().output != before.output,
+                          name + QStringLiteral(": click"));
             button->click(); // back on
         } else {
             checker.check(button->lit(), name + QStringLiteral(": lit when chosen"));
         }
     }
-    // Back to a sine, so the frequency field is enabled.
+    // Back to a sine, so the frequency's controls are enabled.
     for (panel::LitButton* button : generator.findChildren<panel::LitButton*>()) {
         if (button->accessibleName() == QStringLiteral("Sine")) {
             button->click();
         }
     }
-    for (QLineEdit* field : generator.findChildren<QLineEdit*>()) {
-        if (field->accessibleName() == QStringLiteral("Frequency entry")) {
-            field->setText(QStringLiteral("2.2k"));
-            key(field, Qt::Key_Return);
-            checker.check(generator.config().frequency == 2.2e3,
-                          QStringLiteral("Frequency entry: 2.2k"));
-        }
+
+    // 2.2 kHz by typing 2.2 with kHz chosen, then 1.5 applied by choosing MHz, as a unit key.
+    QLineEdit* frequencyField = field(QStringLiteral("Frequency entry"));
+    QComboBox* frequencyUnit = unitList(QStringLiteral("Frequency unit"));
+    if (frequencyField != nullptr && frequencyUnit != nullptr) {
+        frequencyField->setText(QStringLiteral("2.2"));
+        frequencyUnit->setCurrentIndex(frequencyUnit->findText(QStringLiteral("kHz")));
+        key(frequencyField, Qt::Key_Return);
+        checker.check(generator.config().frequency == 2.2e3,
+                      QStringLiteral("Frequency entry: 2.2 with kHz is 2.2 kHz"));
+        frequencyField->setText(QStringLiteral("1.5"));
+        const int mega = frequencyUnit->findText(QStringLiteral("MHz"));
+        frequencyUnit->setCurrentIndex(mega);
+        Q_EMIT frequencyUnit->activated(mega);
+        checker.check(generator.config().frequency == 1.5e6,
+                      QStringLiteral("Frequency unit: choosing MHz applies 1.5 MHz"));
+        entriesShowTheSettings(QStringLiteral("typing"));
+    }
+
+    // 1.592 kHz with the cursor and the knob: from 1 kHz, click the hundreds on the display, turn
+    // them to 5, Right to the tens, turn to 9, Right to the units, turn to 2.
+    panel::KnobWidget* frequencyKnob = knob(QStringLiteral("Frequency"));
+    if (frequencyField != nullptr && frequencyUnit != nullptr && frequencyKnob != nullptr) {
+        frequencyField->setText(QStringLiteral("1"));
+        frequencyUnit->setCurrentIndex(frequencyUnit->findText(QStringLiteral("kHz")));
+        key(frequencyField, Qt::Key_Return);
+        const QPoint hundreds = generator.digitPosition(Setting::Frequency, 2);
+        checker.check(!hundreds.isNull(), QStringLiteral("the display shows the hundreds"));
+        mouse(generator.display(), QEvent::MouseButtonPress, hundreds, Qt::LeftButton);
+        mouse(generator.display(), QEvent::MouseButtonRelease, hundreds, Qt::NoButton);
+        checker.check(generator.active() == Setting::Frequency &&
+                          generator.digits(Setting::Frequency).cursor() == 2,
+                      QStringLiteral("clicking the hundreds puts the cursor there"));
+        wheel(frequencyKnob, 5);
+        key(frequencyKnob, Qt::Key_Right);
+        wheel(frequencyKnob, 9);
+        key(frequencyKnob, Qt::Key_Right);
+        wheel(frequencyKnob, 2);
+        checker.check(generator.config().frequency == 1592.0,
+                      QStringLiteral("1.592 kHz with the cursor and the knob, got %1 Hz")
+                          .arg(generator.config().frequency, 0, 'g', 12));
+        checker.check(generator.digits(Setting::Frequency).text("Hz").text == "1.592 kHz",
+                      QStringLiteral("the display shows 1.592 kHz"));
+        // Up one in the units from 1.599 kHz carries into the tens and hundreds.
+        wheel(frequencyKnob, 7);
+        wheel(frequencyKnob, 1);
+        checker.check(generator.config().frequency == 1600.0,
+                      QStringLiteral("1.599 kHz up one is 1.600 kHz"));
     }
 
     const bool failed = checker.failed();
