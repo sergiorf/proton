@@ -11,8 +11,9 @@ namespace proton::instruments {
 
 // How a ScopeFrame lands on the screen, in divisions, for a display to draw (ADR 0004). The screen
 // is kHorizontalDivisions wide and kVerticalDivisions high: x runs from -5 (left edge) to +5
-// (right edge) with the trigger at 0, y from -4 (bottom) to +4 (top) with each channel's offset at
-// 0. Qt-free, so the geometry is tested here and the widget only scales it to pixels.
+// (right edge) with the trigger at the frame's triggerX, y from -4 (bottom) to +4 (top) with each
+// channel's offset at 0. Qt-free, so the geometry is tested here and the widget only scales it to
+// pixels.
 
 // Screen extent in divisions from the centre: 5 across, 4 up and down.
 inline constexpr double kHalfWidthDivisions = ScopeFrontEnd::kHorizontalDivisions / 2.0;
@@ -21,12 +22,17 @@ inline constexpr double kHalfHeightDivisions = ScopeFrontEnd::kVerticalDivisions
 // A voltage of `channel` in divisions from the centre of the screen: (volts - offset) / V/div.
 double toDivisions(double volts, const Scope::ChannelConfig& channel);
 
-// Where sample `index` of `frame` is, in divisions from the trigger: time / (time/div).
+// Where sample `index` of `frame` is across the screen, in divisions from its centre: the
+// trigger's place plus the sample's time from the trigger / (time/div).
 double sampleX(const ScopeFrame& frame, std::size_t index, double timePerDiv);
 
 // The trigger level as a height on the screen: toDivisions() of the level on the source channel.
 // Off the screen when the level is beyond it; the display clamps the marker to the edge.
 double triggerLevelY(const Scope::Config& config);
+
+// The channels whose traces are drawn, in drawing order: CH2 first, so CH1 is on top where they
+// overlap, and a channel switched off (ChannelConfig::shown) not at all.
+std::vector<std::size_t> tracesToDraw(const Scope::Config& config);
 
 // One column of a decimated trace: the lowest and highest value it covers.
 struct TraceColumn

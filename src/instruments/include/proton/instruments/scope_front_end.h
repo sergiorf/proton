@@ -19,8 +19,9 @@ struct ScopeSamples
 // (ARCHITECTURE.md section 6). The channels share the timebase; each has its own vertical
 // settings. Per channel, in the order of a real instrument:
 //
-// 1. Analog front end, in continuous time: DC or AC coupling (a one-pole high-pass with its
-//    corner at kAcCouplingCorner) and an optional one-pole bandwidth limit. The signal is taken
+// 1. Analog front end, in continuous time: DC, AC (a one-pole high-pass with its corner at
+//    kAcCouplingCorner) or GND coupling (the input grounded: 0 V, so the trace shows where the
+//    channel's ground is) and an optional one-pole bandwidth limit. The signal is taken
 //    as linear between the points it is fed and each filter is solved in closed form over every
 //    step, so the result is exact for any time grid and does not depend on how it is chunked.
 //    The filters start in steady state at the first value fed: AC coupling starts charged to it.
@@ -43,6 +44,7 @@ public:
     enum class Coupling {
         Dc,
         Ac,
+        Gnd,
     };
 
     static constexpr std::size_t kChannels = 2;
@@ -70,6 +72,9 @@ public:
         double bandwidth = 20e6; // Hz, -3 dB, when bandwidthLimit is on
         bool quantise = false;
         int adcBits = 8; // when quantise is on
+        // Whether the display draws the channel. The front end and the trigger ignore it: a
+        // channel switched off is still acquired and can trigger, as on a bench scope.
+        bool shown = true;
 
         friend bool operator==(const ChannelConfig&, const ChannelConfig&) = default;
     };

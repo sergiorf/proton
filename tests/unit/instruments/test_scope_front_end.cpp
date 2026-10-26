@@ -199,6 +199,32 @@ TEST(sample_times_count_from_the_first_point)
     CHECK_NEAR(scope.sampleTime(2), 0.25 + 2.0 * dt, 1e-16);
 }
 
+// GND coupling (M4.5) grounds the input: the channel reads 0 V whatever the probe sees, so its
+// trace is the ground line, offset and clipping as for any signal.
+TEST(gnd_coupling_reads_zero_volts)
+{
+    ChannelConfig channel = channelWith(Coupling::Gnd, false);
+    ScopeFrontEnd scope(singleChannel(1e-3, channel));
+    const auto f = [](double t) { return 3.0 + std::sin(2.0 * kPi * 1000.0 * t); };
+    const std::vector<double> samples = run(scope, sampleIrregular(f, 0.0, 0.01, 1e-7, 1e-4));
+    CHECK(samples.size() >= 1000u);
+    CHECK_EQ(maxAbs(samples), 0.0);
+    // With the ground line moved off the screen, it clips to the edge as any signal would.
+    channel.offset = 10.0; // the screen spans 6 V to 14 V at 1 V/div
+    scope.configure(singleChannel(1e-3, channel));
+    for (const double v : run(scope, sampleIrregular(f, 0.0, 0.01, 1e-7, 1e-4))) {
+        CHECK_EQ(v, 6.0);
+    }
+    // The other channel is not affected.
+    Config both = singleChannel(1e-3, channelWith(Coupling::Gnd, false));
+    ScopeFrontEnd two(both);
+    const Signal signal = sampleIrregular(f, 0.0, 0.01, 1e-7, 1e-4);
+    two.feed(signal.time, signal.values, signal.values);
+    const ScopeSamples taken = two.takeSamples();
+    CHECK_EQ(maxAbs(taken.values[0]), 0.0);
+    CHECK(maxAbs(taken.values[1]) > 3.5);
+}
+
 TEST(ac_coupling_blocks_dc)
 {
     ScopeFrontEnd scope(singleChannel(1e-3, channelWith(Coupling::Ac, false)));

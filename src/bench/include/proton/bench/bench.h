@@ -131,6 +131,8 @@ public:
 
     // Starts scope `scope`'s acquisition again with the same settings: pressing Single once more.
     void rearmScope(std::size_t scope);
+    // Takes a frame from scope `scope` at once without a trigger: its Force button (Scope::force).
+    void forceScope(std::size_t scope);
     // True once scope `scope` in Single mode has taken its frame (Scope::stopped).
     bool scopeStopped(std::size_t scope) const;
 

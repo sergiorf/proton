@@ -179,6 +179,13 @@ void Bench::rearmScope(std::size_t scope)
     }
 }
 
+void Bench::forceScope(std::size_t scope)
+{
+    if (scope < scopes_.size()) {
+        scopes_[scope].force();
+    }
+}
+
 bool Bench::scopeStopped(std::size_t scope) const
 {
     return scope < scopes_.size() && scopes_[scope].stopped();

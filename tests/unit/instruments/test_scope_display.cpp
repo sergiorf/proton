@@ -28,6 +28,21 @@ TEST(samples_map_to_divisions_from_the_trigger)
     CHECK_NEAR(proton::instruments::sampleX(frame, 0, 200e-6), -5.0, 1e-12);
     CHECK_NEAR(proton::instruments::sampleX(frame, 500, 200e-6), 0.0, 1e-12);
     CHECK_NEAR(proton::instruments::sampleX(frame, 1000, 200e-6), 5.0, 1e-12);
+    // With the trigger moved right of the centre, the samples move with it.
+    frame.triggerX = 2.0;
+    CHECK_NEAR(proton::instruments::sampleX(frame, 500, 200e-6), 2.0, 1e-12);
+    CHECK_NEAR(proton::instruments::sampleX(frame, 0, 200e-6), -3.0, 1e-12);
+}
+
+// CH2 first, so CH1 is drawn on top; a channel switched off is not drawn (M4.5).
+TEST(the_shown_channels_are_drawn_with_ch1_on_top)
+{
+    Scope::Config config;
+    CHECK(proton::instruments::tracesToDraw(config) == (std::vector<std::size_t>{1, 0}));
+    config.channels[1].shown = false;
+    CHECK(proton::instruments::tracesToDraw(config) == (std::vector<std::size_t>{0}));
+    config.channels[0].shown = false;
+    CHECK(proton::instruments::tracesToDraw(config).empty());
 }
 
 TEST(the_trigger_marker_sits_at_the_level_on_its_source_channel)

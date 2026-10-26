@@ -3,6 +3,7 @@
 
 #include "generator_panel.h"
 #include "multimeter_panel.h"
+#include "panel/knob_widget.h"
 #include "scope_panel.h"
 #include "schematic/parts_panel.h"
 #include "schematic/schematic_view.h"
@@ -142,6 +143,18 @@ MainWindow::MainWindow(QWidget* parent)
     QMenu* simulate = menuBar()->addMenu(tr("&Simulate"));
     simulate->addAction(run_);
 
+    // How a drag turns the panels' knobs: round them as a hand turns a knob, or straight.
+    QMenu* options = menuBar()->addMenu(tr("&Options"));
+    QAction* circular = options->addAction(tr("Turn knobs by dragging &round them"));
+    circular->setObjectName(QStringLiteral("circular-knobs"));
+    circular->setCheckable(true);
+    circular->setChecked(panel::KnobWidget::dragMode() == panel::KnobWidget::DragMode::Circular);
+    circular->setToolTip(tr("Off: drag up or right to turn clockwise, down or left the other way"));
+    connect(circular, &QAction::toggled, this, [](bool on) {
+        panel::KnobWidget::setDragMode(on ? panel::KnobWidget::DragMode::Circular
+                                          : panel::KnobWidget::DragMode::Straight);
+    });
+
     QMenu* examples = menuBar()->addMenu(tr("&Examples"));
     auto* group = new QActionGroup(this);
     for (std::size_t i = 0; i < examples_.size(); ++i) {
@@ -255,12 +268,20 @@ QWidget* MainWindow::openPanel(const QString& name)
         if (!index) {
             return nullptr;
         }
+        const bench::Bench::ScopeSettings& scope = config.scopes[*index];
         auto* face = new ScopePanel(this);
-        face->setConfig(config.scopes[*index].config);
+        face->setConfig(scope.config);
+        face->setInputs(text(scope.channels[0]), text(scope.channels[1]));
+        panel.nets = {text(scope.channels[0]), text(scope.channels[1])};
         connect(face, &ScopePanel::changed, this, [this, name] { applyScope(name); });
         connect(face, &ScopePanel::armed, this, [this, name] {
             if (const auto i = indexOf(control_.bench().config().scopes, name)) {
                 control_.bench().rearmScope(*i);
+            }
+        });
+        connect(face, &ScopePanel::forced, this, [this, name] {
+            if (const auto i = indexOf(control_.bench().config().scopes, name)) {
+                control_.bench().forceScope(*i);
             }
         });
         panel.face = face;
@@ -374,10 +395,17 @@ void MainWindow::syncPanels()
         case InstrumentKind::Scope:
             if (const auto i = indexOf(config.scopes, panel.name)) {
                 present = true;
+                const bench::Bench::ScopeSettings& scope = config.scopes[*i];
                 auto* face = qobject_cast<ScopePanel*>(panel.face);
-                if (!(face->config() == config.scopes[*i].config)) {
-                    face->setConfig(config.scopes[*i].config);
+                if (!(face->config() == scope.config)) {
+                    face->setConfig(scope.config);
                     face->clear();
+                }
+                const std::vector<QString> nets = {text(scope.channels[0]),
+                                                   text(scope.channels[1])};
+                if (panel.nets != nets) {
+                    face->setInputs(nets[0], nets[1]);
+                    panel.nets = nets;
                 }
             }
             break;

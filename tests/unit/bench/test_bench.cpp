@@ -306,6 +306,31 @@ TEST(configure_restarts_only_the_instruments_that_change)
     CHECK(reading && std::abs(reading->time - 1e-3) < 1e-12);
 }
 
+// The panel's Force button (M4.5): a frame at once from a scope waiting in Normal.
+TEST(forcing_a_waiting_scope_takes_a_frame)
+{
+    Bench::Config config = wired();
+    config.scopes[0].config.mode = Scope::Mode::Normal;
+    config.scopes[0].config.trigger.level = 1.5; // above the sine: never triggers
+    Bench bench = attached(config);
+    SimChunk c;
+    c.signals.resize(2);
+    for (int i = 0; i <= 20000; ++i) {
+        const double t = static_cast<double>(i) * 1e-6;
+        c.time.push_back(t);
+        c.signals[0].push_back(std::sin(2.0 * std::numbers::pi * 1e3 * t));
+        c.signals[1].push_back(0.0);
+    }
+    bench.feed(c, 0, 10000);
+    CHECK(!bench.popFrame(0));
+    bench.forceScope(0);
+    bench.forceScope(7); // no such scope: nothing happens
+    bench.feed(c, 10000, c.time.size());
+    const std::optional<ScopeFrame> frame = bench.popFrame(0);
+    CHECK(frame.has_value());
+    CHECK(frame && !frame->triggered);
+}
+
 TEST(rearming_takes_another_single_frame)
 {
     Bench::Config config = wired();

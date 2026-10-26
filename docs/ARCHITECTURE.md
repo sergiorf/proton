@@ -165,7 +165,7 @@ flowchart LR
   B --> C["resample to the ADC clock<br/>fs = N / (10 x time/div)"]
   C --> D["ADC<br/>clipping, optional quantisation"]
   D --> E["edge trigger<br/>hysteresis, sub-sample"]
-  E --> F["record: pre / post<br/>trigger at screen centre"]
+  E --> F["record: pre / post<br/>trigger at its horizontal position"]
   F --> G["ScopeFrame"]
 ```
 
