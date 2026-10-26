@@ -9,11 +9,12 @@
 //
 // --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor and --smoke-undo are CI checks
 // (smoke.h): every example runs in turn, every front-panel control answers wheel, keys, drag and
-// clicks, a generator knob reaches the scope in time, a divider drawn on the sheet reads as the
-// built-in one, and the sheet's edits undo to the empty sheet and redo. Each exits 0 when it passes
+// clicks, a generator knob reaches the scope in time, circuits and instruments placed from the
+// parts panel and wired by hand measure what they should, and the sheet's edits undo to the empty
+// sheet and redo. Each exits 0 when it passes
 // and 1 otherwise.
 //
-// --screenshot loads the first example, lets it run for kScreenshotDelay, saves the window as a
+// --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the window as a
 // PNG and exits: for checking a panel's look and for documentation.
 
 #include "main_window.h"
@@ -66,7 +67,7 @@ int main(int argc, char** argv)
         QStringLiteral("Turn the generator's frequency and time the first new frame, then exit."));
     parser.addOption(smokeLatencyOption);
     const QCommandLineOption smokeEditorOption(QStringLiteral("smoke-editor"),
-        QStringLiteral("Draw the voltage divider on the sheet, check its reading, then exit."));
+        QStringLiteral("Draw circuits and instruments by hand, check every reading, then exit."));
     parser.addOption(smokeEditorOption);
     const QCommandLineOption smokeUndoOption(QStringLiteral("smoke-undo"),
         QStringLiteral("Edit the sheet, undo every edit and redo them, check each, then exit."));
@@ -96,6 +97,7 @@ int main(int argc, char** argv)
         proton::app::smokeUndo(window);
     } else if (parser.isSet(screenshot)) {
         window.loadExample(0);
+        window.setRunning(true);
         const QString file = parser.value(screenshot);
         QTimer::singleShot(kScreenshotDelay, &window, [&window, file] {
             const bool saved = window.grab().save(file);

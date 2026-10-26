@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "symbols.h"
 
+#include <QColor>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointF>
 #include <QPolygonF>
 #include <QRectF>
 
+#include <cmath>
+
 namespace proton::app::sheet {
 
 namespace {
 
 using schematic::ComponentKind;
+using schematic::InstrumentKind;
 
 void line(QPainter& painter, double x1, double y1, double x2, double y2)
 {
@@ -77,7 +81,91 @@ void ground(QPainter& painter)
     line(painter, -0.2, 1.6, 0.2, 1.6);
 }
 
+// A sine across [left, right] about `y`, `height` from peak to peak, one period.
+void sine(QPainter& painter, double left, double right, double y, double height)
+{
+    QPolygonF wave;
+    constexpr int kPoints = 24;
+    for (int i = 0; i <= kPoints; ++i) {
+        const double phase = 6.283185307179586 * i / kPoints;
+        wave << QPointF(left + (right - left) * i / kPoints, y - height / 2.0 * std::sin(phase));
+    }
+    painter.drawPolyline(wave);
+}
+
+// The instrument's case: its box, rounded, in a light fill.
+void instrumentCase(QPainter& painter, double left, double top, double right, double bottom)
+{
+    painter.save();
+    painter.setBrush(QColor(236, 238, 241));
+    painter.drawRoundedRect(QRectF(QPointF(left, top), QPointF(right, bottom)), 0.4, 0.4);
+    painter.restore();
+}
+
+void connectors(QPainter& painter, InstrumentKind kind)
+{
+    painter.save();
+    painter.setBrush(painter.pen().color());
+    for (const schematic::Point p : schematic::terminalOffsets(kind)) {
+        painter.drawEllipse(QPointF(p.x, p.y), 0.22, 0.22);
+    }
+    painter.restore();
+}
+
+void generator(QPainter& painter)
+{
+    instrumentCase(painter, -4.0, -2.0, 2.0, 2.0);
+    sine(painter, -3.4, -0.6, 0.0, 1.4);
+}
+
+void scope(QPainter& painter)
+{
+    instrumentCase(painter, -3.0, -3.0, 4.0, 3.0);
+    painter.drawRect(QRectF(QPointF(-1.0, -2.4), QPointF(3.4, 1.0)));
+    sine(painter, -0.7, 3.1, -0.7, 1.6);
+    painter.drawEllipse(QPointF(0.2, 1.9), 0.35, 0.35);
+    painter.drawEllipse(QPointF(1.4, 1.9), 0.35, 0.35);
+    painter.drawEllipse(QPointF(2.6, 1.9), 0.35, 0.35);
+}
+
+void multimeter(QPainter& painter)
+{
+    instrumentCase(painter, -2.0, -3.0, 2.0, 2.0);
+    painter.drawRect(QRectF(QPointF(-1.5, -2.5), QPointF(1.5, -1.2)));
+    painter.drawEllipse(QPointF(0.0, -0.1), 0.6, 0.6);
+    painter.drawLine(QPointF(0.0, -0.1), QPointF(0.35, -0.55));
+}
+
 } // namespace
+
+void drawSymbol(QPainter& painter, InstrumentKind kind)
+{
+    switch (kind) {
+    case InstrumentKind::Generator:
+        generator(painter);
+        break;
+    case InstrumentKind::Scope:
+        scope(painter);
+        break;
+    case InstrumentKind::Multimeter:
+        multimeter(painter);
+        break;
+    }
+    connectors(painter, kind);
+}
+
+std::vector<QPointF> terminalLabelOffsets(InstrumentKind kind)
+{
+    switch (kind) {
+    case InstrumentKind::Generator:
+        return {{1.0, -1.0}, {0.9, 1.0}};
+    case InstrumentKind::Scope:
+        return {{-2.1, -1.0}, {-2.1, 1.0}};
+    case InstrumentKind::Multimeter:
+        return {{-1.0, 1.3}, {1.0, 1.3}};
+    }
+    return {};
+}
 
 void drawSymbol(QPainter& painter, ComponentKind kind)
 {

@@ -8,6 +8,7 @@
 #include "panel/lit_button.h"
 #include "panel/selector_widget.h"
 #include "scope_panel.h"
+#include "schematic/parts_panel.h"
 #include "schematic/schematic_view.h"
 #include "scope_widget.h"
 
@@ -27,8 +28,10 @@
 #include <QUndoStack>
 #include <QWheelEvent>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <optional>
@@ -85,6 +88,14 @@ void push(QWidget* widget)
     mouse(widget, QEvent::MouseButtonRelease, at, Qt::NoButton);
 }
 
+// Presses Run, as a student switches the bench on.
+void pressRun(MainWindow& window)
+{
+    if (!window.running()) {
+        window.findChild<QAction*>(QStringLiteral("run"))->trigger();
+    }
+}
+
 class Checker
 {
 public:
@@ -114,6 +125,13 @@ void smokeExamples(MainWindow& window)
     auto* timer = new QTimer(&window);
     progress->clock.start();
     window.loadExample(0);
+    // A loaded example waits for Run, as a bench waits to be switched on.
+    if (window.control().state() != bench::RunControl::State::Idle) {
+        std::fprintf(stderr, "proton: the example ran before Run was pressed\n");
+        QTimer::singleShot(0, &window, [] { QApplication::exit(1); });
+        return;
+    }
+    pressRun(window);
     QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, progress] {
         using State = bench::RunControl::State;
         const bool late =
@@ -171,6 +189,7 @@ void smokeExamples(MainWindow& window)
 void smokePanel(MainWindow& window)
 {
     window.loadExample(0);
+    pressRun(window);
     ScopePanel& panel = window.scope();
     Checker checker;
 
@@ -334,6 +353,7 @@ void smokeLatency(MainWindow& window)
     auto progress = std::make_shared<Progress>();
     auto* timer = new QTimer(&window);
     window.loadExample(0);
+    pressRun(window);
     progress->clock.start();
     QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, progress] {
         const auto fail = [&](const char* why) {
@@ -397,34 +417,149 @@ void smokeLatency(MainWindow& window)
     timer->start(1); // check often: this is a timing
 }
 
-void smokeEditor(MainWindow& window)
+namespace {
+
+using schematic::ComponentKind;
+using schematic::InstrumentKind;
+using schematic::Point;
+
+// Clicks `what`'s icon in the parts panel, on its tab, turns it `turns` quarter turns with R, and clicks the sheet at
+// `at`, as a student places a part.
+void placeFromPanel(MainWindow& window, const sheet::SchematicView::Placing& what, Point at,
+                    int turns = 0)
 {
-    using schematic::ComponentKind;
-    using schematic::Rotation;
-    window.loadExample(1); // the divider's bench: dmm1 on `out`, DC V
+    const auto [target, icon] = window.parts().locate(what);
+    if (target == nullptr) {
+        return;
+    }
+    mouse(target, QEvent::MouseButtonPress, icon, Qt::LeftButton);
+    mouse(target, QEvent::MouseButtonRelease, icon, Qt::NoButton);
     sheet::SchematicView& sheet = window.sheet();
-    sheet.clearSheet();
-    sheet.placePart(ComponentKind::VoltageSource, {0, 2});                 // V1: (0,0), (0,4)
-    sheet.placePart(ComponentKind::Resistor, {4, 0}, Rotation::R0, "10k");  // R1: (2,0), (6,0)
-    sheet.placePart(ComponentKind::Resistor, {8, 2}, Rotation::R90, "10k"); // R2: (8,0), (8,4)
-    sheet.placePart(ComponentKind::Ground, {4, 6});
+    for (int i = 0; i < turns; ++i) {
+        key(&sheet, Qt::Key_R);
+    }
+    const QPointF point = sheet.viewPoint(at);
+    mouse(sheet.viewport(), QEvent::MouseButtonPress, point, Qt::LeftButton);
+    mouse(sheet.viewport(), QEvent::MouseButtonRelease, point, Qt::NoButton);
+}
+
+// The smallest and largest value of channel `c` in `scope`'s frame; nothing without one.
+std::optional<std::pair<double, double>> extent(const ScopePanel* scope, std::size_t c)
+{
+    if (scope == nullptr || !scope->screen().frame() ||
+        scope->screen().frame()->values[c].empty()) {
+        return std::nullopt;
+    }
+    const std::vector<double>& values = scope->screen().frame()->values[c];
+    const auto [low, high] = std::ranges::minmax_element(values);
+    return std::pair{*low, *high};
+}
+
+void checkEditor(MainWindow& window)
+{
+    sheet::SchematicView& sheet = window.sheet();
+    sheet.setScene({});
+    // The divider: V1, R1 across the top, R2 down the right, ground along the bottom.
+    placeFromPanel(window, ComponentKind::VoltageSource, {0, 2}); // V1: (0,0), (0,4)
+    placeFromPanel(window, ComponentKind::Resistor, {4, 0});      // R1: (2,0), (6,0)
+    placeFromPanel(window, ComponentKind::Resistor, {8, 2}, 1);   // R2: (8,0), (8,4)
+    placeFromPanel(window, ComponentKind::Ground, {4, 6});
+    placeFromPanel(window, ComponentKind::Inductor, {30, 30}); // placed, then deleted
+    placeFromPanel(window, ComponentKind::Capacitor, {30, 34});
+    placeFromPanel(window, ComponentKind::CurrentSource, {30, 38});
     sheet.drawWire({0, 0}, {2, 0});
     sheet.drawWire({6, 0}, {8, 0});
     sheet.drawWire({0, 4}, {0, 6});
     sheet.drawWire({0, 6}, {8, 6});
     sheet.drawWire({8, 4}, {8, 6});
-    sheet.addLabel("in", {1, 0});
-    sheet.addLabel("out", {7, 0});
+    // dmm1 across R2: + to the middle, COM down to the bottom wire.
+    placeFromPanel(window, InstrumentKind::Multimeter, {12, -5}); // +: (11,-3), COM: (13,-3)
+    sheet.drawWire({8, 0}, {11, -3});
+    sheet.drawWire({13, -3}, {13, 6});
+    sheet.drawWire({13, 6}, {8, 6});
+    // dmm2 on the top: + to R1's left end, COM round to the bottom.
+    placeFromPanel(window, InstrumentKind::Multimeter, {2, -6}); // +: (1,-4), COM: (3,-4)
+    sheet.drawWire({1, -4}, {1, 0});
+    sheet.drawWire({3, -4}, {3, -2});
+    sheet.drawWire({3, -2}, {-3, -2});
+    sheet.drawWire({-3, -2}, {-3, 6});
+    sheet.drawWire({-3, 6}, {0, 6});
+    // gen1 into a 1k load, R3, standing below.
+    placeFromPanel(window, InstrumentKind::Generator, {-10, 12}); // +: (-8,11), COM: (-8,13)
+    placeFromPanel(window, ComponentKind::Resistor, {-6, 13}, 1); // R3: (-6,11), (-6,15)
+    placeFromPanel(window, ComponentKind::Ground, {-6, 17});
+    sheet.drawWire({-8, 11}, {-6, 11});
+    sheet.drawWire({-6, 15}, {-6, 17});
+    sheet.drawWire({-8, 13}, {-8, 17});
+    sheet.drawWire({-8, 17}, {-6, 17});
+    // scope1, placed first: CH1 on the divider's middle, CH2 on the generator's output.
+    placeFromPanel(window, InstrumentKind::Scope, {25, -1}); // CH1: (22,-2), CH2: (22,0)
+    // scope2: CH1 on the generator's output.
+    placeFromPanel(window, InstrumentKind::Scope, {5, 12}); // CH1: (2,11), CH2: (2,13)
+    sheet.drawWire({2, 11}, {-6, 11});
+    sheet.drawWire({22, -2}, {16, -2});
+    sheet.drawWire({16, -2}, {16, 0});
+    sheet.drawWire({16, 0}, {11, 0});
+    sheet.drawWire({22, 0}, {22, 11});
+    sheet.drawWire({22, 11}, {2, 11});
+    // The extra parts go again: every kind has been placed from the panel.
+    sheet.removeItems({4, 5, 6}, {}, {});
+    sheet.setTool(sheet::SchematicView::Tool::Select);
+    pressRun(window);
+
+    const schematic::Scene& scene = sheet.scene();
+    if (scene.parts.size() != 6 || scene.instruments.size() != 5) {
+        std::fprintf(stderr, "proton: the parts panel placed %zu parts and %zu instruments\n",
+                     scene.parts.size(), scene.instruments.size());
+        QApplication::exit(1);
+        return;
+    }
+    // Every panel opened from its symbol, all at once.
+    for (const char* name : {"dmm1", "dmm2", "gen1", "scope1", "scope2"}) {
+        const schematic::PlacedInstrument* symbol = nullptr;
+        for (const schematic::PlacedInstrument& instrument : scene.instruments) {
+            if (instrument.name == name) {
+                symbol = &instrument;
+            }
+        }
+        if (symbol == nullptr) {
+            std::fprintf(stderr, "proton: no instrument %s on the sheet\n", name);
+            QApplication::exit(1);
+            return;
+        }
+        const QPointF at = sheet.viewPoint(symbol->placement.position);
+        mouse(sheet.viewport(), QEvent::MouseButtonDblClick, at, Qt::LeftButton);
+    }
 
     auto* timer = new QTimer(&window);
     auto clock = std::make_shared<QElapsedTimer>();
     clock->start();
     QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, clock] {
-        const std::optional<instruments::DmmReading>& reading = window.reading();
-        const QString shown = window.multimeter().displayText() + QLatin1Char(' ') +
-                              window.multimeter().displayUnit();
-        if (reading && shown == QStringLiteral("2.500 V")) {
-            std::printf("proton: the hand-drawn divider reads %s\n", shown.toStdString().c_str());
+        const auto shown = [&](const char* name) {
+            const MultimeterPanel* meter = window.multimeterPanel(QString::fromLatin1(name));
+            return meter == nullptr ? QString()
+                                    : meter->displayText() + QLatin1Char(' ') + meter->displayUnit();
+        };
+        // Ideal measurements: the frame holds the probed voltages exactly, give or take the
+        // generator's 50 ohm into the 1k load.
+        const double sinePeak = 1000.0 / 1050.0;
+        const auto flat = [](std::optional<std::pair<double, double>> e, double v) {
+            return e && std::abs(e->first - v) < 1e-3 && std::abs(e->second - v) < 1e-3;
+        };
+        const auto sine = [&](std::optional<std::pair<double, double>> e) {
+            return e && std::abs(e->second - sinePeak) < 0.02 && std::abs(e->first + sinePeak) < 0.02;
+        };
+        const ScopePanel* scope1 = window.scopePanel(QStringLiteral("scope1"));
+        const ScopePanel* scope2 = window.scopePanel(QStringLiteral("scope2"));
+        const bool dmm1 = shown("dmm1") == QStringLiteral("2.500 V");
+        const bool dmm2 = shown("dmm2") == QStringLiteral("5.000 V");
+        const bool ch1 = flat(extent(scope1, 0), 2.5);
+        const bool ch2 = sine(extent(scope1, 1));
+        const bool other = sine(extent(scope2, 0));
+        const bool generator = window.generatorPanel(QStringLiteral("gen1")) != nullptr;
+        if (dmm1 && dmm2 && ch1 && ch2 && other && generator) {
+            std::printf("proton: drawn by hand: dmm1 %s, dmm2 %s, scope1 and scope2 on their nets\n",
+                        shown("dmm1").toStdString().c_str(), shown("dmm2").toStdString().c_str());
             std::fflush(stdout);
             timer->stop();
             window.close();
@@ -433,13 +568,31 @@ void smokeEditor(MainWindow& window)
         const bool late = clock->elapsed() > std::chrono::milliseconds(kExampleTimeout).count();
         if (late || window.control().state() == bench::RunControl::State::Invalid ||
             window.control().state() == bench::RunControl::State::Failed) {
-            std::fprintf(stderr, "proton: the hand-drawn divider did not read 2.500 V: %s %s\n",
-                         shown.toStdString().c_str(), window.control().error().c_str());
+            const auto range = [](std::optional<std::pair<double, double>> e) {
+                return e ? QStringLiteral("%1..%2 V").arg(e->first, 0, 'f', 3).arg(e->second, 0, 'f', 3)
+                         : QStringLiteral("no frame");
+            };
+            std::fprintf(stderr,
+                         "proton: the hand-drawn bench is wrong: dmm1 '%s', dmm2 '%s', scope1 CH1 "
+                         "%s CH2 %s, scope2 CH1 %s, gen1 panel %s; %s\n",
+                         shown("dmm1").toStdString().c_str(), shown("dmm2").toStdString().c_str(),
+                         range(extent(scope1, 0)).toStdString().c_str(),
+                         range(extent(scope1, 1)).toStdString().c_str(),
+                         range(extent(scope2, 0)).toStdString().c_str(),
+                         generator ? "open" : "missing", window.control().error().c_str());
             timer->stop();
             QApplication::exit(1);
         }
     });
     timer->start(16);
+}
+
+} // namespace
+
+void smokeEditor(MainWindow& window)
+{
+    // In the event loop, so that failing can end it, and with the parts panel laid out.
+    QTimer::singleShot(0, &window, [&window] { checkEditor(window); });
 }
 
 namespace {
@@ -479,20 +632,24 @@ void checkUndo(MainWindow& window)
     record();
     sheet.addLabel("in", {1, 0});
     record();
-    sheet.moveParts({1, 2}, {0, -1});
+    sheet.placeInstrument(schematic::InstrumentKind::Scope, {16, 0});
     record();
-    sheet.rotateParts({2});
+    sheet.drawWire({13, -1}, {8, -1}); // scope1's CH1
+    record();
+    sheet.moveItems({1, 2}, {0}, {0, -1});
+    record();
+    sheet.rotateItems({2}, {0});
     record();
     sheet.setPartText(1, "R7", "4.7k");
     record();
     sheet.renameLabel(0, "vin");
     record();
-    sheet.removeItems({3}, {0}, {});
+    sheet.removeItems({3}, {0}, {}, {0});
     record();
     sheet.clearSheet();
     record();
     // An edit that changes nothing is no step.
-    sheet.moveParts({}, {1, 1});
+    sheet.moveItems({}, {}, {1, 1});
 
     const auto fail = [](const char* what, std::size_t step) {
         std::fprintf(stderr, "proton: undo/redo: %s at step %zu\n", what, step);

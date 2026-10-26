@@ -18,6 +18,12 @@ PlacedPart part(ComponentKind kind, std::string designator, Point at,
     return {kind, std::move(designator), defaultValue(kind), {at, rotation, false}};
 }
 
+PlacedInstrument instrument(InstrumentKind kind, std::string name, Point at,
+                            Rotation rotation = Rotation::R0)
+{
+    return {kind, std::move(name), {at, rotation, false}};
+}
+
 void addRoute(Scene& scene, Point from, Point to)
 {
     for (const Wire& wire : route(from, to)) {
@@ -49,6 +55,51 @@ TEST(hit_testing_finds_the_topmost_part_and_wires_along_their_length)
     CHECK(wireAt(scene, {10, 5}) == std::optional<std::size_t>(0));
     CHECK(!wireAt(scene, {11, 5}));
     CHECK(labelAt(scene, {10, 4}) == std::optional<std::size_t>(0));
+}
+
+TEST(instrument_bounds_have_the_terminals_on_their_edge)
+{
+    // Generator: terminals on the right edge; scope: on the left; multimeter: along the bottom.
+    CHECK(bounds(instrument(InstrumentKind::Generator, "gen1", {0, 0})) == (Box{-4, -2, 2, 2}));
+    CHECK(bounds(instrument(InstrumentKind::Scope, "scope1", {0, 0})) == (Box{-3, -3, 4, 3}));
+    CHECK(bounds(instrument(InstrumentKind::Multimeter, "dmm1", {0, 0})) == (Box{-2, -3, 2, 2}));
+    const PlacedInstrument turned =
+        instrument(InstrumentKind::Multimeter, "dmm1", {10, 10}, Rotation::R90);
+    CHECK(bounds(turned) == (Box{8, 8, 13, 12}));
+    for (const InstrumentKind kind :
+         {InstrumentKind::Generator, InstrumentKind::Scope, InstrumentKind::Multimeter}) {
+        const PlacedInstrument placed = instrument(kind, "x", {3, 5}, Rotation::R270);
+        for (const Point offset : terminalOffsets(kind)) {
+            const Point p = place(offset, placed.placement);
+            const Box box = bounds(placed);
+            CHECK(box.contains(p));
+            CHECK(p.x == box.left || p.x == box.right || p.y == box.top || p.y == box.bottom);
+        }
+    }
+}
+
+TEST(hit_testing_finds_the_topmost_instrument)
+{
+    Scene scene;
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {0, 0}),
+                         instrument(InstrumentKind::Multimeter, "dmm1", {3, 0})};
+    CHECK(instrumentAt(scene, {-3, 0}) == std::optional<std::size_t>(0));
+    CHECK(instrumentAt(scene, {2, 1}) == std::optional<std::size_t>(1)); // both: dmm1 on top
+    CHECK(!instrumentAt(scene, {20, 0}));
+}
+
+TEST(new_instruments_take_the_next_name_of_their_kind)
+{
+    Scene scene;
+    CHECK_EQ(nextInstrumentName(scene, InstrumentKind::Scope), std::string("scope1"));
+    CHECK_EQ(nextInstrumentName(scene, InstrumentKind::Generator), std::string("gen1"));
+    CHECK_EQ(nextInstrumentName(scene, InstrumentKind::Multimeter), std::string("dmm1"));
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {0, 0}),
+                         instrument(InstrumentKind::Scope, "SCOPE3", {10, 0}),
+                         instrument(InstrumentKind::Multimeter, "dmm2", {20, 0})};
+    CHECK_EQ(nextInstrumentName(scene, InstrumentKind::Scope), std::string("scope4"));
+    CHECK_EQ(nextInstrumentName(scene, InstrumentKind::Multimeter), std::string("dmm3"));
+    CHECK_EQ(nextInstrumentName(scene, InstrumentKind::Generator), std::string("gen1"));
 }
 
 TEST(new_parts_take_the_next_designator_of_their_letter)
@@ -96,6 +147,31 @@ TEST(moving_and_turning_a_part_keeps_its_wires_on_its_pins)
     CHECK(scene.wires[1].from == (Point{0, 5}));
 }
 
+TEST(moving_and_turning_an_instrument_keeps_its_wires_on_its_terminals)
+{
+    Scene scene;
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {0, 0})}; // (-3,-1), (-3,1)
+    scene.wires = {{{-8, -1}, {-3, -1}}, {{-3, 1}, {-8, 1}}};
+    moveInstrument(scene, 0, {2, 2});
+    CHECK(scene.instruments[0].placement.position == (Point{2, 2}));
+    CHECK(scene.wires[0] == (Wire{{-8, -1}, {-1, 1}}));
+    CHECK(scene.wires[1] == (Wire{{-1, 3}, {-8, 1}}));
+    rotateInstrument(scene, 0); // terminals now (3, -1) and (1, -1)
+    CHECK(scene.instruments[0].placement.rotation == Rotation::R90);
+    CHECK(scene.wires[0].to == (Point{3, -1}));
+    CHECK(scene.wires[1].from == (Point{1, -1}));
+}
+
+TEST(junction_dots_count_instrument_terminals)
+{
+    Scene scene;
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {0, 0})}; // CH1 at (-3,-1)
+    scene.wires = {{{-6, -1}, {-3, -1}}};
+    CHECK(junctionDots(scene).empty()); // a wire ending on a terminal is two connections
+    scene.wires.push_back({{-3, -1}, {-3, -5}});
+    CHECK(junctionDots(scene) == (std::vector<Point>{{-3, -1}}));
+}
+
 TEST(remove_drops_the_chosen_items)
 {
     Scene scene;
@@ -104,11 +180,15 @@ TEST(remove_drops_the_chosen_items)
                    part(ComponentKind::Resistor, "R3", {0, 8})};
     scene.wires = {{{0, 0}, {1, 0}}, {{0, 1}, {1, 1}}};
     scene.labels = {{"a", {0, 0}}};
-    remove(scene, {2, 0, 2}, {1}, {0});
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {20, 0}),
+                         instrument(InstrumentKind::Multimeter, "dmm1", {30, 0})};
+    remove(scene, {2, 0, 2}, {1}, {0}, {0});
     CHECK_EQ(scene.parts.size(), 1u);
     CHECK_EQ(scene.parts[0].designator, std::string("R2"));
     CHECK_EQ(scene.wires.size(), 1u);
     CHECK(scene.labels.empty());
+    CHECK_EQ(scene.instruments.size(), 1u);
+    CHECK_EQ(scene.instruments[0].name, std::string("dmm1"));
 }
 
 // The Done-when of M4.2, headless: the voltage divider drawn with the editor's operations (place,
@@ -138,4 +218,46 @@ TEST(a_divider_drawn_by_hand_gives_the_divider_netlist)
     CHECK(validate(conversion.circuit).empty());
     CHECK_EQ(buildNetlist(conversion.circuit),
              std::string("* Proton netlist\nR1 in out 10k\nR2 out 0 10k\nV1 in 0 DC 5\n"));
+}
+
+// The Done-when of M4.4, headless: every terminal of the scope, multimeter and generator is
+// connected by drawing wires to the circuit, with no label at them, and gets its net.
+TEST(instruments_wired_by_hand_are_on_the_nets_they_touch)
+{
+    Scene scene;
+    scene.parts = {part(ComponentKind::Resistor, "R1", {4, 0}),               // (2,0), (6,0)
+                   part(ComponentKind::Resistor, "R2", {8, 2}, Rotation::R90), // (8,0), (8,4)
+                   part(ComponentKind::Ground, "", {8, 6})};
+    addRoute(scene, {6, 0}, {8, 0});
+    addRoute(scene, {8, 4}, {8, 6});
+    scene.labels = {{"out", {7, 0}}};
+    // gen1 drives R1: + at (-1,0), COM at (-1,2).
+    scene.instruments.push_back(instrument(InstrumentKind::Generator, "gen1", {-3, 1}));
+    addRoute(scene, {-1, 0}, {2, 0});
+    addRoute(scene, {-1, 2}, {-1, 6});
+    addRoute(scene, {-1, 6}, {8, 6});
+    // scope1: CH1 at (13,-2) on R1's left end, CH2 at (13,0) on `out`.
+    scene.instruments.push_back(instrument(InstrumentKind::Scope, "scope1", {16, -1}));
+    addRoute(scene, {13, -2}, {0, -2});
+    addRoute(scene, {0, -2}, {0, 0});
+    addRoute(scene, {8, 0}, {13, 0});
+    // dmm1 across R2: + at (11,10) up to the wire to CH2, COM at (13,10) to ground.
+    scene.instruments.push_back(instrument(InstrumentKind::Multimeter, "dmm1", {12, 8}));
+    addRoute(scene, {11, 10}, {11, 12});
+    addRoute(scene, {11, 12}, {16, 12});
+    addRoute(scene, {16, 12}, {16, 3});
+    addRoute(scene, {16, 3}, {10, 3});
+    addRoute(scene, {10, 3}, {10, 0});
+    addRoute(scene, {13, 10}, {13, 14});
+    addRoute(scene, {13, 14}, {8, 14});
+    addRoute(scene, {8, 14}, {8, 6});
+
+    const Conversion conversion = convert(scene);
+    CHECK(conversion.diagnostics.empty());
+    CHECK_EQ(conversion.instruments.size(), 3u);
+    if (conversion.instruments.size() == 3) {
+        CHECK(conversion.instruments[0].nets == (std::vector<std::string>{"N1", "0"}));
+        CHECK(conversion.instruments[1].nets == (std::vector<std::string>{"N1", "out"}));
+        CHECK(conversion.instruments[2].nets == (std::vector<std::string>{"out", "0"}));
+    }
 }

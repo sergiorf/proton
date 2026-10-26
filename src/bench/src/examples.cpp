@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "proton/bench/examples.h"
 
+#include "proton/bench/sheet_bench.h"
+#include "proton/schematic/scene_edit.h"
+
 #include <string>
 #include <utility>
 
@@ -12,6 +15,8 @@ using instruments::FunctionGenerator;
 using instruments::Multimeter;
 using instruments::Scope;
 using schematic::ComponentKind;
+using schematic::InstrumentKind;
+using schematic::PlacedInstrument;
 using schematic::PlacedPart;
 using schematic::Point;
 using schematic::Rotation;
@@ -19,10 +24,10 @@ using schematic::Scene;
 
 const std::string kGround(schematic::kGroundNet);
 
-// gen1 between `in` and ground; scope1 with CH1 on `in`, CH2 on `out`, 200 us/div (two periods of
-// 1 kHz), 1 V/div, Auto, triggered by CH1 rising through 0 V; dmm1 between `out` and ground in
-// `mode`.
-Bench::Config wiring(Multimeter::Mode mode)
+// The instruments' settings, by name; their nets come from the drawing: gen1 1 kHz sine, 1 V,
+// 50 ohm; scope1 200 us/div (two periods of 1 kHz), 1 V/div, Auto, triggered by CH1 rising through
+// 0 V; dmm1 in `mode`.
+Bench::Config settings(Multimeter::Mode mode)
 {
     Bench::GeneratorSettings generator;
     generator.config = FunctionGenerator::Config{
@@ -33,8 +38,6 @@ Bench::Config wiring(Multimeter::Mode mode)
         .outputImpedance = 50.0,
         .output = true,
     };
-    generator.plus = "in";
-    generator.com = kGround;
 
     Bench::ScopeSettings scope;
     scope.config.timePerDiv = 200e-6;
@@ -42,12 +45,9 @@ Bench::Config wiring(Multimeter::Mode mode)
     scope.config.trigger.source = Scope::TriggerSource::Channel1;
     scope.config.trigger.slope = Scope::Slope::Rising;
     scope.config.trigger.level = 0.0;
-    scope.channels = {"in", "out"};
 
     Bench::MultimeterSettings multimeter;
     multimeter.config.mode = mode;
-    multimeter.plus = "out";
-    multimeter.com = kGround;
 
     Bench::Config bench;
     bench.generators = {generator};
@@ -62,10 +62,48 @@ PlacedPart part(ComponentKind kind, std::string designator, std::string value, P
     return {kind, std::move(designator), std::move(value), {at, rotation, false}};
 }
 
-Example make(std::string name, Scene scene, Bench::Config bench)
+PlacedInstrument instrument(InstrumentKind kind, std::string name, Point at)
 {
-    Example example{std::move(name), std::move(scene), {}, std::move(bench)};
-    example.circuit = schematic::convert(example.scene).circuit;
+    return {kind, std::move(name), {at, Rotation::R0, false}};
+}
+
+void addWire(Scene& scene, Point from, Point to)
+{
+    for (const schematic::Wire& wire : schematic::route(from, to)) {
+        scene.wires.push_back(wire);
+    }
+}
+
+// The instruments beside a circuit whose `out` node is at (8, 0): scope1 on the right, CH2 wired
+// to (8, 0) and CH1 to an `in` label; dmm1 below it, clear of the shunt part's name, + to an `out`
+// label and COM to a ground of its own; and with `generator`, gen1 on the left driving (0, 0), its
+// COM on a ground of its own.
+void addInstruments(Scene& scene, bool generator)
+{
+    scene.instruments.push_back(instrument(InstrumentKind::Scope, "scope1", {17, -1}));
+    addWire(scene, {8, 0}, {14, 0});   // CH2
+    addWire(scene, {14, -2}, {12, -2}); // CH1
+    scene.labels.push_back({"in", {12, -2}});
+    scene.instruments.push_back(instrument(InstrumentKind::Multimeter, "dmm1", {16, 7}));
+    addWire(scene, {15, 9}, {15, 11}); // +
+    addWire(scene, {15, 11}, {12, 11});
+    scene.labels.push_back({"out", {12, 11}});
+    addWire(scene, {17, 9}, {17, 11}); // COM
+    scene.parts.push_back(part(ComponentKind::Ground, "", "", {17, 11}));
+    if (generator) {
+        scene.instruments.push_back(instrument(InstrumentKind::Generator, "gen1", {-6, 1}));
+        addWire(scene, {-4, 0}, {0, 0}); // +
+        addWire(scene, {-4, 2}, {-4, 4}); // COM
+        scene.parts.push_back(part(ComponentKind::Ground, "", "", {-4, 4}));
+    }
+}
+
+Example make(std::string name, Scene scene, const Bench::Config& settings)
+{
+    Example example{std::move(name), std::move(scene), {}, {}};
+    const schematic::Conversion conversion = schematic::convert(example.scene);
+    example.circuit = conversion.circuit;
+    example.bench = benchFor(conversion.instruments, settings);
     return example;
 }
 
@@ -85,6 +123,7 @@ Scene filter(PlacedPart series, PlacedPart shunt)
                    part(ComponentKind::Ground, "", "", {8, 6})};
     scene.wires = {{{0, 0}, {2, 0}}, {{6, 0}, {8, 0}}, {{8, 4}, {8, 6}}};
     scene.labels = {{"in", {0, 0}}, {"out", {8, 0}}};
+    addInstruments(scene, true);
     return scene;
 }
 
@@ -101,6 +140,7 @@ Scene divider()
     scene.wires = {{{0, 0}, {2, 0}}, {{6, 0}, {8, 0}}, {{0, 4}, {0, 6}}, {{0, 6}, {8, 6}},
                    {{8, 4}, {8, 6}}};
     scene.labels = {{"in", {1, 0}}, {"out", {7, 0}}};
+    addInstruments(scene, false);
     return scene;
 }
 
@@ -111,16 +151,15 @@ std::vector<Example> examples()
     Example lowPass = make("RC low-pass",
                            filter(part(ComponentKind::Resistor, "R1", "1k", {}),
                                   part(ComponentKind::Capacitor, "C1", "100n", {})),
-                           wiring(Multimeter::Mode::AcVoltage));
+                           settings(Multimeter::Mode::AcVoltage));
 
-    Bench::Config dividerBench = wiring(Multimeter::Mode::DcVoltage);
-    dividerBench.generators[0].plus.clear(); // on the bench, not connected
-    Example dividerExample = make("Voltage divider", divider(), dividerBench);
+    Example dividerExample =
+        make("Voltage divider", divider(), settings(Multimeter::Mode::DcVoltage));
 
     Example highPass = make("RC high-pass",
                             filter(part(ComponentKind::Capacitor, "C1", "100n", {}),
                                    part(ComponentKind::Resistor, "R1", "1k", {})),
-                            wiring(Multimeter::Mode::AcVoltage));
+                            settings(Multimeter::Mode::AcVoltage));
 
     return {lowPass, dividerExample, highPass};
 }
