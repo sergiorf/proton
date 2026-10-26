@@ -13,6 +13,7 @@
 
 #include "proton/instruments/knob.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -23,6 +24,7 @@
 #include <QPointF>
 #include <QString>
 #include <QTimer>
+#include <QUndoStack>
 #include <QWheelEvent>
 
 #include <chrono>
@@ -31,6 +33,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace proton::app {
 
@@ -437,6 +440,103 @@ void smokeEditor(MainWindow& window)
         }
     });
     timer->start(16);
+}
+
+namespace {
+
+// The body of smokeUndo().
+void checkUndo(MainWindow& window)
+{
+    using schematic::ComponentKind;
+    using schematic::Rotation;
+    using schematic::Scene;
+    sheet::SchematicView& sheet = window.sheet();
+    sheet.setScene(Scene{});
+    auto* undo = window.findChild<QAction*>(QStringLiteral("undo"));
+    auto* redo = window.findChild<QAction*>(QStringLiteral("redo"));
+    if (undo == nullptr || redo == nullptr) {
+        std::fprintf(stderr, "proton: no undo or redo action in the Edit menu\n");
+        QApplication::exit(1);
+        return;
+    }
+    auto edits = std::make_shared<int>(0);
+    QObject::connect(&sheet, &sheet::SchematicView::edited, &window, [edits] { ++*edits; });
+
+    // Every kind of edit, with the scene after each: states[i] is the sheet after i edits.
+    std::vector<Scene> states{sheet.scene()};
+    const auto record = [&] { states.push_back(sheet.scene()); };
+    sheet.placePart(ComponentKind::VoltageSource, {0, 2});
+    record();
+    sheet.placePart(ComponentKind::Resistor, {4, 0}, Rotation::R0, "10k");
+    record();
+    sheet.placePart(ComponentKind::Resistor, {8, 2}, Rotation::R90);
+    record();
+    sheet.placePart(ComponentKind::Ground, {4, 6});
+    record();
+    sheet.drawWire({0, 0}, {2, 0});
+    record();
+    sheet.drawWire({6, 0}, {8, 4}); // two wires, one step
+    record();
+    sheet.addLabel("in", {1, 0});
+    record();
+    sheet.moveParts({1, 2}, {0, -1});
+    record();
+    sheet.rotateParts({2});
+    record();
+    sheet.setPartText(1, "R7", "4.7k");
+    record();
+    sheet.renameLabel(0, "vin");
+    record();
+    sheet.removeItems({3}, {0}, {});
+    record();
+    sheet.clearSheet();
+    record();
+    // An edit that changes nothing is no step.
+    sheet.moveParts({}, {1, 1});
+
+    const auto fail = [](const char* what, std::size_t step) {
+        std::fprintf(stderr, "proton: undo/redo: %s at step %zu\n", what, step);
+        QApplication::exit(1);
+    };
+    const std::size_t steps = states.size() - 1;
+    if (static_cast<std::size_t>(sheet.undoStack().count()) != steps) {
+        fail("not one undo step per edit", static_cast<std::size_t>(sheet.undoStack().count()));
+        return;
+    }
+    *edits = 0;
+    for (std::size_t i = steps; i-- > 0;) {
+        undo->trigger();
+        if (!(sheet.scene() == states[i])) {
+            fail("undo did not restore the scene", i);
+            return;
+        }
+    }
+    if (undo->isEnabled() || !(sheet.scene() == Scene{})) {
+        fail("undo did not end on the empty sheet", 0);
+        return;
+    }
+    for (std::size_t i = 1; i <= steps; ++i) {
+        redo->trigger();
+        if (!(sheet.scene() == states[i])) {
+            fail("redo did not restore the scene", i);
+            return;
+        }
+    }
+    if (redo->isEnabled() || *edits != static_cast<int>(2 * steps)) {
+        fail("redo did not end on the last scene, or a step did not emit edited()", steps);
+        return;
+    }
+    std::printf("proton: %zu edits undone to the empty sheet and redone\n", steps);
+    std::fflush(stdout);
+    window.close();
+}
+
+} // namespace
+
+void smokeUndo(MainWindow& window)
+{
+    // In the event loop, so that failing can end it.
+    QTimer::singleShot(0, &window, [&window] { checkUndo(window); });
 }
 
 } // namespace proton::app

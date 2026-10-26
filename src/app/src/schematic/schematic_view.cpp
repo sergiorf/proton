@@ -16,10 +16,13 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
+#include <QUndoCommand>
+#include <QUndoStack>
 #include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace proton::app::sheet {
@@ -175,8 +178,37 @@ private:
     const SchematicView& view_;
 };
 
+// One undo step: the scene before and after an edit.
+class SceneStep : public QUndoCommand
+{
+public:
+    SceneStep(SchematicView& view, const QString& text, Scene before, Scene after)
+        : QUndoCommand(text), view_(view), before_(std::move(before)), after_(std::move(after))
+    {
+    }
+
+    void undo() override { view_.restore(before_); }
+
+    void redo() override
+    {
+        // QUndoStack::push() redoes the step, but the view already shows the edit, with the
+        // selection the student may go on with (R again).
+        if (pushed_) {
+            view_.restore(after_);
+        }
+        pushed_ = true;
+    }
+
+private:
+    SchematicView& view_;
+    Scene before_;
+    Scene after_;
+    bool pushed_ = false;
+};
+
 SchematicView::SchematicView(QWidget* parent) : QGraphicsView(parent)
 {
+    undo_ = new QUndoStack(this);
     canvas_ = new QGraphicsScene(this);
     sheet_ = new SheetItem(*this);
     canvas_->addItem(sheet_);
@@ -194,9 +226,9 @@ SchematicView::SchematicView(QWidget* parent) : QGraphicsView(parent)
 void SchematicView::setScene(const Scene& scene)
 {
     scene_ = scene;
-    selectedParts_.clear();
-    selectedWires_.clear();
-    selectedLabels_.clear();
+    committed_ = scene;
+    undo_->clear();
+    clearSelection();
     wireStart_.reset();
     refresh();
     // Centre the drawing.
@@ -217,9 +249,7 @@ void SchematicView::setTool(Tool tool)
     wireStart_.reset();
     dragFrom_.reset();
     if (tool != Tool::Select) {
-        selectedParts_.clear();
-        selectedWires_.clear();
-        selectedLabels_.clear();
+        clearSelection();
     }
     setCursor(tool == Tool::Select ? Qt::ArrowCursor : Qt::CrossCursor);
     refresh();
@@ -238,8 +268,11 @@ void SchematicView::placePart(ComponentKind kind, Point where, Rotation rotation
     PlacedPart part{kind, schematic::nextDesignator(scene_, kind),
                     value.empty() ? schematic::defaultValue(kind) : value,
                     Placement{where, rotation, false}};
+    const QString text =
+        part.designator.empty() ? tr("Place ground")
+                                : tr("Place %1").arg(QString::fromStdString(part.designator));
     scene_.parts.push_back(std::move(part));
-    commit();
+    commit(text);
 }
 
 void SchematicView::drawWire(Point from, Point to)
@@ -247,19 +280,69 @@ void SchematicView::drawWire(Point from, Point to)
     for (const Wire& wire : schematic::route(from, to)) {
         scene_.wires.push_back(wire);
     }
-    commit();
+    commit(tr("Draw wire"));
 }
 
 void SchematicView::addLabel(const std::string& name, Point where)
 {
     scene_.labels.push_back({name, where});
-    commit();
+    commit(tr("Label %1").arg(QString::fromStdString(name)));
+}
+
+void SchematicView::moveParts(const std::vector<std::size_t>& parts, Point offset)
+{
+    for (const std::size_t i : parts) {
+        if (i < scene_.parts.size()) {
+            const Point position = scene_.parts[i].placement.position;
+            schematic::movePart(scene_, i, {position.x + offset.x, position.y + offset.y});
+        }
+    }
+    commit(tr("Move"));
+}
+
+void SchematicView::rotateParts(const std::vector<std::size_t>& parts)
+{
+    for (const std::size_t i : parts) {
+        schematic::rotatePart(scene_, i);
+    }
+    commit(tr("Rotate"));
+}
+
+void SchematicView::removeItems(const std::vector<std::size_t>& parts,
+                                const std::vector<std::size_t>& wires,
+                                const std::vector<std::size_t>& labels)
+{
+    schematic::remove(scene_, parts, wires, labels);
+    clearSelection();
+    commit(tr("Delete"));
+}
+
+void SchematicView::setPartText(std::size_t index, const std::string& designator,
+                                const std::string& value)
+{
+    if (index >= scene_.parts.size()) {
+        return;
+    }
+    scene_.parts[index].designator = designator;
+    scene_.parts[index].value = value;
+    commit(tr("Edit %1").arg(QString::fromStdString(designator)));
+}
+
+void SchematicView::renameLabel(std::size_t index, const std::string& name)
+{
+    if (index >= scene_.labels.size()) {
+        return;
+    }
+    scene_.labels[index].name = name;
+    commit(tr("Rename label %1").arg(QString::fromStdString(name)));
 }
 
 void SchematicView::clearSheet()
 {
-    setScene(Scene{});
-    Q_EMIT edited();
+    scene_ = Scene{};
+    clearSelection();
+    wireStart_.reset();
+    commit(tr("New sheet"));
 }
 
 Point SchematicView::gridPoint(const QPoint& viewPosition) const
@@ -268,10 +351,33 @@ Point SchematicView::gridPoint(const QPoint& viewPosition) const
     return {static_cast<int>(std::lround(p.x())), static_cast<int>(std::lround(p.y()))};
 }
 
-void SchematicView::commit()
+void SchematicView::commit(const QString& text)
 {
     refresh();
+    if (scene_ == committed_) {
+        return;
+    }
+    undo_->push(new SceneStep(*this, text, committed_, scene_));
+    committed_ = scene_;
     Q_EMIT edited();
+}
+
+void SchematicView::restore(const Scene& scene)
+{
+    scene_ = scene;
+    committed_ = scene;
+    clearSelection();
+    dragFrom_.reset();
+    sheet_->dragOffset.reset();
+    refresh();
+    Q_EMIT edited();
+}
+
+void SchematicView::clearSelection()
+{
+    selectedParts_.clear();
+    selectedWires_.clear();
+    selectedLabels_.clear();
 }
 
 void SchematicView::refresh()
@@ -300,9 +406,7 @@ void SchematicView::refresh()
 void SchematicView::selectAt(Point p, bool add)
 {
     if (!add) {
-        selectedParts_.clear();
-        selectedWires_.clear();
-        selectedLabels_.clear();
+        clearSelection();
     }
     // Labels and wires are thin, parts large: try them in that order.
     if (const auto label = schematic::labelAt(scene_, p)) {
@@ -406,11 +510,7 @@ void SchematicView::mouseReleaseEvent(QMouseEvent* event)
         refresh();
         return;
     }
-    for (const std::size_t i : selectedParts_) {
-        const Point position = scene_.parts[i].placement.position;
-        schematic::movePart(scene_, i, {position.x + offset.x, position.y + offset.y});
-    }
-    commit();
+    moveParts({selectedParts_.begin(), selectedParts_.end()}, offset);
 }
 
 void SchematicView::mouseDoubleClickEvent(QMouseEvent* event)
@@ -445,23 +545,16 @@ void SchematicView::keyPressEvent(QKeyEvent* event)
             placingRotation_ = turned(placingRotation_);
             refresh();
         } else if (tool_ == Tool::Select && !selectedParts_.empty()) {
-            for (const std::size_t i : selectedParts_) {
-                schematic::rotatePart(scene_, i);
-            }
-            commit();
+            rotateParts({selectedParts_.begin(), selectedParts_.end()});
         }
         return;
     case Qt::Key_Delete:
     case Qt::Key_Backspace:
         if (tool_ == Tool::Select &&
             !(selectedParts_.empty() && selectedWires_.empty() && selectedLabels_.empty())) {
-            schematic::remove(scene_, {selectedParts_.begin(), selectedParts_.end()},
-                              {selectedWires_.begin(), selectedWires_.end()},
-                              {selectedLabels_.begin(), selectedLabels_.end()});
-            selectedParts_.clear();
-            selectedWires_.clear();
-            selectedLabels_.clear();
-            commit();
+            removeItems({selectedParts_.begin(), selectedParts_.end()},
+                        {selectedWires_.begin(), selectedWires_.end()},
+                        {selectedLabels_.begin(), selectedLabels_.end()});
         }
         return;
     default:
@@ -505,7 +598,7 @@ void SchematicView::drawBackground(QPainter* painter, const QRectF& rect)
 
 void SchematicView::editPart(std::size_t index)
 {
-    PlacedPart& part = scene_.parts[index];
+    const PlacedPart& part = scene_.parts[index];
     if (part.kind == ComponentKind::Ground) {
         return;
     }
@@ -526,9 +619,8 @@ void SchematicView::editPart(std::size_t index)
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
-    part.designator = designator->text().trimmed().toStdString();
-    part.value = value->text().trimmed().toStdString();
-    commit();
+    setPartText(index, designator->text().trimmed().toStdString(),
+                value->text().trimmed().toStdString());
 }
 
 void SchematicView::editLabel(std::size_t index)
@@ -538,8 +630,7 @@ void SchematicView::editLabel(std::size_t index)
         this, tr("Net label"), tr("Net name:"), QLineEdit::Normal,
         QString::fromStdString(scene_.labels[index].name), &ok);
     if (ok && !name.trimmed().isEmpty()) {
-        scene_.labels[index].name = name.trimmed().toStdString();
-        commit();
+        renameLabel(index, name.trimmed().toStdString());
     }
 }
 

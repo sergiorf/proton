@@ -326,7 +326,7 @@ instrument symbols with labelled terminals.
 *Done when:* the voltage divider and RC examples can be drawn by hand and simulate like the
 built-in ones.
 
-**M4.3 Undo and redo.** `QUndoStack` commands for every edit.
+**M4.3 Undo and redo.** *(done locally 2026-10-26, CI pending: Actions minutes ran out)* `QUndoStack` commands for every edit.
 *Done when:* any sequence of edits undoes back to the empty sheet and redoes to the same scene.
 
 **M4.4 Instruments on the sheet.** Place instruments from the parts list and wire their terminals

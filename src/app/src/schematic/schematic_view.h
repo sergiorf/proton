@@ -5,10 +5,14 @@
 
 #include <QGraphicsView>
 
+#include <cstddef>
 #include <optional>
 #include <set>
+#include <string>
+#include <vector>
 
 class QGraphicsScene;
+class QUndoStack;
 
 namespace proton::app::sheet {
 
@@ -29,7 +33,11 @@ class SheetItem;
 //   designator and a default value.
 // Escape goes back to Select. Ctrl and the wheel zoom; the wheel scrolls.
 //
-// Every edit emits edited(), after which scene() is the new drawing.
+// Every edit emits edited(), after which scene() is the new drawing, and is one step on
+// undoStack() (PLAN.md M4.3): a drag, a turn of the selection or one wire click is one step. A step
+// holds the scene before and after it, so undo restores the earlier drawing exactly, whatever the
+// edit was; a scene is small, so a copy per step costs little. An edit that changes nothing is no
+// step. Undo and redo emit edited() too, and clear the selection, whose indices may no longer fit.
 class SchematicView : public QGraphicsView {
     Q_OBJECT
 
@@ -43,7 +51,7 @@ public:
 
     explicit SchematicView(QWidget* parent = nullptr);
 
-    // Shows `scene`, replacing the drawing; no edited().
+    // Shows `scene`, replacing the drawing and starting a new undo history; no edited().
     void setScene(const schematic::Scene& scene);
     const schematic::Scene& scene() const { return scene_; }
 
@@ -52,12 +60,21 @@ public:
     void placeKind(schematic::ComponentKind kind);
     Tool tool() const { return tool_; }
 
-    // Edits as the tools make them, for the smoke check and for the menus.
+    QUndoStack& undoStack() { return *undo_; }
+
+    // Edits as the tools make them, for the smoke checks and for the menus; each is one undo step.
     void placePart(schematic::ComponentKind kind, schematic::Point at,
                    schematic::Rotation rotation = schematic::Rotation::R0,
                    const std::string& value = {});
     void drawWire(schematic::Point from, schematic::Point to);
     void addLabel(const std::string& name, schematic::Point at);
+    void moveParts(const std::vector<std::size_t>& parts, schematic::Point offset);
+    void rotateParts(const std::vector<std::size_t>& parts);
+    void removeItems(const std::vector<std::size_t>& parts, const std::vector<std::size_t>& wires,
+                     const std::vector<std::size_t>& labels);
+    void setPartText(std::size_t index, const std::string& designator, const std::string& value);
+    void renameLabel(std::size_t index, const std::string& name);
+    // Empties the sheet, as an edit that can be undone: there are no project files to reopen yet.
     void clearSheet();
 
 Q_SIGNALS:
@@ -73,8 +90,14 @@ protected:
     void drawBackground(QPainter* painter, const QRectF& rect) override;
 
 private:
+    friend class SceneStep;
+
     schematic::Point gridPoint(const QPoint& viewPosition) const;
-    void commit();
+    // Records the edit made to scene_ since the last step as a new step called `text`.
+    void commit(const QString& text);
+    // Shows `scene` as undo or redo leave it.
+    void restore(const schematic::Scene& scene);
+    void clearSelection();
     void refresh();
     void finishWire();
     void selectAt(schematic::Point p, bool add);
@@ -82,6 +105,8 @@ private:
     void editLabel(std::size_t index);
 
     schematic::Scene scene_;
+    schematic::Scene committed_; // scene_ as the last undo step left it
+    QUndoStack* undo_ = nullptr;
     QGraphicsScene* canvas_ = nullptr;
     SheetItem* sheet_ = nullptr;
 
