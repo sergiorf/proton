@@ -85,6 +85,10 @@ analytic answer:
 - **DC power supply:** CC/CV behaviour.
 - **Multimeter:** diode test, continuity.
 - **Components:** transformer / coupled inductors, comparator, voltage regulator.
+- **Projects:** a folder of several sheets with a project browser beside the sheet, as in desktop
+  circuit simulators; a sheet used in another as a subcircuit, a block with its own pins. Each
+  sheet keeps the project file format of PLAN.md M4.11, so the MVP's single-file projects open in
+  it.
 
 ## Long-term directions
 

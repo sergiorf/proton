@@ -381,7 +381,7 @@ knob, and 2.2 kHz by typing 2.2 with kHz chosen.
 **M4.7 Menus and toolbars.** *(done locally 2026-10-27, CI pending: Actions minutes ran out)* The menus and toolbar of a desktop circuit simulator, generic and
 original (common desktop conventions, no product's look):
 - File: New, Examples, Export image, Quit (Open, Save, Save As and Recent files come with project
-  files, M4.10).
+  files, M4.11).
 - Edit: Undo, Redo, Cut, Copy, Paste, Delete, Select all, Rotate, Mirror, Properties (a part's
   designator and value, an instrument's name).
 - View: Zoom in, Zoom out, Zoom to fit, Grid, Parts panel.
@@ -418,7 +418,20 @@ Shown as the student draws, not only on Run. InvalidTerminals and InvalidFragmen
 from a drawing; with NoGround they are about the whole drawing and show in a bar along the
 sheet's top.
 
-**M4.10 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
+**M4.10 Selection.** What a schematic editor's Select tool does beyond clicking one item, with
+the selection logic in `schematic/scene_edit.h` and tests:
+- Box selection: a drag that starts on empty sheet draws a rectangle and selects the parts,
+  instruments, labels and junctions inside it and the wires with both ends inside it; Shift adds
+  to the selection.
+- A right-click menu on an item: Delete, Rotate, Mirror and Properties, and Open panel for an
+  instrument. A right-click on an item that is not selected selects it first; on empty sheet the
+  menu has Paste and Select all. Right-click still ends a wire being drawn.
+- Escape clears the selection with the Select tool.
+*Done when:* scene tests show which items a box selects (a wire half inside it is not selected);
+and the app smoke checks select a part, a wire and an instrument with a box drag, delete them with
+Delete, and trigger every right-click menu entry on a part, an instrument and empty sheet.
+
+**M4.11 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to
 `examples/` as project files, joined by more ready-made circuits to start from (a loaded divider,
 RC charging from a square wave, RLC resonance), listed on a start page shown when the app opens.
