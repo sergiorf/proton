@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_library(proton_schematic
     src/circuit.cpp
+    src/diagnostic_place.cpp
     src/netlist.cpp
     src/scene.cpp
     src/scene_edit.cpp

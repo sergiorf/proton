@@ -133,6 +133,8 @@ struct Conversion
     Circuit circuit;
     std::vector<InstrumentConnections> instruments; // in scene order
     std::vector<Diagnostic> diagnostics;            // from the conversion; validate() adds its own
+    std::vector<std::string> wireNets;  // the net of each wire, in scene order
+    std::vector<std::string> labelNets; // the net of each label, in scene order
 };
 
 // The circuit a scene draws, and the nets of its instruments.

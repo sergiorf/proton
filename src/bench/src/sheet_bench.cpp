@@ -124,4 +124,20 @@ void carryOver(Bench::Config& settings, InstrumentKind kind, const std::string& 
     }
 }
 
+std::vector<schematic::Diagnostic> diagnose(const schematic::Conversion& conversion,
+                                            const Bench::Config& config)
+{
+    std::vector<schematic::Diagnostic> diagnostics = conversion.diagnostics;
+    schematic::Circuit circuit = conversion.circuit;
+    Bench bench(config);
+    bench.contributeTo(circuit);
+    for (schematic::Diagnostic& diagnostic : schematic::validate(circuit)) {
+        diagnostics.push_back(std::move(diagnostic));
+    }
+    for (schematic::Diagnostic& diagnostic : bench.check(circuit)) {
+        diagnostics.push_back(std::move(diagnostic));
+    }
+    return diagnostics;
+}
+
 } // namespace proton::bench

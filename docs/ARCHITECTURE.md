@@ -199,7 +199,9 @@ faults (section 12).
 unconnected terminals, bad values, nets with no DC path to ground) *before* the simulator turns
 them into cryptic errors, and phrases each as a sentence for the student. Any error means the
 circuit is not simulated. It reads fragment lines too, so a new kind of instrument element must
-extend it.
+extend it. The editor shows the same diagnostics as the student draws, before anything runs
+(`bench::diagnose`), each marked on the sheet where `schematic::locate()` puts it: the parts,
+wires, labels and pins it is about.
 
 `buildNetlist()` is a pure function: same circuit, same text, byte for byte, whatever order things
 were added in. Values are normalised, so ngspice never reads a student's spelling. The netlist has

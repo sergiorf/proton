@@ -64,6 +64,8 @@ endif()
 add_test(NAME app_starts COMMAND proton --smoke-test)
 # Every edit on the sheet undoes back to the empty sheet and redoes to the same scene (M4.3).
 add_test(NAME app_undo_redo COMMAND proton --smoke-undo)
+# Each drawing mistake is marked on the sheet where it is, its message on hover (M4.9).
+add_test(NAME app_editor_diagnostics COMMAND proton --smoke-diagnostics)
 # Every example runs in the app, one after the other, as when chosen from the menu (M2.2), and
 # every scope control answers wheel, keys, drag and clicks (M2.4).
 if(PROTON_NGSPICE_FOUND)
