@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 
-#include "proton/bench/examples.h"
 #include "proton/bench/run_control.h"
+#include "proton/project/project.h"
 #include "proton/schematic/scene.h"
 
 #include <QElapsedTimer>
 #include <QMainWindow>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 
 #include <cstddef>
@@ -21,6 +22,7 @@ class QDockWidget;
 class QKeySequence;
 class QLabel;
 class QMenu;
+class QStackedWidget;
 
 namespace proton::app {
 namespace sheet {
@@ -30,6 +32,7 @@ class SchematicView;
 class GeneratorPanel;
 class MultimeterPanel;
 class ScopePanel;
+class StartPage;
 } // namespace proton::app
 
 namespace proton::app {
@@ -56,6 +59,13 @@ namespace proton::app {
 // The menus and toolbars (PLAN.md M4.7) are a desktop circuit simulator's: File, Edit, View,
 // Place, Simulate, Window, with Proton's own icons (icons.h) and every shortcut shown. Each action
 // has an object name ("edit-copy", "simulate-pause") for the smoke checks.
+//
+// Project files (PLAN.md M4.11, project/project.h): File > Open, Save, Save As and Open Recent
+// read and write the drawing with every instance's settings. The title shows the file, marked
+// while there are edits since it was opened or saved; an example or a new sheet has no file yet,
+// so Save asks where. The examples are the project files in examples/ next to the executable.
+// The recent files, newest first, are kept in Proton's settings file (QStandardPaths). The start
+// page (showStartPage) stands in for the sheet until the student starts something.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -67,9 +77,22 @@ public:
     };
 
     explicit MainWindow(QWidget* parent = nullptr);
+    ~MainWindow() override;
 
-    // Loads example `index` of bench::examples(), as its menu entry does; it runs if Run is on.
+    // Loads example `index` of the examples, as its menu entry does; it runs if Run is on.
     void loadExample(std::size_t index);
+    // File > Open and Save As without their dialogs, and File > Save. Open shows what went wrong
+    // in a message box and returns false; Save does the same when the file cannot be written.
+    bool openProject(const QString& path);
+    bool saveProject(const QString& path);
+    bool save();
+    // The project's file, empty for an example or a new sheet; its recent files, newest first.
+    const QString& projectPath() const { return projectPath_; }
+    QStringList recentFiles() const;
+    // The start page in place of the sheet, as the app opens; anything started from it, a menu
+    // or an example shows the sheet again.
+    void showStartPage();
+    bool startPageShown() const;
     // Run (F5) or Stop, as the toolbar's switch does.
     void setRunning(bool running);
     // Pause (F6): freezes a running bench.
@@ -130,6 +153,18 @@ private:
     };
 
     void showAbout();
+    // Shows `project` on the sheet with its instruments' panels side by side, as from `path`
+    // (empty: an example, with no file of its own yet).
+    void showProject(const project::Project& project, const QString& path);
+    void showSheet();
+    void newSheet();
+    void chooseAndOpen();
+    bool chooseAndSave();
+    void addRecent(const QString& path);
+    void fillRecentMenu();
+    void updateTitle();
+    // The file's name without its extension, the example's name, or "Untitled".
+    QString documentName() const;
     void pump();
     void showStatus();
     void setRunState(RunState state);
@@ -150,8 +185,13 @@ private:
     void syncPanels();
     const Panel* panelOf(const QString& name) const;
 
-    std::vector<bench::Example> examples_;
+    std::vector<project::Example> examples_;
     std::optional<std::size_t> example_; // the loaded one, until New sheet
+    QString projectPath_;                // the open project's file; empty for none
+    std::string description_;            // the project's description, kept when saved
+    QMenu* recentMenu_ = nullptr;
+    QStackedWidget* pages_ = nullptr; // the start page and the sheet
+    StartPage* startPage_ = nullptr;
     bench::RunControl control_;
     RunState runState_ = RunState::Stopped; // the simulation switch
     QAction* run_ = nullptr;

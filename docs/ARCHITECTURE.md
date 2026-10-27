@@ -36,12 +36,14 @@ dependency, a thread, a contract or an invariant changes, not after every task.
 ```mermaid
 flowchart TB
   app["src/app: Qt Widgets UI<br/>(the only layer that knows Qt)"]
+  project["src/project: project files<br/>(versioned JSON), examples"]
   bench["src/bench: Bench model,<br/>instrument instances, signal routing, run control"]
   tools["tools/proton-spike: headless demo"]
   sim["src/sim: ISimEngine, MockEngine,<br/>NgspiceEngine, SimWorker"]
   ins["src/instruments: Scope, Multimeter,<br/>FunctionGenerator"]
   sch["src/schematic: Circuit, validate(),<br/>buildNetlist()"]
   core["src/core: SpscRing, formatting,<br/>SPICE numbers"]
+  app --> project --> bench
   app --> bench
   tools --> bench
   bench --> sim & ins & sch
@@ -53,7 +55,10 @@ flowchart TB
 Rules (see `CONTRIBUTING.md`, ADR 0001): no Qt below `src/app`; `instruments` never depends on
 `sim` (it consumes plain `(time, values)` arrays); `schematic` never depends on `instruments`
 (instrument contributions arrive as plain `Fragment` data). The glue that connects engine, circuit
-and instruments is logic, so it lives in the Qt-free `src/bench`, not in the app.
+and instruments is logic, so it lives in the Qt-free `src/bench`, not in the app. The file format
+is too: `src/project` reads and writes a drawing with its instruments' settings (no nets: the
+drawing gives them), so the app, the tests and later headless tools share it. Its JSON library
+(nlohmann/json) is a private dependency of that library alone.
 
 ## 3. Data flow
 
@@ -263,7 +268,10 @@ failure and reports the engine's message. A failing simulation never takes down 
   floating over the sheet, opened by double-clicking the instrument on the schematic, each
   bound to one instrument instance of the `Bench` model (section 5.1). The app owns the UI timer
   that pumps the bench; it holds no simulation logic of its own.
-- **Project files**: versioned JSON holding the scene, instruments included, and their settings.
+- **Project files**: versioned JSON holding the scene, instruments included, and their settings,
+  read and written by `src/project` (section 2); a file of an earlier format version is migrated
+  on reading, one version at a time, and one of a later version is refused. The examples are
+  project files in `examples/`, installed beside the app.
 
 ## 12. Extension points
 

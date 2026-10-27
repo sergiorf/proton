@@ -1,0 +1,7 @@
+* Proton netlist
+C1 N1 out 100n
+L1 in N1 10m
+R1 out 0 100
+* gen1
+* function generator gen1
+Vgen1 in 0 SIN(0 1 5.033k)

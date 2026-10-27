@@ -3,26 +3,26 @@
 //
 //     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
 //             --smoke-editor | --smoke-undo | --smoke-menus | --smoke-session |
-//             --smoke-diagnostics | --smoke-selection | --screenshot <file.png>]
+//             --smoke-diagnostics | --smoke-selection | --smoke-files | --screenshot <file.png>]
 //
-// Without an option the window opens maximised.
+// Without an option the window opens maximised, on the start page.
 //
 // --smoke-test opens the main window, closes it once the event loop runs and exits 0: the CI
 // check that the app, its Qt DLLs and plugins start.
 //
-// --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor, --smoke-undo, --smoke-menus,
-// --smoke-session, --smoke-diagnostics and --smoke-selection are CI checks (smoke.h): every
-// example runs in turn,
-// every front-panel control answers wheel, keys, drag and clicks, a generator knob reaches the
-// scope in time, circuits and instruments placed from the parts panel and wired by hand measure
-// what they should, the sheet's edits undo to the empty sheet and redo, every menu and toolbar
-// action does what it says, the RC low-pass's corner is found with the panels, each drawing
-// mistake is marked where it is, and box selection and the right-click menu work.
-// Each exits 0 when it passes and 1 otherwise.
+// The other --smoke-* options are CI checks (smoke.h): every example runs in turn, every
+// front-panel control answers wheel, keys, drag and clicks, a generator knob reaches the scope in
+// time, circuits and instruments placed from the parts panel and wired by hand measure what they
+// should, the sheet's edits undo to the empty sheet and redo, every menu and toolbar action does
+// what it says, the RC low-pass's corner is found with the panels, each drawing mistake is marked
+// where it is, box selection and the right-click menu work, and projects save, open and reopen.
+// Each exits 0 when it passes and 1 otherwise. With any option, Proton's settings file is a test
+// one (QStandardPaths::setTestModeEnabled), so the checks leave the student's recent files alone.
 //
-// --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the
-// window as a PNG, each instrument's panel beside it (<file>-scope1.png, ...) and each menu opened
-// (<file>-menu-edit.png, ...), and exits: for checking the look and for documentation.
+// --screenshot saves the start page (<file>-start.png), then loads the first example, presses Run,
+// lets it run for kScreenshotDelay, saves the window as a PNG, each instrument's panel beside it
+// (<file>-scope1.png, ...) and each menu opened (<file>-menu-edit.png, ...), and exits: for
+// checking the look and for documentation.
 
 #include "main_window.h"
 #include "smoke.h"
@@ -37,10 +37,13 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QPixmap>
+#include <QStandardPaths>
 #include <QString>
 #include <QTimer>
 
+#include <algorithm>
 #include <chrono>
+#include <initializer_list>
 #include <string_view>
 
 namespace {
@@ -94,19 +97,27 @@ int main(int argc, char** argv)
     const QCommandLineOption smokeSelectionOption(QStringLiteral("smoke-selection"),
         QStringLiteral("Select with boxes and right-click menus, check each, then exit."));
     parser.addOption(smokeSelectionOption);
+    const QCommandLineOption smokeFilesOption(QStringLiteral("smoke-files"),
+        QStringLiteral("Save, open and reopen projects, check each, then exit."));
+    parser.addOption(smokeFilesOption);
     parser.addOption(screenshot);
     parser.process(app);
 
+    const bool interactive = std::ranges::none_of(
+        std::initializer_list<const QCommandLineOption*>{
+            &smokeTest, &smokeExamplesOption, &smokePanelOption, &smokeLatencyOption,
+            &smokeEditorOption, &smokeUndoOption, &smokeMenusOption, &smokeSessionOption,
+            &smokeDiagnosticsOption, &smokeSelectionOption, &smokeFilesOption, &screenshot},
+        [&parser](const QCommandLineOption* option) { return parser.isSet(*option); });
+    // The checks keep Proton's settings, the recent files among them, apart from the student's.
+    QStandardPaths::setTestModeEnabled(!interactive);
+
     proton::app::MainWindow window;
-    // A student gets the whole screen, room for the sheet and the panels side by side; the checks
-    // and screenshots keep the window's fixed size, so they do not depend on the screen.
-    const bool interactive = !parser.isSet(smokeTest) && !parser.isSet(smokeExamplesOption) &&
-                             !parser.isSet(smokePanelOption) && !parser.isSet(smokeLatencyOption) &&
-                             !parser.isSet(smokeEditorOption) && !parser.isSet(smokeUndoOption) &&
-                             !parser.isSet(smokeMenusOption) && !parser.isSet(smokeSessionOption) &&
-                             !parser.isSet(smokeDiagnosticsOption) &&
-                             !parser.isSet(smokeSelectionOption) && !parser.isSet(screenshot);
+    // A student gets the whole screen, room for the sheet and the panels side by side, and the
+    // start page; the checks and screenshots keep the window's fixed size and the sheet, so they
+    // do not depend on the screen.
     if (interactive) {
+        window.showStartPage();
         window.showMaximized();
     } else {
         window.show();
@@ -137,12 +148,19 @@ int main(int argc, char** argv)
         proton::app::smokeDiagnostics(window);
     } else if (parser.isSet(smokeSelectionOption)) {
         proton::app::smokeSelection(window);
+    } else if (parser.isSet(smokeFilesOption)) {
+        proton::app::smokeFiles(window);
     } else if (parser.isSet(screenshot)) {
+        const QFileInfo start(parser.value(screenshot));
+        window.showStartPage();
+        bool startSaved = window.grab().save(start.path() + QLatin1Char('/') +
+                                             start.completeBaseName() + QStringLiteral("-start.") +
+                                             start.suffix());
         window.loadExample(0);
         window.setRunning(true);
         const QString file = parser.value(screenshot);
-        QTimer::singleShot(kScreenshotDelay, &window, [&window, file] {
-            bool saved = window.grab().save(file);
+        QTimer::singleShot(kScreenshotDelay, &window, [&window, file, startSaved] {
+            bool saved = window.grab().save(file) && startSaved;
             const QFileInfo info(file);
             for (const QString name :
                  {QStringLiteral("gen1"), QStringLiteral("scope1"), QStringLiteral("dmm1")}) {

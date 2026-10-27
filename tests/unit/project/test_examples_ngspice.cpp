@@ -2,7 +2,7 @@
 // The examples on ngspice through RunControl, as the app runs them, against the analytic answers.
 // Its own executable: ngspice keeps process-wide state.
 #include "proton/bench/engines.h"
-#include "proton/bench/examples.h"
+#include "proton/project/project.h"
 #include "proton/bench/run_control.h"
 #include "proton/test/test.h"
 
@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-using proton::bench::Example;
+using proton::project::Example;
 using proton::bench::RunControl;
 using proton::instruments::DmmReading;
 using proton::instruments::ScopeFrame;
@@ -25,6 +25,12 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 constexpr std::chrono::seconds kTimeout{60};
+
+// The examples as the app loads them, in menu order.
+std::vector<Example> examples()
+{
+    return proton::project::examples(PROTON_EXAMPLES_DIR);
+}
 
 // What multimeter `meter` and the first scope of `example` show by 0.25 s: the meter's reading
 // at the end of its second gate (0.2 s), past the start-up transient, and the scope's last frame.
@@ -95,7 +101,7 @@ constexpr double kXc = 1.0 / (kOmega * kC); // capacitor's reactance, ohm
 
 TEST(rc_low_pass_reads_the_attenuated_rms)
 {
-    const std::optional<DmmReading> reading = secondReading(proton::bench::examples()[0]);
+    const std::optional<DmmReading> reading = secondReading(examples()[0]);
     CHECK(reading.has_value());
     // Across C1 of the divider R1 and C1.
     const double gain = kXc / std::hypot(kR, kXc);
@@ -107,7 +113,7 @@ TEST(rc_low_pass_reads_the_attenuated_rms)
 // CH2 (`out`) rises through 0 V an eighth of a period after CH1 (`in`): a 45 degree lag.
 TEST(rc_low_pass_at_its_corner_reads_minus_3_db_and_lags_45_degrees)
 {
-    Example example = proton::bench::examples()[0];
+    Example example = examples()[0];
     const double corner = 1.0 / (2.0 * std::numbers::pi * kR * kC);
     example.bench.generators[0].config.frequency = corner;
     example.bench.scopes[0].config.timePerDiv = 50e-6;
@@ -129,7 +135,7 @@ TEST(rc_low_pass_at_its_corner_reads_minus_3_db_and_lags_45_degrees)
 
 TEST(voltage_divider_reads_half_the_battery)
 {
-    const std::optional<DmmReading> reading = secondReading(proton::bench::examples()[1]);
+    const std::optional<DmmReading> reading = secondReading(examples()[1]);
     CHECK(reading.has_value());
     CHECK(reading && std::abs(reading->value - 2.5) < 1e-6);
 }
@@ -137,7 +143,7 @@ TEST(voltage_divider_reads_half_the_battery)
 // The M3 exit check: a second meter across R1, between `in` and `out`, neither of them ground.
 TEST(a_meter_across_r1_reads_the_voltage_across_it)
 {
-    Example example = proton::bench::examples()[0];
+    Example example = examples()[0];
     proton::bench::Bench::MultimeterSettings across;
     across.name = "dmm2";
     across.config.mode = proton::instruments::Multimeter::Mode::AcVoltage;
@@ -157,7 +163,7 @@ TEST(a_meter_across_r1_reads_the_voltage_across_it)
 // A generator whose COM is not ground: 2 V DC on top of a 1 V battery reads 3 V against ground.
 TEST(a_generator_floats_on_its_com)
 {
-    Example example = proton::bench::examples()[1]; // the divider, which has no generator
+    Example example = examples()[1]; // the divider, which has no generator
     example.circuit.components = {
         {proton::schematic::ComponentKind::VoltageSource, "V1", {"mid", "0"}, "1"},
         {proton::schematic::ComponentKind::Resistor, "R1", {"in", "0"}, "1meg"},
@@ -177,9 +183,50 @@ TEST(a_generator_floats_on_its_com)
 
 TEST(rc_high_pass_reads_the_attenuated_rms)
 {
-    const std::optional<DmmReading> reading = secondReading(proton::bench::examples()[2]);
+    const std::optional<DmmReading> reading = secondReading(examples()[2]);
     CHECK(reading.has_value());
     // Across R1 of the divider C1 and R1.
     const double gain = kR / std::hypot(kR, kXc);
     CHECK(reading && std::abs(reading->value - gain / std::sqrt(2.0)) < 1e-3);
+}
+
+TEST(loaded_divider_reads_the_divider_of_r1_and_r2_parallel_r3)
+{
+    const std::optional<DmmReading> reading = secondReading(examples()[3]);
+    const double lower = 10e3 * 10e3 / (10e3 + 10e3); // R2 || R3
+    CHECK(reading && std::abs(reading->value - 5.0 * lower / (10e3 + lower)) < 1e-4);
+}
+
+// R1 1k and C1 1u (tau 1 ms) driven by a 100 Hz square from 0 to 2 V: on DC V the meter reads its
+// mean, 1 V, and one time constant after a rising edge out has covered 63 % of the way from where
+// the falling half left it.
+TEST(rc_charging_rises_with_its_time_constant)
+{
+    const std::optional<Shown> shown = run(examples()[4]);
+    CHECK(shown && shown->reading && shown->frame && shown->frame->triggered);
+    if (!shown || !shown->reading || !shown->frame) {
+        return;
+    }
+    CHECK(std::abs(shown->reading->value - 1.0) < 2e-3);
+    constexpr double kTau = 1e-3;
+    const double low = 2.0 * std::exp(-5.0) / (1.0 + std::exp(-5.0)); // after 5 tau of falling
+    const double expected = 2.0 - (2.0 - low) * std::exp(-1.0);
+    const ScopeFrame& frame = *shown->frame;
+    const auto sample = static_cast<std::size_t>(
+        std::lround((kTau - frame.startTime) / frame.sampleInterval));
+    CHECK(sample < frame.values[1].size());
+    if (sample < frame.values[1].size()) {
+        CHECK_NEAR(frame.values[1][sample], expected, 0.01);
+    }
+}
+
+// L1 10m, C1 100n and R1 100 in series, driven at 5.033 kHz, within 0.1 Hz of 1 / (2 pi
+// sqrt(L C)): the reactances cancel, so out on R1 follows in and reads 1 / sqrt(2).
+TEST(rlc_at_resonance_passes_the_input)
+{
+    const Example example = examples()[5];
+    const double resonance = 1.0 / (2.0 * std::numbers::pi * std::sqrt(10e-3 * 100e-9));
+    CHECK(std::abs(example.bench.generators[0].config.frequency - resonance) < 0.1);
+    const std::optional<DmmReading> reading = secondReading(example);
+    CHECK(reading && std::abs(reading->value - 1.0 / std::sqrt(2.0)) < 2e-3);
 }

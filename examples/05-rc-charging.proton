@@ -1,0 +1,61 @@
+{
+  "format": "proton-project",
+  "version": 1,
+  "name": "RC charging",
+  "description": "A square wave from 0 to 2 V charges and discharges C1 through R1. The time constant R C is 1 ms: one time constant after each edge, out has covered 63 % of the step. On DC V the meter reads the mean, 1 V.",
+  "scene": {
+    "parts": [
+      {"kind": "resistor", "designator": "R1", "value": "1k", "x": 4, "y": 0, "rotation": 0, "mirrored": false},
+      {"kind": "capacitor", "designator": "C1", "value": "1u", "x": 8, "y": 2, "rotation": 90, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": 8, "y": 6, "rotation": 0, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": 17, "y": 11, "rotation": 0, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": -4, "y": 4, "rotation": 0, "mirrored": false}
+    ],
+    "instruments": [
+      {"kind": "scope", "name": "scope1", "x": 17, "y": -1, "rotation": 0, "mirrored": false},
+      {"kind": "multimeter", "name": "dmm1", "x": 16, "y": 7, "rotation": 0, "mirrored": false},
+      {"kind": "generator", "name": "gen1", "x": -6, "y": 1, "rotation": 0, "mirrored": false}
+    ],
+    "wires": [
+      {"from": [0, 0], "to": [2, 0]},
+      {"from": [6, 0], "to": [8, 0]},
+      {"from": [8, 4], "to": [8, 6]},
+      {"from": [8, 0], "to": [14, 0]},
+      {"from": [14, -2], "to": [12, -2]},
+      {"from": [15, 9], "to": [15, 11]},
+      {"from": [15, 11], "to": [12, 11]},
+      {"from": [17, 9], "to": [17, 11]},
+      {"from": [-4, 0], "to": [0, 0]},
+      {"from": [-4, 2], "to": [-4, 4]}
+    ],
+    "junctions": [],
+    "labels": [
+      {"name": "in", "x": 0, "y": 0},
+      {"name": "out", "x": 8, "y": 0},
+      {"name": "in", "x": 12, "y": -2},
+      {"name": "out", "x": 12, "y": 11}
+    ]
+  },
+  "settings": {
+    "generators": [
+      {"name": "gen1", "waveform": "square", "frequency": 100.0, "amplitude": 1.0, "offset": 1.0, "outputImpedance": 0.0, "output": true}
+    ],
+    "scopes": [
+      {
+        "name": "scope1",
+        "timePerDiv": 0.001,
+        "triggerPosition": 0.0,
+        "mode": "auto",
+        "deadTime": 0.0,
+        "trigger": {"source": "CH1", "level": 1.0, "slope": "rising", "hysteresis": 0.1},
+        "channels": [
+          {"voltsPerDiv": 0.5, "offset": 0.0, "coupling": "dc", "bandwidthLimit": false, "bandwidth": 20000000.0, "quantise": false, "adcBits": 8, "shown": true},
+          {"voltsPerDiv": 0.5, "offset": 0.0, "coupling": "dc", "bandwidthLimit": false, "bandwidth": 20000000.0, "quantise": false, "adcBits": 8, "shown": true}
+        ]
+      }
+    ],
+    "multimeters": [
+      {"name": "dmm1", "mode": "dc-voltage", "range": "auto", "gateTime": 0.1}
+    ]
+  }
+}

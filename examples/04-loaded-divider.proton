@@ -1,0 +1,61 @@
+{
+  "format": "proton-project",
+  "version": 1,
+  "name": "Loaded divider",
+  "description": "The divider with a 10k load across its lower half: out drops from 2.5 V to 1.667 V, since the load is in parallel with R2. A divider is only as good as what it drives.",
+  "scene": {
+    "parts": [
+      {"kind": "voltage-source", "designator": "V1", "value": "5", "x": 0, "y": 2, "rotation": 0, "mirrored": false},
+      {"kind": "resistor", "designator": "R1", "value": "10k", "x": 4, "y": 0, "rotation": 0, "mirrored": false},
+      {"kind": "resistor", "designator": "R2", "value": "10k", "x": 8, "y": 2, "rotation": 90, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": 4, "y": 6, "rotation": 0, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": 17, "y": 11, "rotation": 0, "mirrored": false},
+      {"kind": "resistor", "designator": "R3", "value": "10k", "x": 12, "y": 2, "rotation": 90, "mirrored": false}
+    ],
+    "instruments": [
+      {"kind": "scope", "name": "scope1", "x": 17, "y": -1, "rotation": 0, "mirrored": false},
+      {"kind": "multimeter", "name": "dmm1", "x": 16, "y": 7, "rotation": 0, "mirrored": false}
+    ],
+    "wires": [
+      {"from": [0, 0], "to": [2, 0]},
+      {"from": [6, 0], "to": [8, 0]},
+      {"from": [0, 4], "to": [0, 6]},
+      {"from": [0, 6], "to": [8, 6]},
+      {"from": [8, 4], "to": [8, 6]},
+      {"from": [8, 0], "to": [14, 0]},
+      {"from": [14, -2], "to": [12, -2]},
+      {"from": [15, 9], "to": [15, 11]},
+      {"from": [15, 11], "to": [12, 11]},
+      {"from": [17, 9], "to": [17, 11]},
+      {"from": [12, 4], "to": [12, 6]},
+      {"from": [8, 6], "to": [12, 6]}
+    ],
+    "junctions": [],
+    "labels": [
+      {"name": "in", "x": 1, "y": 0},
+      {"name": "out", "x": 7, "y": 0},
+      {"name": "in", "x": 12, "y": -2},
+      {"name": "out", "x": 12, "y": 11}
+    ]
+  },
+  "settings": {
+    "generators": [],
+    "scopes": [
+      {
+        "name": "scope1",
+        "timePerDiv": 0.0002,
+        "triggerPosition": 0.0,
+        "mode": "auto",
+        "deadTime": 0.0,
+        "trigger": {"source": "CH1", "level": 0.0, "slope": "rising", "hysteresis": 0.1},
+        "channels": [
+          {"voltsPerDiv": 1.0, "offset": 0.0, "coupling": "dc", "bandwidthLimit": false, "bandwidth": 20000000.0, "quantise": false, "adcBits": 8, "shown": true},
+          {"voltsPerDiv": 1.0, "offset": 0.0, "coupling": "dc", "bandwidthLimit": false, "bandwidth": 20000000.0, "quantise": false, "adcBits": 8, "shown": true}
+        ]
+      }
+    ],
+    "multimeters": [
+      {"name": "dmm1", "mode": "dc-voltage", "range": "auto", "gateTime": 0.1}
+    ]
+  }
+}

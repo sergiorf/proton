@@ -34,6 +34,8 @@ add_executable(proton WIN32
     src/scope_widget.h
     src/smoke.cpp
     src/smoke.h
+    src/start_page.cpp
+    src/start_page.h
     resources/resources.qrc
 )
 # The app's icon: proton.png for the window (Qt resource), proton.ico for the executable.
@@ -44,11 +46,18 @@ set_target_properties(proton PROPERTIES AUTOMOC ON AUTORCC ON)
 # Qt's `signals`, `slots` and `emit` macros would clash with names in the Qt-free libraries
 # (SimChunk::signals): the app writes Q_SIGNALS and Q_EMIT instead.
 target_compile_definitions(proton PRIVATE QT_NO_KEYWORDS)
-target_link_libraries(proton PRIVATE proton::bench proton::core Qt6::Widgets proton_warnings)
+target_link_libraries(proton
+    PRIVATE proton::bench proton::project proton::core Qt6::Widgets proton_warnings)
 # The examples run on ngspice, loaded from the executable's directory.
 if(PROTON_NGSPICE_FOUND)
     proton_copy_ngspice_dlls(proton)
 endif()
+# The example projects (PLAN.md M4.11) in examples/ next to proton.exe, where the app looks for
+# them, after every build.
+add_custom_command(TARGET proton POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/examples"
+        "$<TARGET_FILE_DIR:proton>/examples"
+    VERBATIM)
 
 # Qt's DLLs and plugins next to proton.exe after every build, so it starts without Qt on PATH,
 # from VS Code as from the smoke test. Dynamic linking keeps them replaceable (LGPL, LICENSING.md).
@@ -68,6 +77,8 @@ add_test(NAME app_undo_redo COMMAND proton --smoke-undo)
 add_test(NAME app_editor_diagnostics COMMAND proton --smoke-diagnostics)
 # Box selection, Escape and every entry of the sheet's right-click menu (M4.10).
 add_test(NAME app_selection COMMAND proton --smoke-selection)
+# Projects save, open and reopen through the menus, the toolbar and the start page (M4.11).
+add_test(NAME app_project_files COMMAND proton --smoke-files)
 # Every example runs in the app, one after the other, as when chosen from the menu (M2.2), and
 # every scope control answers wheel, keys, drag and clicks (M2.4).
 if(PROTON_NGSPICE_FOUND)

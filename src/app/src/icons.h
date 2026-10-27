@@ -11,6 +11,8 @@ namespace proton::app {
 // Pause amber, Stop red, wires blue.
 enum class Icon {
     New,
+    Open,
+    Save,
     ExportImage,
     Undo,
     Redo,

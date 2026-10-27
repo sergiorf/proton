@@ -4,7 +4,6 @@
 add_library(proton_bench
     src/bench.cpp
     src/engines.cpp
-    src/examples.cpp
     src/run_control.cpp
     src/sheet_bench.cpp
 )

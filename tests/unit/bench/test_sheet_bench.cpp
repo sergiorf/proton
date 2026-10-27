@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include "proton/bench/examples.h"
 #include "proton/bench/sheet_bench.h"
 #include "proton/schematic/scene.h"
 #include "proton/test/test.h"
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
 using proton::bench::Bench;
 using proton::bench::benchFor;
 using proton::bench::carryOver;
-using proton::bench::diagnose;
 using proton::bench::remember;
 using proton::instruments::Multimeter;
 using proton::schematic::InstrumentConnections;
@@ -132,52 +129,4 @@ TEST(a_renamed_instrument_keeps_its_settings)
     // The old name keeps them, for undo.
     current = benchFor({connections(InstrumentKind::Scope, "scope1", {"a", "b"})}, settings);
     CHECK_EQ(current.scopes[0].config.timePerDiv, 2e-6);
-}
-
-namespace {
-
-std::vector<proton::schematic::Diagnostic> diagnoseScene(const proton::schematic::Scene& scene)
-{
-    const proton::schematic::Conversion conversion = proton::schematic::convert(scene);
-    return diagnose(conversion, benchFor(conversion.instruments, {}));
-}
-
-bool has(const std::vector<proton::schematic::Diagnostic>& diagnostics,
-         proton::schematic::DiagnosticCode code, const std::string& element)
-{
-    return std::ranges::any_of(diagnostics, [&](const proton::schematic::Diagnostic& d) {
-        return d.code == code && d.element == element;
-    });
-}
-
-} // namespace
-
-TEST(a_drawing_is_diagnosed_as_its_run_would_be)
-{
-    using proton::schematic::DiagnosticCode;
-    proton::schematic::Scene scene = proton::bench::examples()[0].scene; // the RC low-pass
-    CHECK(diagnoseScene(scene).empty());
-
-    // An instrument named like a part: the bench's name check.
-    for (proton::schematic::PlacedInstrument& instrument : scene.instruments) {
-        if (instrument.name == "scope1") {
-            instrument.name = "r1";
-        }
-    }
-    CHECK(has(diagnoseScene(scene), DiagnosticCode::DuplicateDesignator, "r1"));
-
-    // The generator's fragment is validated with the circuit: a source named like gen1's.
-    scene = proton::bench::examples()[0].scene;
-    scene.parts.push_back({proton::schematic::ComponentKind::VoltageSource, "Vgen1", "1",
-                           {{30, 30}, proton::schematic::Rotation::R0, false}});
-    CHECK(has(diagnoseScene(scene), DiagnosticCode::DuplicateDesignator, "Vgen1"));
-
-    // The conversion's own: a meter terminal wired to nothing.
-    scene = proton::bench::examples()[0].scene;
-    const auto com = std::ranges::find(scene.wires, proton::schematic::Wire{{17, 9}, {17, 11}});
-    CHECK(com != scene.wires.end());
-    if (com != scene.wires.end()) {
-        scene.wires.erase(com);
-    }
-    CHECK(has(diagnoseScene(scene), DiagnosticCode::UnconnectedTerminal, "dmm1"));
 }

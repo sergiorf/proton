@@ -431,7 +431,7 @@ the selection logic in `schematic/scene_edit.h` and tests:
 and the app smoke checks select a part, a wire and an instrument with a box drag, delete them with
 Delete, and trigger every right-click menu entry on a part, an instrument and empty sheet.
 
-**M4.11 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
+**M4.11 Project files.** *(done locally 2026-10-28, CI pending: Actions minutes ran out)* Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to
 `examples/` as project files, joined by more ready-made circuits to start from (a loaded divider,
 RC charging from a square wave, RLC resonance), listed on a start page shown when the app opens.
