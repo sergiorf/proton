@@ -109,6 +109,11 @@ struct Selection
     friend bool operator==(const Selection&, const Selection&) = default;
 };
 
+// What a selection box drawn on the sheet selects (PLAN.md M4.10): the parts and instruments whose
+// symbols lie wholly inside `box`, the labels and junctions at a point inside it, and the wires
+// with both ends inside it, so a wire only half inside is not selected. In scene order.
+Selection within(const Scene& scene, const Box& box);
+
 // The selected items as a scene of their own, in scene order: what Copy puts on the clipboard.
 Scene extract(const Scene& scene, const Selection& selection);
 

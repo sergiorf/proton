@@ -300,6 +300,36 @@ TEST(copy_and_paste_give_new_names_and_keep_labels)
     CHECK(paste(scene, Scene{}, {1, 1}).empty());
 }
 
+TEST(a_box_selects_what_lies_wholly_inside_it)
+{
+    Scene scene;
+    scene.parts = {part(ComponentKind::Resistor, "R1", {10, 10}),  // 8..12 x 9..11
+                   part(ComponentKind::Resistor, "R2", {20, 10})}; // 18..22 x 9..11
+    scene.wires = {{{0, 0}, {4, 0}}, {{12, 10}, {18, 10}}};
+    scene.labels = {{"in", {2, 0}}, {"out", {16, 10}}};
+    scene.junctions = {{3, 0}};
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {10, 30})};
+
+    // R1, the wire, label and junction on the left; not R2, nor the wire half inside, nor `out`.
+    Selection selected = within(scene, {-1, -1, 13, 12});
+    CHECK(selected.parts == std::vector<std::size_t>{0});
+    CHECK(selected.wires == std::vector<std::size_t>{0});
+    CHECK(selected.labels == std::vector<std::size_t>{0});
+    CHECK(selected.junctions == std::vector<std::size_t>{0});
+    CHECK(selected.instruments.empty());
+
+    // Edges are inside: a box exactly round a symbol selects it, one a unit smaller does not.
+    const Box scope = bounds(scene.instruments[0]);
+    CHECK(within(scene, scope).instruments == std::vector<std::size_t>{0});
+    CHECK(within(scene, {scope.left + 1, scope.top, scope.right, scope.bottom}).empty());
+    CHECK(within(scene, bounds(scene.parts[1])).parts == std::vector<std::size_t>{1});
+
+    // A box round everything selects everything.
+    const Selection all = within(scene, {-100, -100, 100, 100});
+    CHECK(all.parts.size() == 2 && all.wires.size() == 2 && all.labels.size() == 2 &&
+          all.junctions.size() == 1 && all.instruments.size() == 1);
+}
+
 TEST(instrument_names_are_taken_ignoring_case)
 {
     Scene scene;

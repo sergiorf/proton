@@ -51,6 +51,14 @@ void smokeUndo(MainWindow& window);
 // the pause without a restart, Pause, Stop, Run from t = 0 and Stop, and Quit.
 void smokeMenus(MainWindow& window);
 
+// The Select tool beyond one click (PLAN.md M4.10), with real mouse and key events on an empty
+// sheet: a box drag selects what lies wholly inside it (not a wire half outside), Shift and a
+// second box add, Delete removes the selection and Escape clears it; a right-click selects the
+// item under it and opens its menu; and every entry of the right-click menu works on a part
+// (Rotate, Mirror, Properties, Delete), an instrument (Open panel too), a wire and empty sheet
+// (Select all, Paste).
+void smokeSelection(MainWindow& window);
+
 // Makes each mistake a drawing can have on an empty sheet, through the editor's edits (PLAN.md
 // M4.9), and checks that its diagnostic is marked at the right place with its message in the
 // tooltip there: no ground in the bar along the sheet's top; an invalid value, a zero value, an

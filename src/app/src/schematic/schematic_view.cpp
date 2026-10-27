@@ -16,6 +16,7 @@
 #include <QCursor>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
@@ -62,6 +63,7 @@ const QColor kGridMajor(208, 212, 218); // a line every kMajor units
 const QColor kInk(30, 34, 40);
 const QColor kWireInk(20, 90, 160);
 const QColor kSelected(230, 120, 20);
+const QColor kBand(230, 120, 20, 30); // inside the selection box
 const QColor kGhost(30, 34, 40, 90);
 const QColor kLabelInk(150, 40, 40);
 const QColor kErrorMark(220, 40, 40, 80);    // under what an error is about
@@ -162,6 +164,13 @@ public:
         for (const Wire& wire : wirePreview) {
             painter->drawLine(at(wire.from), at(wire.to));
         }
+        if (band) {
+            QPen dashed(kSelected, kLine / 2.0, Qt::DashLine);
+            painter->setPen(dashed);
+            painter->setBrush(kBand);
+            painter->drawRect(QRectF(band->left, band->top, band->right - band->left,
+                                     band->bottom - band->top));
+        }
     }
 
     std::set<std::size_t> selectedParts;
@@ -173,6 +182,7 @@ public:
     std::optional<PlacedInstrument> ghostInstrument; // the instrument being placed
     std::vector<Wire> wirePreview;        // the wire being drawn
     std::optional<Point> dragOffset;      // how far the selected parts are being dragged
+    std::optional<schematic::Box> band;   // the selection box being drawn
 
 private:
     // A diagnostic's mark, under the drawing: a broad stroke along its wires, a halo round its
@@ -955,6 +965,67 @@ void SchematicView::selectAt(Point p, bool add)
     }
 }
 
+bool SchematicView::itemAt(Point p) const
+{
+    return schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p) ||
+           schematic::wireAt(scene_, p) || schematic::instrumentAt(scene_, p) ||
+           schematic::partAt(scene_, p);
+}
+
+bool SchematicView::selectedAt(Point p) const
+{
+    // In selectAt()'s order.
+    if (const auto junction = schematic::junctionAt(scene_, p)) {
+        return selectedJunctions_.contains(*junction);
+    }
+    if (const auto label = schematic::labelAt(scene_, p)) {
+        return selectedLabels_.contains(*label);
+    }
+    if (const auto wire = schematic::wireAt(scene_, p)) {
+        return selectedWires_.contains(*wire);
+    }
+    if (const auto instrument = schematic::instrumentAt(scene_, p)) {
+        return selectedInstruments_.contains(*instrument);
+    }
+    const auto part = schematic::partAt(scene_, p);
+    return part && selectedParts_.contains(*part);
+}
+
+void SchematicView::setContextActions(const QList<QAction*>& onItems,
+                                      const QList<QAction*>& onSheet)
+{
+    itemActions_ = onItems;
+    sheetActions_ = onSheet;
+}
+
+std::unique_ptr<QMenu> SchematicView::contextMenu(Point p)
+{
+    auto menu = std::make_unique<QMenu>(this);
+    menu->setObjectName(QStringLiteral("sheet-menu"));
+    if (!itemAt(p)) {
+        clearSelection();
+        refresh();
+        menu->addActions(sheetActions_);
+        return menu;
+    }
+    if (!selectedAt(p)) {
+        selectAt(p, false);
+    }
+    refresh(); // the app's actions follow the selection before the menu shows them
+    // An instrument's own entry, unless a wire, label or junction over it is what was clicked.
+    const auto instrument = schematic::instrumentAt(scene_, p);
+    if (instrument && !schematic::junctionAt(scene_, p) && !schematic::labelAt(scene_, p) &&
+        !schematic::wireAt(scene_, p)) {
+        const QString name = text(scene_.instruments[*instrument].name);
+        QAction* open = menu->addAction(tr("&Open panel"),
+                                        this, [this, name] { Q_EMIT instrumentOpened(name); });
+        open->setObjectName(QStringLiteral("sheet-open-panel"));
+        menu->addSeparator();
+    }
+    menu->addActions(itemActions_);
+    return menu;
+}
+
 void SchematicView::finishWire()
 {
     wireStart_.reset();
@@ -972,8 +1043,10 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
     if (event->button() == Qt::RightButton) {
         if (tool_ == Tool::Wire && wireStart_) {
             finishWire();
-        } else {
+        } else if (tool_ != Tool::Select) {
             setTool(Tool::Select);
+        } else {
+            contextMenu(p)->exec(event->globalPosition().toPoint());
         }
         return;
     }
@@ -983,6 +1056,15 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
     switch (tool_) {
     case Tool::Select: {
         const bool add = (event->modifiers() & Qt::ShiftModifier) != 0;
+        if (!itemAt(p)) {
+            // Empty sheet: a selection box from here.
+            if (!add) {
+                clearSelection();
+            }
+            boxFrom_ = p;
+            refresh();
+            break;
+        }
         // A press on a selected part or instrument drags the selection.
         const auto onSelection = [&] {
             if (schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p) ||
@@ -1041,6 +1123,12 @@ void SchematicView::mouseMoveEvent(QMouseEvent* event)
         return;
     }
     cursor_ = p;
+    if (tool_ == Tool::Select && boxFrom_) {
+        sheet_->band = schematic::Box{std::min(boxFrom_->x, p.x), std::min(boxFrom_->y, p.y),
+                                      std::max(boxFrom_->x, p.x), std::max(boxFrom_->y, p.y)};
+        sheet_->update();
+        return;
+    }
     if (tool_ == Tool::Select && dragFrom_) {
         sheet_->dragOffset = Point{p.x - dragFrom_->x, p.y - dragFrom_->y};
         sheet_->update();
@@ -1052,10 +1140,25 @@ void SchematicView::mouseMoveEvent(QMouseEvent* event)
 void SchematicView::mouseReleaseEvent(QMouseEvent* event)
 {
     QGraphicsView::mouseReleaseEvent(event);
+    const Point p = gridPoint(event->position().toPoint());
+    if (tool_ == Tool::Select && boxFrom_) {
+        // What the box holds joins the selection, which the press cleared unless Shift was down.
+        const schematic::Selection boxed = schematic::within(
+            scene_, {std::min(boxFrom_->x, p.x), std::min(boxFrom_->y, p.y),
+                     std::max(boxFrom_->x, p.x), std::max(boxFrom_->y, p.y)});
+        boxFrom_.reset();
+        sheet_->band.reset();
+        selectedParts_.insert(boxed.parts.begin(), boxed.parts.end());
+        selectedWires_.insert(boxed.wires.begin(), boxed.wires.end());
+        selectedLabels_.insert(boxed.labels.begin(), boxed.labels.end());
+        selectedInstruments_.insert(boxed.instruments.begin(), boxed.instruments.end());
+        selectedJunctions_.insert(boxed.junctions.begin(), boxed.junctions.end());
+        refresh();
+        return;
+    }
     if (tool_ != Tool::Select || !dragFrom_) {
         return;
     }
-    const Point p = gridPoint(event->position().toPoint());
     const Point offset{p.x - dragFrom_->x, p.y - dragFrom_->y};
     dragFrom_.reset();
     sheet_->dragOffset.reset();
@@ -1092,6 +1195,11 @@ void SchematicView::keyPressEvent(QKeyEvent* event)
     case Qt::Key_Escape:
         if (tool_ == Tool::Wire && wireStart_) {
             finishWire();
+        } else if (tool_ == Tool::Select) {
+            boxFrom_.reset();
+            sheet_->band.reset();
+            clearSelection();
+            refresh();
         } else {
             setTool(Tool::Select);
         }

@@ -426,6 +426,40 @@ std::optional<Box> bounds(const Scene& scene)
     return all;
 }
 
+Selection within(const Scene& scene, const Box& box)
+{
+    const auto inside = [&box](const Box& item) {
+        return box.contains({item.left, item.top}) && box.contains({item.right, item.bottom});
+    };
+    Selection selection;
+    for (std::size_t i = 0; i < scene.parts.size(); ++i) {
+        if (inside(bounds(scene.parts[i]))) {
+            selection.parts.push_back(i);
+        }
+    }
+    for (std::size_t i = 0; i < scene.wires.size(); ++i) {
+        if (box.contains(scene.wires[i].from) && box.contains(scene.wires[i].to)) {
+            selection.wires.push_back(i);
+        }
+    }
+    for (std::size_t i = 0; i < scene.labels.size(); ++i) {
+        if (box.contains(scene.labels[i].position)) {
+            selection.labels.push_back(i);
+        }
+    }
+    for (std::size_t i = 0; i < scene.instruments.size(); ++i) {
+        if (inside(bounds(scene.instruments[i]))) {
+            selection.instruments.push_back(i);
+        }
+    }
+    for (std::size_t i = 0; i < scene.junctions.size(); ++i) {
+        if (box.contains(scene.junctions[i])) {
+            selection.junctions.push_back(i);
+        }
+    }
+    return selection;
+}
+
 Scene extract(const Scene& scene, const Selection& selection)
 {
     Scene clip;

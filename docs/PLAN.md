@@ -418,7 +418,7 @@ Shown as the student draws, not only on Run. InvalidTerminals and InvalidFragmen
 from a drawing; with NoGround they are about the whole drawing and show in a bar along the
 sheet's top.
 
-**M4.10 Selection.** What a schematic editor's Select tool does beyond clicking one item, with
+**M4.10 Selection.** *(done locally 2026-10-27, CI pending: Actions minutes ran out)* What a schematic editor's Select tool does beyond clicking one item, with
 the selection logic in `schematic/scene_edit.h` and tests:
 - Box selection: a drag that starts on empty sheet draws a rectangle and selects the parts,
   instruments, labels and junctions inside it and the wires with both ends inside it; Shift adds
