@@ -9,6 +9,7 @@
 #include "schematic/parts_panel.h"
 #include "schematic/schematic_view.h"
 #include "scope_widget.h"
+#include "start_page.h"
 
 #include "proton/bench/engines.h"
 #include "proton/bench/sheet_bench.h"
@@ -19,8 +20,11 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QCoreApplication>
+#include <QDir>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFont>
 #include <QGuiApplication>
 #include <QImage>
@@ -30,7 +34,10 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QScreen>
+#include <QSettings>
 #include <QSignalBlocker>
+#include <QStackedWidget>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QString>
 #include <QStringList>
@@ -40,6 +47,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -85,6 +93,29 @@ QString kindTitle(InstrumentKind kind)
     return {};
 }
 
+constexpr int kMaxRecentFiles = 8;
+const QString kRecentKey = QStringLiteral("recentFiles");
+
+// The example projects, installed beside the executable (the build copies them there).
+std::filesystem::path examplesDir()
+{
+    return std::filesystem::path(QCoreApplication::applicationDirPath().toStdWString()) /
+           "examples";
+}
+
+// Proton's own settings, the recent files among them: an INI file in the user's configuration
+// folder, which the smoke checks move to a test location (QStandardPaths::setTestModeEnabled).
+QString settingsPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) +
+           QStringLiteral("/proton.ini");
+}
+
+std::filesystem::path fsPath(const QString& path)
+{
+    return std::filesystem::path(path.toStdWString());
+}
+
 // What a generator panel shows as its output's net: none unless both terminals are wired.
 QString generatorNet(const bench::Bench::GeneratorSettings& generator)
 {
@@ -94,16 +125,34 @@ QString generatorNet(const bench::Bench::GeneratorSettings& generator)
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent), examples_(bench::examples()), control_(bench::ngspiceEngines())
+    : QMainWindow(parent), examples_(project::examples(examplesDir())),
+      control_(bench::ngspiceEngines())
 {
-    setWindowTitle(QStringLiteral("Proton"));
     resize(1440, 900);
 
     // The schematic in the middle with the parts to place on its left; the instruments' panels
-    // float beside their symbols.
+    // float beside their symbols. The start page stands in for the sheet until something starts.
     sheet_ = new sheet::SchematicView(this);
     sheet_->setObjectName(QStringLiteral("sheet"));
-    setCentralWidget(sheet_);
+    startPage_ = new StartPage(this);
+    pages_ = new QStackedWidget(this);
+    pages_->addWidget(startPage_);
+    pages_->addWidget(sheet_);
+    pages_->setCurrentWidget(sheet_);
+    setCentralWidget(pages_);
+    std::vector<StartPage::Card> cards;
+    for (const project::Example& example : examples_) {
+        cards.push_back({text(example.name), text(example.description)});
+    }
+    startPage_->setExamples(cards);
+    startPage_->setRecentFiles(recentFiles());
+    connect(startPage_, &StartPage::newSheet, this, &MainWindow::newSheet);
+    connect(startPage_, &StartPage::openFile, this, &MainWindow::chooseAndOpen);
+    connect(startPage_, &StartPage::recentChosen, this,
+            [this](const QString& path) { openProject(path); });
+    connect(startPage_, &StartPage::exampleChosen, this,
+            [this](int index) { loadExample(static_cast<std::size_t>(index)); });
+    connect(&sheet_->undoStack(), &QUndoStack::cleanChanged, this, &MainWindow::updateTitle);
     connect(sheet_, &sheet::SchematicView::edited, this, &MainWindow::applyScene);
     connect(sheet_, &sheet::SchematicView::instrumentOpened, this,
             [this](const QString& name) { openPanel(name); });
@@ -154,6 +203,7 @@ MainWindow::MainWindow(QWidget* parent)
     });
     updateEditActions();
     setRunState(RunState::Stopped);
+    updateTitle();
 
     clock_.start();
     // Precise: on Windows a coarse 16 ms timer lands on the 15.6 ms system tick and fires every
@@ -164,15 +214,31 @@ MainWindow::MainWindow(QWidget* parent)
     showStatus();
 }
 
+MainWindow::~MainWindow()
+{
+    // The sheet and its undo stack go after this object's own members: their last signals must
+    // not reach it (an undo stack emptied on the way out says it is clean again).
+    disconnect(&sheet_->undoStack(), nullptr, this, nullptr);
+}
+
 void MainWindow::loadExample(std::size_t index)
 {
     if (index >= examples_.size()) {
         return;
     }
+    const project::Example& example = examples_[index];
     example_ = index;
+    showProject({example.name, example.description, example.scene, example.bench}, {});
+}
+
+void MainWindow::showProject(const project::Project& project, const QString& path)
+{
+    showSheet();
+    projectPath_ = path;
+    description_ = project.description;
     reading_.reset();
-    settings_ = examples_[index].bench;
-    sheet_->setScene(examples_[index].scene);
+    settings_ = project.settings; // without nets in a file: the drawing gives them (benchFor)
+    sheet_->setScene(project.scene);
     applyScene();
     for (const Panel& panel : panels_) {
         if (auto* scope = qobject_cast<ScopePanel*>(panel.face)) {
@@ -181,7 +247,7 @@ void MainWindow::loadExample(std::size_t index)
             meter->clear();
         }
     }
-    for (const schematic::PlacedInstrument& instrument : examples_[index].scene.instruments) {
+    for (const schematic::PlacedInstrument& instrument : project.scene.instruments) {
         openPanel(text(instrument.name));
     }
     // Side by side rather than each beside its symbol, where they would cover one another, and
@@ -199,7 +265,160 @@ void MainWindow::loadExample(std::size_t index)
         sheet_->fitInto(free);
     }
     framesAtLoad_ = framesShown();
+    updateTitle();
     pump();
+}
+
+bool MainWindow::openProject(const QString& path)
+{
+    const project::Loaded loaded = project::load(fsPath(path));
+    if (!loaded.project) {
+        QMessageBox::warning(this, tr("Open project"),
+                             tr("%1\n\n%2").arg(QDir::toNativeSeparators(path),
+                                                 text(loaded.error)));
+        return false;
+    }
+    example_.reset();
+    showProject(*loaded.project, path);
+    addRecent(path);
+    return true;
+}
+
+bool MainWindow::saveProject(const QString& path)
+{
+    const project::Project saved{QFileInfo(path).completeBaseName().toStdString(), description_,
+                                 sheet_->scene(),
+                                 project::withoutNets(control_.bench().config())};
+    std::string error;
+    if (!project::save(fsPath(path), saved, error)) {
+        QMessageBox::warning(this, tr("Save project"), text(error));
+        return false;
+    }
+    projectPath_ = path;
+    example_.reset();
+    sheet_->undoStack().setClean();
+    addRecent(path);
+    updateTitle();
+    showStatus();
+    return true;
+}
+
+bool MainWindow::save()
+{
+    return projectPath_.isEmpty() ? chooseAndSave() : saveProject(projectPath_);
+}
+
+bool MainWindow::chooseAndSave()
+{
+    // Beside the open file, or in Documents under the example's name.
+    const QString name = example_ ? text(examples_[*example_].name) : tr("circuit");
+    const QString suggested =
+        !projectPath_.isEmpty()
+            ? projectPath_
+            : QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) +
+                  QLatin1Char('/') + name + text(project::kExtension);
+    QString path = QFileDialog::getSaveFileName(this, tr("Save project"), suggested,
+                                                tr("Proton projects (*.proton)"));
+    if (path.isEmpty()) {
+        return false;
+    }
+    if (!path.endsWith(text(project::kExtension), Qt::CaseInsensitive)) {
+        path += text(project::kExtension);
+    }
+    return saveProject(path);
+}
+
+void MainWindow::chooseAndOpen()
+{
+    const QString dir = !projectPath_.isEmpty()
+                            ? QFileInfo(projectPath_).path()
+                            : QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const QString path = QFileDialog::getOpenFileName(this, tr("Open project"), dir,
+                                                      tr("Proton projects (*.proton)"));
+    if (!path.isEmpty()) {
+        openProject(path);
+    }
+}
+
+void MainWindow::newSheet()
+{
+    showSheet();
+    example_.reset();
+    projectPath_.clear();
+    description_.clear();
+    sheet_->clearSheet();
+    sheet_->setTool(sheet::SchematicView::Tool::Select);
+    updateTitle();
+}
+
+QStringList MainWindow::recentFiles() const
+{
+    // Files moved or deleted since are left out.
+    const QSettings settings(settingsPath(), QSettings::IniFormat);
+    QStringList recent = settings.value(kRecentKey).toStringList();
+    recent.removeIf([](const QString& path) { return !QFileInfo::exists(path); });
+    return recent;
+}
+
+void MainWindow::addRecent(const QString& path)
+{
+    const QString file = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    QStringList recent = recentFiles();
+    recent.removeIf([&](const QString& p) { return p.compare(file, Qt::CaseInsensitive) == 0; });
+    recent.prepend(file);
+    while (recent.size() > kMaxRecentFiles) {
+        recent.removeLast();
+    }
+    QSettings settings(settingsPath(), QSettings::IniFormat);
+    settings.setValue(kRecentKey, recent);
+    startPage_->setRecentFiles(recent);
+}
+
+void MainWindow::fillRecentMenu()
+{
+    recentMenu_->clear();
+    const QStringList recent = recentFiles();
+    for (qsizetype i = 0; i < recent.size(); ++i) {
+        const QString path = recent[i];
+        QAction* action = recentMenu_->addAction(
+            QStringLiteral("&%1 %2").arg(i + 1).arg(QFileInfo(path).fileName()), this,
+            [this, path] { openProject(path); });
+        action->setObjectName(QStringLiteral("file-recent-%1").arg(i));
+        action->setToolTip(QDir::toNativeSeparators(path));
+    }
+    if (recent.isEmpty()) {
+        recentMenu_->addAction(tr("No recent projects"))->setEnabled(false);
+    }
+}
+
+void MainWindow::showStartPage()
+{
+    startPage_->setRecentFiles(recentFiles());
+    pages_->setCurrentWidget(startPage_);
+}
+
+bool MainWindow::startPageShown() const
+{
+    return pages_->currentWidget() == startPage_;
+}
+
+void MainWindow::showSheet()
+{
+    pages_->setCurrentWidget(sheet_);
+}
+
+QString MainWindow::documentName() const
+{
+    return !projectPath_.isEmpty() ? QFileInfo(projectPath_).completeBaseName()
+           : example_              ? text(examples_[*example_].name)
+                                   : tr("Untitled");
+}
+
+void MainWindow::updateTitle()
+{
+    // Marked while a file has edits it has not saved; an example or a new sheet has no file.
+    setWindowTitle(documentName() + QStringLiteral("[*] - Proton"));
+    setWindowModified(!projectPath_.isEmpty() && !sheet_->undoStack().isClean());
 }
 
 const MainWindow::Panel* MainWindow::panelOf(const QString& name) const
@@ -464,19 +683,32 @@ void MainWindow::buildMenus()
 
     QMenu* file = menuBar()->addMenu(tr("&File"));
     file->addAction(withIcon(makeAction("file-new", tr("&New"), QKeySequence::New,
-                                        [this] {
-                                            example_.reset();
-                                            sheet_->clearSheet();
-                                            sheet_->setTool(Tool::Select);
-                                        }),
+                                        [this] { newSheet(); }),
                              Icon::New));
+    file->addAction(withIcon(makeAction("file-open", tr("&Open..."), QKeySequence::Open,
+                                        [this] { chooseAndOpen(); }),
+                             Icon::Open));
+    recentMenu_ = file->addMenu(tr("Open &recent"));
+    recentMenu_->setObjectName(QStringLiteral("file-recent"));
+    connect(recentMenu_, &QMenu::aboutToShow, this, &MainWindow::fillRecentMenu);
     QMenu* examples = file->addMenu(tr("&Examples"));
     examples->setObjectName(QStringLiteral("file-examples"));
     for (std::size_t i = 0; i < examples_.size(); ++i) {
         QAction* action = examples->addAction(text(examples_[i].name), this,
                                               [this, i] { loadExample(i); });
         action->setObjectName(QStringLiteral("file-example-%1").arg(i));
+        action->setToolTip(text(examples_[i].description));
     }
+    if (examples_.empty()) {
+        examples->addAction(tr("No examples were found next to Proton"))->setEnabled(false);
+    }
+    file->addSeparator();
+    file->addAction(withIcon(
+        makeAction("file-save", tr("&Save"), QKeySequence::Save, [this] { save(); }),
+        Icon::Save));
+    file->addAction(makeAction("file-save-as", tr("Save &as..."),
+                               QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S),
+                               [this] { chooseAndSave(); }));
     file->addSeparator();
     file->addAction(withIcon(makeAction("file-export-image", tr("&Export image..."),
                                         QKeySequence(Qt::CTRL | Qt::Key_E),
@@ -687,7 +919,7 @@ void MainWindow::buildToolBars()
         }
         return toolBar;
     };
-    bar(tr("File"), "toolbar-file", {"file-new", "file-export-image"});
+    bar(tr("File"), "toolbar-file", {"file-new", "file-open", "file-save", "file-export-image"});
     bar(tr("Edit"), "toolbar-edit",
         {"undo", "redo", "edit-cut", "edit-copy", "edit-paste", "edit-delete", "edit-rotate",
          "edit-mirror"});
@@ -973,7 +1205,7 @@ void MainWindow::showStatus()
         return;
     }
     QStringList lines;
-    lines << (example_ ? text(examples_[*example_].name) : tr("Sheet"));
+    lines << documentName();
     switch (control_.state()) {
     case bench::RunControl::State::Idle:
         lines << (!sceneError_.empty()             ? text(sceneError_)

@@ -24,6 +24,7 @@ option(PROTON_BUILD_APP "Build the Qt app in src/app (needs Qt 6, found through 
 include(ProtonWarnings)
 include(ProtonSanitizers)
 include(ProtonNgspice)
+include(ProtonJson)
 
 enable_testing()
 
@@ -32,6 +33,7 @@ add_subdirectory(src/schematic)
 add_subdirectory(src/instruments)
 add_subdirectory(src/sim)
 add_subdirectory(src/bench)
+add_subdirectory(src/project)
 add_subdirectory(tools/proton-spike)
 if(PROTON_BUILD_APP)
     find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets)

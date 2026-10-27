@@ -45,6 +45,7 @@ Shipped with Proton:
 | ngspice 46 | Circuit simulation in `src/sim` | Modified BSD (BSD-3-Clause) for most of the code; see below | Shared library loaded at runtime (`LoadLibrary`) | fetched by `tools/fetch-ngspice.ps1` (M1.1) |
 | LLVM OpenMP runtime (`libomp140.x86_64.dll`) | Required by `ngspice.dll` | Visual Studio redistributable terms (LLVM-based) | DLL shipped next to `ngspice.dll`, from the same ngspice archive | fetched with ngspice (M1.1) |
 | Microsoft C++ runtime | Runtime of MSVC-built binaries | Visual Studio redistributable terms | System library DLLs | planned, M6.5 |
+| nlohmann/json 3.12.0 | Reading and writing project files in `src/project` | MIT | Header-only, compiled into Proton; fetched at configure time by `cmake/ProtonJson.cmake` from its release, checked against its SHA-256 | from M4.11 |
 
 Build, test and CI only (not shipped):
 
@@ -122,4 +123,6 @@ A Proton package (M6.5) contains:
 - the license text of every shipped dependency in the table above;
 - for ngspice: its `COPYING` file and where its source can be obtained;
 - for Qt: the LGPL-3.0 text, the Qt version and where its source can be obtained, and the Qt DLLs
-  as separate, replaceable files.
+  as separate, replaceable files;
+- for nlohmann/json: its MIT notice (`LICENSE.MIT` of the release), which the MIT license asks to
+  keep with copies of the software, compiled in or not.

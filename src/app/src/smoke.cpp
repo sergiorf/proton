@@ -12,7 +12,9 @@
 #include "schematic/schematic_view.h"
 #include "scope_widget.h"
 
+#include "proton/bench/bench.h"
 #include "proton/core/spice_number.h"
+#include "proton/schematic/netlist.h"
 #include "proton/instruments/knob.h"
 #include "proton/instruments/knob_steps.h"
 
@@ -26,6 +28,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHelpEvent>
 #include <QImage>
 #include <QInputDialog>
@@ -34,8 +37,10 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QList>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPointF>
+#include <QPushButton>
 #include <QString>
 #include <QTimer>
 #include <QToolBar>
@@ -1329,7 +1334,11 @@ void smokeMenus(MainWindow& window)
         for (QWidget* panel : window.panelWindows()) {
             if (panel->isVisible()) {
                 const QRect frame = panel->frameGeometry();
-                checker->check(frame.right() <= area.right() + 1 && frame.top() >= area.top() - 1,
+                // A panel taller than the sheet (a small screen, or a large scale) is moved up to
+                // stay on the screen, as arrangePanels() does.
+                checker->check(frame.right() <= area.right() + 1 &&
+                                   (frame.top() >= area.top() - 1 ||
+                                    frame.height() > area.height()),
                                QStringLiteral("Arrange puts %1 over the sheet's right side")
                                    .arg(panel->windowTitle()));
             }
@@ -1449,6 +1458,145 @@ std::optional<double> risingZero(const instruments::ScopeFrame& frame, std::size
 }
 
 } // namespace
+
+void smokeFiles(MainWindow& window)
+{
+    // Qt's own file dialog, which the check can answer; the platform's is not a widget.
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    QTimer::singleShot(0, &window, [&window] {
+        Checker checker;
+        Actions actions(window, checker);
+        sheet::SchematicView& sheet = window.sheet();
+        const QString dir = QDir::temp().filePath(QStringLiteral("proton-smoke-files"));
+        QDir(dir).removeRecursively();
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/my-filter.proton");
+        const auto answerFile = [](const QString& file) {
+            answerNextDialog([file](QDialog& dialog) {
+                if (auto* files = qobject_cast<QFileDialog*>(&dialog)) {
+                    files->selectFile(file);
+                }
+                dialog.accept();
+            });
+        };
+        // What the bench would run: the drawing's circuit with the instruments' contributions.
+        const auto netlist = [&window, &sheet] {
+            schematic::Circuit circuit = schematic::convert(sheet.scene()).circuit;
+            bench::Bench bench(window.control().bench().config());
+            bench.contributeTo(circuit);
+            return schematic::buildNetlist(circuit);
+        };
+
+        // The start page lists every example and loads the one clicked.
+        window.showStartPage();
+        checker.check(window.startPageShown(), QStringLiteral("the start page shows"));
+        for (std::size_t i = 0; i < window.exampleCount(); ++i) {
+            checker.check(window.findChild<QWidget*>(QStringLiteral("start-example-%1").arg(i)),
+                          QStringLiteral("the start page has example %1").arg(i));
+        }
+        checker.check(window.exampleCount() == 6, QStringLiteral("six examples"));
+        if (auto* card = window.findChild<QWidget*>(QStringLiteral("start-example-0"))) {
+            const QPointF centre(card->width() / 2.0, card->height() / 2.0);
+            mouse(card, QEvent::MouseButtonRelease, centre, Qt::NoButton);
+        }
+        checker.check(!window.startPageShown() && !sheet.scene().parts.empty() &&
+                          window.windowTitle().startsWith(QStringLiteral("RC low-pass")),
+                      QStringLiteral("an example card loads it: '%1'").arg(window.windowTitle()));
+
+        // Save on an example asks where, and the title then names the file.
+        answerFile(path);
+        actions.toolbar("file-save");
+        checker.check(QFile::exists(path) && window.projectPath() == path &&
+                          window.windowTitle().startsWith(QStringLiteral("my-filter")) &&
+                          !window.isWindowModified(),
+                      QStringLiteral("Save on an example writes the file chosen"));
+
+        // A part's value and an instrument's setting changed, then Save writes them, unasked.
+        const auto r1 = std::ranges::find(sheet.scene().parts, std::string("R1"),
+                                          &schematic::PlacedPart::designator);
+        if (r1 != sheet.scene().parts.end()) {
+            sheet.setPartText(static_cast<std::size_t>(r1 - sheet.scene().parts.begin()), "R1",
+                              "2.2k");
+        }
+        checker.check(window.isWindowModified(), QStringLiteral("an edit marks the title"));
+        for (panel::KnobWidget* knob : window.scope().findChildren<panel::KnobWidget*>()) {
+            if (knob->accessibleName() == QStringLiteral("Time/div")) {
+                wheel(knob, 1);
+            }
+        }
+        const bench::Bench::Config settings = window.control().bench().config();
+        checker.check(settings.scopes.size() == 1 && settings.scopes[0].config.timePerDiv != 200e-6,
+                      QStringLiteral("the scope's time/div changed"));
+        const schematic::Scene saved = sheet.scene();
+        const std::string savedNetlist = netlist();
+        actions.menu("file-save");
+        checker.check(!window.isWindowModified(), QStringLiteral("Save clears the mark"));
+
+        // New, then Open: the same scene, settings and netlist.
+        actions.menu("file-new");
+        checker.check(sheet.scene().parts.empty() && window.projectPath().isEmpty(),
+                      QStringLiteral("New empties the sheet"));
+        answerFile(path);
+        actions.toolbar("file-open");
+        checker.check(sheet.scene() == saved, QStringLiteral("Open brings back the scene"));
+        checker.check(window.control().bench().config() == settings,
+                      QStringLiteral("Open brings back every instrument's settings"));
+        checker.check(netlist() == savedNetlist, QStringLiteral("Open gives the same netlist"));
+        checker.check(window.projectPath() == path, QStringLiteral("Open names the file"));
+
+        // Open recent, from the menu and from the start page.
+        actions.menu("file-new");
+        if (auto* recent = window.findChild<QMenu*>(QStringLiteral("file-recent"))) {
+            Q_EMIT recent->aboutToShow();
+        }
+        actions.menu("file-recent-0");
+        checker.check(sheet.scene() == saved, QStringLiteral("Open recent reopens the file"));
+        actions.menu("file-new");
+        window.showStartPage();
+        if (auto* button = window.findChild<QPushButton*>(QStringLiteral("start-recent-0"))) {
+            button->click();
+        }
+        checker.check(!window.startPageShown() && sheet.scene() == saved,
+                      QStringLiteral("the start page's recent list reopens it"));
+
+        // Save as a second file, through its menu.
+        const QString copy = dir + QStringLiteral("/copy.proton");
+        answerFile(copy);
+        actions.menu("file-save-as");
+        checker.check(QFile::exists(copy) && window.projectPath() == copy &&
+                          window.recentFiles().value(0) == QFileInfo(copy).absoluteFilePath(),
+                      QStringLiteral("Save as writes a second file, first among the recent"));
+
+        // A file that is not a project is refused, with a message, and the sheet stays.
+        const QString broken = dir + QStringLiteral("/broken.proton");
+        if (QFile file(broken); file.open(QIODevice::WriteOnly)) {
+            file.write("{");
+        }
+        QString message;
+        answerNextDialog([&message](QDialog& dialog) {
+            if (auto* box = qobject_cast<QMessageBox*>(&dialog)) {
+                message = box->text();
+            }
+            dialog.accept();
+        });
+        checker.check(!window.openProject(broken) && sheet.scene() == saved &&
+                          message.contains(QStringLiteral("not a Proton project")),
+                      QStringLiteral("a broken file is refused: '%1'").arg(message));
+
+        // The start page's New sheet.
+        window.showStartPage();
+        if (auto* button = window.findChild<QPushButton*>(QStringLiteral("start-new"))) {
+            button->click();
+        }
+        checker.check(!window.startPageShown() && sheet.scene().parts.empty(),
+                      QStringLiteral("the start page's New sheet"));
+
+        QDir(dir).removeRecursively();
+        std::printf("proton: projects saved, opened and reopened\n");
+        std::fflush(stdout);
+        QApplication::exit(checker.failed() ? 1 : 0);
+    });
+}
 
 void smokeSelection(MainWindow& window)
 {

@@ -1,0 +1,61 @@
+{
+  "format": "proton-project",
+  "version": 1,
+  "name": "RC low-pass",
+  "description": "A resistor and a capacitor driven by the generator. Sweep the frequency to find the corner, where out is 3 dB below in and lags it by 45 degrees: 1 / (2 pi R C) = 1.592 kHz.",
+  "scene": {
+    "parts": [
+      {"kind": "resistor", "designator": "R1", "value": "1k", "x": 4, "y": 0, "rotation": 0, "mirrored": false},
+      {"kind": "capacitor", "designator": "C1", "value": "100n", "x": 8, "y": 2, "rotation": 90, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": 8, "y": 6, "rotation": 0, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": 17, "y": 11, "rotation": 0, "mirrored": false},
+      {"kind": "ground", "designator": "", "value": "", "x": -4, "y": 4, "rotation": 0, "mirrored": false}
+    ],
+    "instruments": [
+      {"kind": "scope", "name": "scope1", "x": 17, "y": -1, "rotation": 0, "mirrored": false},
+      {"kind": "multimeter", "name": "dmm1", "x": 16, "y": 7, "rotation": 0, "mirrored": false},
+      {"kind": "generator", "name": "gen1", "x": -6, "y": 1, "rotation": 0, "mirrored": false}
+    ],
+    "wires": [
+      {"from": [0, 0], "to": [2, 0]},
+      {"from": [6, 0], "to": [8, 0]},
+      {"from": [8, 4], "to": [8, 6]},
+      {"from": [8, 0], "to": [14, 0]},
+      {"from": [14, -2], "to": [12, -2]},
+      {"from": [15, 9], "to": [15, 11]},
+      {"from": [15, 11], "to": [12, 11]},
+      {"from": [17, 9], "to": [17, 11]},
+      {"from": [-4, 0], "to": [0, 0]},
+      {"from": [-4, 2], "to": [-4, 4]}
+    ],
+    "junctions": [],
+    "labels": [
+      {"name": "in", "x": 0, "y": 0},
+      {"name": "out", "x": 8, "y": 0},
+      {"name": "in", "x": 12, "y": -2},
+      {"name": "out", "x": 12, "y": 11}
+    ]
+  },
+  "settings": {
+    "generators": [
+      {"name": "gen1", "waveform": "sine", "frequency": 1000.0, "amplitude": 1.0, "offset": 0.0, "outputImpedance": 0.0, "output": true}
+    ],
+    "scopes": [
+      {
+        "name": "scope1",
+        "timePerDiv": 0.0002,
+        "triggerPosition": 0.0,
+        "mode": "auto",
+        "deadTime": 0.0,
+        "trigger": {"source": "CH1", "level": 0.0, "slope": "rising", "hysteresis": 0.1},
+        "channels": [
+          {"voltsPerDiv": 1.0, "offset": 0.0, "coupling": "dc", "bandwidthLimit": false, "bandwidth": 20000000.0, "quantise": false, "adcBits": 8, "shown": true},
+          {"voltsPerDiv": 1.0, "offset": 0.0, "coupling": "dc", "bandwidthLimit": false, "bandwidth": 20000000.0, "quantise": false, "adcBits": 8, "shown": true}
+        ]
+      }
+    ],
+    "multimeters": [
+      {"name": "dmm1", "mode": "ac-voltage", "range": "auto", "gateTime": 0.1}
+    ]
+  }
+}

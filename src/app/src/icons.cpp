@@ -92,6 +92,22 @@ void draw(QPainter& p, Icon which)
     case Icon::New:
         page(p, 5, 3, 14, 18);
         break;
+    case Icon::Open:
+        // A folder, its front flap open.
+        p.drawPolyline(QPolygonF() << QPointF(3, 18) << QPointF(3, 6) << QPointF(9, 6)
+                                   << QPointF(11, 8) << QPointF(19, 8) << QPointF(19, 11));
+        p.setBrush(paper());
+        p.drawPolygon(QPolygonF() << QPointF(3, 18) << QPointF(6.5, 11) << QPointF(21.5, 11)
+                                  << QPointF(18, 18));
+        p.setBrush(Qt::NoBrush);
+        break;
+    case Icon::Save:
+        // An arrow down into a tray.
+        p.drawLine(QPointF(12, 3.5), QPointF(12, 14));
+        arrowHead(p, QPointF(12, 14.5), 90);
+        p.drawPolyline(QPolygonF() << QPointF(4, 14) << QPointF(4, 20) << QPointF(20, 20)
+                                   << QPointF(20, 14));
+        break;
     case Icon::ExportImage:
         p.drawRect(QRectF(3, 5, 18, 14));
         p.drawPolyline(QPolygonF() << QPointF(5, 17) << QPointF(10, 11) << QPointF(13, 14)

@@ -59,6 +59,14 @@ void smokeMenus(MainWindow& window);
 // (Select all, Paste).
 void smokeSelection(MainWindow& window);
 
+// Project files and the start page (PLAN.md M4.11), through the menus, the toolbar and the start
+// page with their file dialogs answered: the start page lists every example and loads one; Save on
+// an example asks where and writes the file, the title then naming it; after changing a part's
+// value and an instrument's setting, Save writes them without asking; File > New, then Open
+// brings back the same scene, settings and netlist; Open recent and the start page's recent list
+// reopen it; and a file that is not a project is refused with a message, the sheet unchanged.
+void smokeFiles(MainWindow& window);
+
 // Makes each mistake a drawing can have on an empty sheet, through the editor's edits (PLAN.md
 // M4.9), and checks that its diagnostic is marked at the right place with its message in the
 // tooltip there: no ground in the bar along the sheet's top; an invalid value, a zero value, an
