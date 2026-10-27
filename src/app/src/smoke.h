@@ -51,6 +51,15 @@ void smokeUndo(MainWindow& window);
 // the pause without a restart, Pause, Stop, Run from t = 0 and Stop, and Quit.
 void smokeMenus(MainWindow& window);
 
+// Makes each mistake a drawing can have on an empty sheet, through the editor's edits (PLAN.md
+// M4.9), and checks that its diagnostic is marked at the right place with its message in the
+// tooltip there: no ground in the bar along the sheet's top; an invalid value, a zero value, an
+// invalid and a duplicate designator on their parts; an invalid and a reserved net name on the
+// label and the net; a label on ground on that label; a single connection and a terminal wired to
+// nothing on that pin or terminal; no DC path on the floating net's wire and pin. Then hovers a
+// marked terminal and an empty spot with real tooltip events.
+void smokeDiagnostics(MainWindow& window);
+
 // The usability session (PLAN.md M4.8), as a student would do it with the panels: maximise the
 // window, load the RC low-pass from File > Examples, check that its panels open side by side
 // when the screen has room for them, set the generator to 1.592 kHz with the cursor and the knob,

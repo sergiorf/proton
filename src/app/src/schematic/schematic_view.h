@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 
+#include "proton/schematic/diagnostic_place.h"
 #include "proton/schematic/scene.h"
 #include "proton/schematic/scene_edit.h"
+#include "proton/schematic/validate.h"
 
 #include <QGraphicsView>
 #include <QImage>
 #include <QPoint>
 #include <QString>
+#include <QStringList>
 
 #include <cstddef>
 #include <optional>
@@ -17,6 +20,7 @@
 #include <vector>
 
 class QGraphicsScene;
+class QLabel;
 class QUndoStack;
 
 namespace proton::app::sheet {
@@ -149,6 +153,28 @@ public:
     // per grid unit with a margin around it: for File > Export image. Null for an empty sheet.
     QImage image(double pixelsPerUnit = 24.0) const;
 
+    // A diagnostic where it is on the sheet.
+    struct Mark
+    {
+        schematic::Severity severity = schematic::Severity::Error;
+        schematic::DiagnosticCode code = schematic::DiagnosticCode::NoGround;
+        QString message;
+        schematic::DiagnosticPlace place; // empty: about the whole drawing
+    };
+
+    // The drawing's diagnostics (PLAN.md M4.9), `conversion` being convert() of scene(): each is
+    // marked where schematic::locate() puts it, under the drawing, red for an error and amber for
+    // a warning, with its message in a tooltip there; those about the whole drawing (no ground)
+    // show in a bar along the top of the sheet. Shown until the next call.
+    void setDiagnostics(const std::vector<schematic::Diagnostic>& diagnostics,
+                        const schematic::Conversion& conversion);
+    const std::vector<Mark>& marks() const { return marks_; }
+    // What the tooltip at grid point `p` says: "Error: ..." or "Warning: ..." for each diagnostic
+    // marked there, in order; empty where there is none.
+    QStringList diagnosticsAt(schematic::Point p) const;
+    // The bar's text; empty, and the bar hidden, when no diagnostic is about the whole drawing.
+    QString sheetDiagnostics() const;
+
 Q_SIGNALS:
     void edited();
     // The student double-clicked instrument `name`.
@@ -167,6 +193,8 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void drawBackground(QPainter* painter, const QRectF& rect) override;
+    bool viewportEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     friend class SceneStep;
@@ -183,6 +211,8 @@ private:
     void editLabel(std::size_t index);
     void editInstrument(std::size_t index);
     void zoomBy(double factor);
+    // The bar along the sheet's top, as wide as the sheet and as tall as its text.
+    void placeSheetBar();
 
     schematic::Scene scene_;
     schematic::Scene committed_; // scene_ as the last undo step left it
@@ -208,6 +238,9 @@ private:
 
     std::optional<schematic::Point> wireStart_; // the Wire tool's current start
     std::optional<schematic::Point> dragFrom_;  // Select: where a drag of the selection began
+
+    std::vector<Mark> marks_;
+    QLabel* sheetBar_ = nullptr; // the diagnostics about the whole drawing
 };
 
 } // namespace proton::app::sheet

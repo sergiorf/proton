@@ -411,9 +411,12 @@ generator's hidden 50 ohm moved the corner to 1.516 kHz, now an ideal source by 
 lands on 1 / (2 pi R C). Checked by `--smoke-session` and a bench test at the corner. Left for
 later: a meter dB or ratio reading, and scope cursors for the lag.
 
-**M4.9 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
+**M4.9 Diagnostics in the editor.** *(done locally 2026-10-27, CI pending: Actions minutes ran out)* `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.
 *Done when:* each M0.7 diagnostic is shown at the right place.
+Shown as the student draws, not only on Run. InvalidTerminals and InvalidFragmentLine cannot come
+from a drawing; with NoGround they are about the whole drawing and show in a bar along the
+sheet's top.
 
 **M4.10 Project files.** Versioned JSON with scene, instrument instances, settings and connections;
 save, load, and a migration hook keyed on the version. The M2 built-in examples move to

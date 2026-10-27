@@ -834,8 +834,9 @@ bool MainWindow::exportImage(const QString& path)
     return !image.isNull() && image.save(path, "PNG");
 }
 
-// The drawing changed: the bench takes the instruments it draws, and the circuit runs. A drawing
-// the conversion rejects (two labels on one net) does not run; the status says why.
+// The drawing changed: the bench takes the instruments it draws, the sheet marks its diagnostics
+// (bench::diagnose), and the circuit runs. A drawing the conversion rejects (two labels on one
+// net) does not run; the status says why.
 void MainWindow::applyScene()
 {
     const schematic::Conversion conversion = schematic::convert(sheet_->scene());
@@ -844,6 +845,7 @@ void MainWindow::applyScene()
         control_.bench().configure(config);
     }
     bench::remember(settings_, config);
+    sheet_->setDiagnostics(bench::diagnose(conversion, config), conversion);
     syncPanels();
     if (!reopen_.isEmpty()) {
         openPanel(std::exchange(reopen_, QString()));

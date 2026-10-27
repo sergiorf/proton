@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 add_executable(proton_schematic_tests
     test_circuit.cpp
+    test_diagnostic_place.cpp
     test_netlist.cpp
     test_scene.cpp
     test_scene_edit.cpp

@@ -29,4 +29,11 @@ void remember(Bench::Config& settings, const Bench::Config& current);
 void carryOver(Bench::Config& settings, schematic::InstrumentKind kind, const std::string& from,
                const std::string& to);
 
+// Every diagnostic of a drawing, for the editor to show before anything runs (PLAN.md M4.9):
+// the conversion's, then those RunControl finds when it starts the drawing on the bench `config`
+// (validate() on the circuit with the instruments' fragments, then Bench::check). `conversion`
+// is schematic::convert() of the drawing and `config` benchFor() its instruments.
+std::vector<schematic::Diagnostic> diagnose(const schematic::Conversion& conversion,
+                                            const Bench::Config& config);
+
 } // namespace proton::bench

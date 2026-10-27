@@ -10,14 +10,18 @@
 #include <QFormLayout>
 #include <QGraphicsItem>
 #include <QGraphicsScene>
+#include <QHelpEvent>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QCursor>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QScrollBar>
+#include <QToolTip>
 #include <QUndoCommand>
 #include <QUndoStack>
 #include <QWheelEvent>
@@ -60,6 +64,9 @@ const QColor kWireInk(20, 90, 160);
 const QColor kSelected(230, 120, 20);
 const QColor kGhost(30, 34, 40, 90);
 const QColor kLabelInk(150, 40, 40);
+const QColor kErrorMark(220, 40, 40, 80);    // under what an error is about
+const QColor kWarningMark(235, 160, 0, 100); // under what a warning is about
+const QColor kErrorBar(190, 35, 35);
 
 QPointF at(Point p)
 {
@@ -112,6 +119,9 @@ public:
             return p;
         };
 
+        for (const SchematicView::Mark& mark : view_.marks()) {
+            drawMark(*painter, scene, mark);
+        }
         for (std::size_t i = 0; i < scene.wires.size(); ++i) {
             painter->setPen(pen(selectedWires.contains(i) ? kSelected : kWireInk));
             painter->drawLine(at(scene.wires[i].from), at(scene.wires[i].to));
@@ -165,6 +175,55 @@ public:
     std::optional<Point> dragOffset;      // how far the selected parts are being dragged
 
 private:
+    // A diagnostic's mark, under the drawing: a broad stroke along its wires, a halo round its
+    // symbols and labels, a dot on its pins.
+    static void drawMark(QPainter& painter, const Scene& scene, const SchematicView::Mark& mark)
+    {
+        const QColor colour =
+            mark.severity == schematic::Severity::Error ? kErrorMark : kWarningMark;
+        const schematic::DiagnosticPlace& place = mark.place;
+        painter.save();
+        QPen stroke(colour, 0.7);
+        stroke.setCapStyle(Qt::RoundCap);
+        painter.setPen(stroke);
+        for (const std::size_t i : place.wires) {
+            if (i < scene.wires.size()) {
+                painter.drawLine(at(scene.wires[i].from), at(scene.wires[i].to));
+            }
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(colour);
+        const auto halo = [&](const schematic::Box& box) {
+            painter.drawRoundedRect(QRectF(box.left - 0.5, box.top - 0.5,
+                                           box.right - box.left + 1.0, box.bottom - box.top + 1.0),
+                                    0.5, 0.5);
+        };
+        for (const std::size_t i : place.parts) {
+            if (i < scene.parts.size()) {
+                halo(schematic::bounds(scene.parts[i]));
+            }
+        }
+        for (const std::size_t i : place.instruments) {
+            if (i < scene.instruments.size()) {
+                halo(schematic::bounds(scene.instruments[i]));
+            }
+        }
+        for (const std::size_t i : place.labels) {
+            if (i < scene.labels.size()) {
+                // Round the stem and the name drawLabel() draws, about 0.7 units a letter.
+                const schematic::NetLabel& label = scene.labels[i];
+                const double width = 0.6 + 0.75 * static_cast<double>(label.name.size());
+                painter.drawRoundedRect(QRectF(label.position.x - 0.4, label.position.y - 2.1,
+                                               width, 2.5),
+                                        0.4, 0.4);
+            }
+        }
+        for (const Point pin : place.pins) {
+            painter.drawEllipse(at(pin), 0.6, 0.6);
+        }
+        painter.restore();
+    }
+
     static void drawPart(QPainter& painter, PlacedPart part, const QPen& pen, Point offset)
     {
         part.placement.position.x += offset.x;
@@ -300,6 +359,17 @@ SchematicView::SchematicView(QWidget* parent) : QGraphicsView(parent)
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     scale(kStartZoom, kStartZoom);
     centerOn(5 * kGrid, 3 * kGrid);
+
+    // The diagnostics' tooltips show while an instrument's panel has the focus, too.
+    viewport()->setAttribute(Qt::WA_AlwaysShowToolTips);
+    sheetBar_ = new QLabel(viewport());
+    sheetBar_->setObjectName(QStringLiteral("sheet-diagnostics"));
+    sheetBar_->setWordWrap(true);
+    sheetBar_->setTextFormat(Qt::PlainText);
+    sheetBar_->setContentsMargins(10, 6, 10, 6);
+    sheetBar_->setStyleSheet(QStringLiteral("color: white; background: %1;").arg(kErrorBar.name()));
+    sheetBar_->setAttribute(Qt::WA_TransparentForMouseEvents); // clicks reach the sheet
+    sheetBar_->hide();
 }
 
 void SchematicView::setScene(const Scene& scene)
@@ -647,6 +717,83 @@ void SchematicView::fitInto(const QRect& area)
     // centerOn() puts a point at the viewport's centre; shifted, the drawing's centre lands on
     // the area's.
     centerOn(drawing.center() + QPointF(viewport()->rect().center() - area.center()) / scale);
+}
+
+void SchematicView::setDiagnostics(const std::vector<schematic::Diagnostic>& diagnostics,
+                                   const schematic::Conversion& conversion)
+{
+    marks_.clear();
+    for (const schematic::Diagnostic& diagnostic : diagnostics) {
+        marks_.push_back({diagnostic.severity, diagnostic.code,
+                          QString::fromStdString(diagnostic.message),
+                          schematic::locate(scene_, conversion, diagnostic)});
+    }
+    const QString bar = sheetDiagnostics();
+    sheetBar_->setText(bar);
+    sheetBar_->setVisible(!bar.isEmpty());
+    placeSheetBar();
+    sheet_->update();
+}
+
+namespace {
+
+QString describe(const SchematicView::Mark& mark)
+{
+    return (mark.severity == schematic::Severity::Error ? SchematicView::tr("Error: %1")
+                                                        : SchematicView::tr("Warning: %1"))
+        .arg(mark.message);
+}
+
+} // namespace
+
+QStringList SchematicView::diagnosticsAt(Point p) const
+{
+    QStringList messages;
+    for (const Mark& mark : marks_) {
+        if (!mark.place.empty() && schematic::contains(scene_, mark.place, p)) {
+            messages << describe(mark);
+        }
+    }
+    return messages;
+}
+
+QString SchematicView::sheetDiagnostics() const
+{
+    QStringList messages;
+    for (const Mark& mark : marks_) {
+        if (mark.place.empty()) {
+            messages << describe(mark);
+        }
+    }
+    return messages.join(QLatin1Char('\n'));
+}
+
+bool SchematicView::viewportEvent(QEvent* event)
+{
+    if (event->type() == QEvent::ToolTip) {
+        const auto* help = static_cast<QHelpEvent*>(event);
+        const QStringList messages = diagnosticsAt(gridPoint(help->pos()));
+        if (messages.isEmpty()) {
+            QToolTip::hideText();
+            event->ignore();
+        } else {
+            QToolTip::showText(help->globalPos(), messages.join(QLatin1Char('\n')), viewport());
+        }
+        return true;
+    }
+    return QGraphicsView::viewportEvent(event);
+}
+
+void SchematicView::resizeEvent(QResizeEvent* event)
+{
+    QGraphicsView::resizeEvent(event);
+    placeSheetBar();
+}
+
+void SchematicView::placeSheetBar()
+{
+    const int width = viewport()->width();
+    sheetBar_->setGeometry(0, 0, width, sheetBar_->heightForWidth(width));
 }
 
 double SchematicView::zoom() const

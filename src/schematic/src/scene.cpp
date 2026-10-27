@@ -278,6 +278,13 @@ Conversion convert(const Scene& scene)
         }
         result.instruments.push_back(std::move(connections));
     }
+
+    for (const Wire& wire : scene.wires) {
+        result.wireNets.push_back(nets[points.root(points.id(wire.from))].name);
+    }
+    for (const std::size_t point : labelPoints) {
+        result.labelNets.push_back(nets[points.root(point)].name);
+    }
     return result;
 }
 

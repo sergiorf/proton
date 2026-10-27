@@ -26,6 +26,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
+#include <QHelpEvent>
 #include <QImage>
 #include <QInputDialog>
 #include <QKeyEvent>
@@ -39,6 +40,7 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <QToolTip>
 #include <QUndoStack>
 #include <QWheelEvent>
 
@@ -1447,6 +1449,107 @@ std::optional<double> risingZero(const instruments::ScopeFrame& frame, std::size
 }
 
 } // namespace
+
+void smokeDiagnostics(MainWindow& window)
+{
+    using schematic::DiagnosticCode;
+    using Mark = sheet::SchematicView::Mark;
+    Checker checker;
+    sheet::SchematicView& sheet = window.sheet();
+    // A mark of `code`, `severity`, at `p`: what the tooltip there says includes its message.
+    const auto markedAt = [&](DiagnosticCode code, schematic::Severity severity, Point p,
+                              const QString& what) {
+        const auto mark = std::ranges::find_if(sheet.marks(), [&](const Mark& m) {
+            return m.code == code && m.severity == severity &&
+                   schematic::contains(sheet.scene(), m.place, p);
+        });
+        checker.check(mark != sheet.marks().end() &&
+                          sheet.diagnosticsAt(p).join(QLatin1Char('\n')).contains(mark->message),
+                      what + QStringLiteral(" at (%1, %2)").arg(p.x).arg(p.y));
+    };
+    using enum schematic::Severity;
+
+    checker.check(sheet.marks().empty() && sheet.sheetDiagnostics().isEmpty(),
+                  QStringLiteral("an empty sheet has no diagnostics"));
+
+    // R1 alone: no ground, about the whole drawing, in the bar.
+    sheet.placePart(ComponentKind::Resistor, {0, 0}); // pins (-2, 0), (2, 0)
+    const QLabel* bar = sheet.findChild<QLabel*>(QStringLiteral("sheet-diagnostics"));
+    checker.check(bar != nullptr && bar->isVisible() &&
+                      bar->text().contains(QStringLiteral("ground")),
+                  QStringLiteral("no ground shows in the bar along the sheet's top"));
+    checker.check(sheet.diagnosticsAt({0, 0}).isEmpty(),
+                  QStringLiteral("no ground marks no part"));
+    // Grounded on its left: its right pin has a single connection.
+    sheet.placePart(ComponentKind::Ground, {-2, 2});
+    sheet.drawWire({-2, 0}, {-2, 2});
+    checker.check(bar != nullptr && !bar->isVisible(), QStringLiteral("the bar goes with ground"));
+    markedAt(DiagnosticCode::SingleConnectionNet, Warning, {2, 0},
+             QStringLiteral("single connection"));
+
+    // Its value, then its designator.
+    sheet.setPartText(0, "R1", "abc");
+    markedAt(DiagnosticCode::InvalidValue, Error, {0, 0}, QStringLiteral("invalid value"));
+    sheet.setPartText(0, "R1", "0");
+    markedAt(DiagnosticCode::ZeroValue, Error, {0, 0}, QStringLiteral("zero value"));
+    sheet.setPartText(0, "X1", "1k");
+    markedAt(DiagnosticCode::InvalidDesignator, Error, {0, 0},
+             QStringLiteral("invalid designator"));
+    sheet.setPartText(0, "R1", "1k");
+
+    // R2 below it, renamed R1: both are marked.
+    sheet.placePart(ComponentKind::Resistor, {0, 6}); // index 2, after the ground
+    sheet.drawWire({-2, 6}, {-2, 2});
+    sheet.drawWire({2, 6}, {2, 0});
+    sheet.setPartText(2, "R1", "1k");
+    markedAt(DiagnosticCode::DuplicateDesignator, Error, {0, 0},
+             QStringLiteral("duplicate, first"));
+    markedAt(DiagnosticCode::DuplicateDesignator, Error, {0, 6},
+             QStringLiteral("duplicate, second"));
+    sheet.setPartText(2, "R2", "1k");
+
+    // A label on the right net with a name SPICE cannot read, then a reserved one.
+    sheet.addLabel("a/b", {2, 3});
+    markedAt(DiagnosticCode::InvalidNetName, Error, {2, 3}, QStringLiteral("invalid net name"));
+    markedAt(DiagnosticCode::InvalidNetName, Error, {2, 0}, QStringLiteral("invalid net name"));
+    sheet.renameLabel(0, "proton_halt");
+    markedAt(DiagnosticCode::ReservedName, Error, {2, 3}, QStringLiteral("reserved name"));
+    sheet.renameLabel(0, "out");
+
+    // A label on the ground net.
+    sheet.addLabel("x", {-2, 1});
+    markedAt(DiagnosticCode::ConflictingLabels, Error, {-2, 1}, QStringLiteral("label on ground"));
+    sheet.removeItems({}, {}, {1});
+
+    // C1 from `out` to a net of its own, which has no DC path to ground.
+    sheet.placePart(ComponentKind::Capacitor, {6, 0}); // pins (4, 0), (8, 0)
+    sheet.drawWire({2, 0}, {4, 0});
+    sheet.drawWire({8, 0}, {10, 0});
+    markedAt(DiagnosticCode::NoDcPathToGround, Error, {9, 0}, QStringLiteral("no DC path, wire"));
+    markedAt(DiagnosticCode::NoDcPathToGround, Error, {8, 0}, QStringLiteral("no DC path, pin"));
+
+    // A multimeter wired to nothing: each terminal.
+    sheet.placeInstrument(InstrumentKind::Multimeter, {20, 0}); // + (19, 2), COM (21, 2)
+    markedAt(DiagnosticCode::UnconnectedTerminal, Warning, {19, 2}, QStringLiteral("meter +"));
+    markedAt(DiagnosticCode::UnconnectedTerminal, Warning, {21, 2}, QStringLiteral("meter COM"));
+
+    // Hovering a mark shows its message in a tooltip (which fades in, so its text is checked, not
+    // whether it is visible yet); an empty spot has none.
+    QHelpEvent help(QEvent::ToolTip, sheet.viewPoint({19, 2}),
+                    sheet.viewport()->mapToGlobal(sheet.viewPoint({19, 2})));
+    QCoreApplication::sendEvent(sheet.viewport(), &help);
+    const QString tip = QToolTip::text();
+    checker.check(tip.startsWith(QStringLiteral("Warning: ")) &&
+                      tip.contains(QStringLiteral("dmm1")),
+                  QStringLiteral("hovering the meter's terminal shows '%1'").arg(tip));
+    checker.check(sheet.diagnosticsAt({0, 12}).isEmpty(),
+                  QStringLiteral("no diagnostic on an empty spot"));
+
+    std::printf("proton: %zu diagnostics marked on the sheet\n", sheet.marks().size());
+    std::fflush(stdout);
+    const bool failed = checker.failed();
+    QTimer::singleShot(0, &window, [failed] { QApplication::exit(failed ? 1 : 0); });
+}
 
 void smokeSession(MainWindow& window)
 {
