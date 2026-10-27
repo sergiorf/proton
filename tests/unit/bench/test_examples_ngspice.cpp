@@ -18,6 +18,7 @@
 using proton::bench::Example;
 using proton::bench::RunControl;
 using proton::instruments::DmmReading;
+using proton::instruments::ScopeFrame;
 
 namespace {
 
@@ -25,9 +26,16 @@ using Clock = std::chrono::steady_clock;
 
 constexpr std::chrono::seconds kTimeout{60};
 
-// The reading of multimeter `meter` of `example` at the end of its second gate (0.2 s), past the
-// start-up transient. Empty if the run failed or timed out.
-std::optional<DmmReading> secondReading(const Example& example, std::size_t meter = 0)
+// What multimeter `meter` and the first scope of `example` show by 0.25 s: the meter's reading
+// at the end of its second gate (0.2 s), past the start-up transient, and the scope's last frame.
+// Empty if the run failed or timed out.
+struct Shown
+{
+    std::optional<DmmReading> reading;
+    std::optional<ScopeFrame> frame;
+};
+
+std::optional<Shown> run(const Example& example, std::size_t meter = 0)
 {
     RunControl::Config config;
     config.realTime = false;
@@ -36,29 +44,52 @@ std::optional<DmmReading> secondReading(const Example& example, std::size_t mete
     control.setCircuit(example.circuit);
     control.start();
     const Clock::time_point deadline = Clock::now() + kTimeout;
-    std::optional<DmmReading> reading;
+    Shown shown;
     while (Clock::now() < deadline) {
         control.pump(0.0, 0.25);
         if (std::optional<DmmReading> r = control.bench().popReading(meter)) {
-            reading = r;
+            shown.reading = r;
+        }
+        if (std::optional<ScopeFrame> f = control.bench().popFrame(0)) {
+            shown.frame = std::move(f);
         }
         if (control.state() != RunControl::State::Running) {
             std::printf("%s: %s\n", example.name.c_str(), control.error().c_str());
             return std::nullopt;
         }
         if (control.fedThrough() >= 0.25) {
-            return reading;
+            return shown;
         }
         std::this_thread::yield();
     }
     return std::nullopt;
 }
 
-// The generator: 1 V peak at 1 kHz behind 50 ohm; R1 1k, C1 100n.
+std::optional<DmmReading> secondReading(const Example& example, std::size_t meter = 0)
+{
+    const std::optional<Shown> shown = run(example, meter);
+    return shown ? shown->reading : std::nullopt;
+}
+
+// The first time at or after the trigger where channel `channel` of `frame` rises through 0 V,
+// relative to the trigger, by linear interpolation between samples.
+std::optional<double> risingZero(const ScopeFrame& frame, std::size_t channel)
+{
+    const std::vector<double>& v = frame.values[channel];
+    for (std::size_t i = 1; i < v.size(); ++i) {
+        const double t = frame.startTime + static_cast<double>(i) * frame.sampleInterval;
+        if (t >= 0.0 && v[i - 1] < 0.0 && v[i] >= 0.0) {
+            return t - frame.sampleInterval * v[i] / (v[i] - v[i - 1]);
+        }
+    }
+    return std::nullopt;
+}
+
+// The generator: 1 V peak at 1 kHz, ideal; R1 1k, C1 100n.
 constexpr double kOmega = 2.0 * std::numbers::pi * 1e3;
-constexpr double kSource = 50.0;
 constexpr double kR = 1e3;
-constexpr double kXc = 1.0 / (kOmega * 100e-9); // capacitor's reactance, ohm
+constexpr double kC = 100e-9;
+constexpr double kXc = 1.0 / (kOmega * kC); // capacitor's reactance, ohm
 
 } // namespace
 
@@ -66,9 +97,34 @@ TEST(rc_low_pass_reads_the_attenuated_rms)
 {
     const std::optional<DmmReading> reading = secondReading(proton::bench::examples()[0]);
     CHECK(reading.has_value());
-    // Across C1 of the divider R1 + 50 ohm and C1.
-    const double gain = kXc / std::hypot(kR + kSource, kXc);
+    // Across C1 of the divider R1 and C1.
+    const double gain = kXc / std::hypot(kR, kXc);
     CHECK(reading && std::abs(reading->value - gain / std::sqrt(2.0)) < 1e-3);
+}
+
+// The usability session (PLAN.md M4.8): with the generator set to 1 / (2 pi R C), the meter on
+// `out` reads -3 dB of the generator's 1 V peak, 0.5000 V RMS, and on the scope, at 50 us/div,
+// CH2 (`out`) rises through 0 V an eighth of a period after CH1 (`in`): a 45 degree lag.
+TEST(rc_low_pass_at_its_corner_reads_minus_3_db_and_lags_45_degrees)
+{
+    Example example = proton::bench::examples()[0];
+    const double corner = 1.0 / (2.0 * std::numbers::pi * kR * kC);
+    example.bench.generators[0].config.frequency = corner;
+    example.bench.scopes[0].config.timePerDiv = 50e-6;
+    const std::optional<Shown> shown = run(example);
+    CHECK(shown && shown->reading && shown->frame && shown->frame->triggered);
+    if (!shown || !shown->reading || !shown->frame) {
+        return;
+    }
+    const double decibels = 20.0 * std::log10(shown->reading->value * std::sqrt(2.0));
+    CHECK_NEAR(decibels, -3.0103, 0.01);
+    const std::optional<double> in = risingZero(*shown->frame, 0);
+    const std::optional<double> out = risingZero(*shown->frame, 1);
+    CHECK(in && out);
+    if (in && out) {
+        const double lag = (*out - *in) * corner * 360.0; // degrees
+        CHECK_NEAR(lag, 45.0, 1.0);
+    }
 }
 
 TEST(voltage_divider_reads_half_the_battery)
@@ -91,9 +147,9 @@ TEST(a_meter_across_r1_reads_the_voltage_across_it)
     const std::optional<DmmReading> out = secondReading(example, 0);
     const std::optional<DmmReading> r1 = secondReading(example, 1);
     CHECK(out && r1);
-    // R1's share of the divider R1 + 50 ohm and C1.
-    const double gainOut = kXc / std::hypot(kR + kSource, kXc);
-    const double gainR1 = kR / std::hypot(kR + kSource, kXc);
+    // R1's share of the divider R1 and C1.
+    const double gainOut = kXc / std::hypot(kR, kXc);
+    const double gainR1 = kR / std::hypot(kR, kXc);
     CHECK(out && std::abs(out->value - gainOut / std::sqrt(2.0)) < 1e-3);
     CHECK(r1 && std::abs(r1->value - gainR1 / std::sqrt(2.0)) < 1e-3);
 }
@@ -123,7 +179,7 @@ TEST(rc_high_pass_reads_the_attenuated_rms)
 {
     const std::optional<DmmReading> reading = secondReading(proton::bench::examples()[2]);
     CHECK(reading.has_value());
-    // Across R1 of the divider C1 and R1 + 50 ohm.
-    const double gain = kR / std::hypot(kR + kSource, kXc);
+    // Across R1 of the divider C1 and R1.
+    const double gain = kR / std::hypot(kR, kXc);
     CHECK(reading && std::abs(reading->value - gain / std::sqrt(2.0)) < 1e-3);
 }

@@ -38,14 +38,16 @@ public:
     // output keeps this leak to the reference: no load on any circuit a student builds.
     static constexpr double kOffResistance = 1e9; // ohm
 
-    // Voltages are open-circuit values, before the output impedance: a 50 ohm load sees half.
+    // Voltages are open-circuit values, before the output impedance: with 50 ohm, a 50 ohm load
+    // sees half. The default source is ideal (0 ohm), as measurements are (ARCHITECTURE.md
+    // section 6): a student's RC corner lands on 1 / (2 pi R C), not shifted by a hidden 50 ohm.
     struct Config
     {
         Waveform waveform = Waveform::Sine;
-        double frequency = 1e3;        // Hz; ignored for DC
-        double amplitude = 1.0;        // V peak (half of Vpp); ignored for DC
-        double offset = 0.0;           // V; the level for DC
-        double outputImpedance = 50.0; // ohm
+        double frequency = 1e3;       // Hz; ignored for DC
+        double amplitude = 1.0;       // V peak (half of Vpp); ignored for DC
+        double offset = 0.0;          // V; the level for DC
+        double outputImpedance = 0.0; // ohm; 0 is an ideal source
         bool output = true;            // the output switch; off opens the output
 
         friend bool operator==(const Config&, const Config&) = default;

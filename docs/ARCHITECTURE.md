@@ -122,7 +122,7 @@ An instrument is a class that:
 |---|---|---|
 | `Scope` | measures | 2 channels sharing timebase and trigger (section 6) |
 | `Multimeter` | measures | one probe voltage integrated over a gate of simulation time; DC V and true-RMS AC V |
-| `FunctionGenerator` | sources | an ideal source behind a series output resistor; amplitude and offset are open-circuit values |
+| `FunctionGenerator` | sources | an ideal source behind a series output resistor, 0 ohm by default; amplitude and offset are open-circuit values |
 | DC power supply | sources | planned |
 | Bode plotter, spectrum analyzer, VNA | measures | after the MVP (ROADMAP) |
 

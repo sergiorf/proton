@@ -184,6 +184,20 @@ void MainWindow::loadExample(std::size_t index)
     for (const schematic::PlacedInstrument& instrument : examples_[index].scene.instruments) {
         openPanel(text(instrument.name));
     }
+    // Side by side rather than each beside its symbol, where they would cover one another, and
+    // the drawing in the part of the sheet they leave free.
+    arrangePanels();
+    QRect free = sheet_->viewport()->rect();
+    for (const Panel& panel : panels_) {
+        if (panel.window->isVisible()) {
+            const QPoint corner =
+                sheet_->viewport()->mapFromGlobal(panel.window->frameGeometry().topLeft());
+            free.setRight(std::min(free.right(), corner.x() - 1));
+        }
+    }
+    if (free.width() >= sheet_->viewport()->width() / 4) { // else the panels cover the sheet
+        sheet_->fitInto(free);
+    }
     framesAtLoad_ = framesShown();
     pump();
 }
@@ -771,22 +785,39 @@ std::vector<QWidget*> MainWindow::panelWindows() const
 void MainWindow::arrangePanels()
 {
     const QRect area(sheet_->viewport()->mapToGlobal(QPoint(0, 0)), sheet_->viewport()->size());
-    int right = area.right(); // the current column's right edge
-    int top = area.top();
-    int columnWidth = 0;
+    const QScreen* screen = QGuiApplication::screenAt(area.center());
+    const QRect desk =
+        (screen != nullptr ? screen : QGuiApplication::primaryScreen())->availableGeometry();
+    constexpr int gap = kPanelGap / 2;
+    int columnRight = area.right(); // the current column's right edge
+    int columnLeft = columnRight;   // and its left edge, as wide as its widest row
+    int rowTop = area.top();
+    int rowLeft = columnRight; // where the current row's next panel ends
+    int rowHeight = 0;
     for (const Panel& panel : panels_) {
         if (!panel.window->isVisible()) {
             continue;
         }
         const QSize size = panel.window->frameGeometry().size();
-        if (top > area.top() && top + size.height() > area.bottom()) {
-            right -= columnWidth + kPanelGap / 2;
-            top = area.top();
-            columnWidth = 0;
+        if (columnLeft != columnRight && rowLeft - size.width() < columnLeft) {
+            // Not beside the row's last panel: a row below, or else a column to the left.
+            if (rowTop + rowHeight + gap + size.height() <= area.bottom()) {
+                rowTop += rowHeight + gap;
+            } else {
+                columnRight = columnLeft - gap;
+                columnLeft = columnRight;
+                rowTop = area.top();
+            }
+            rowLeft = columnRight;
+            rowHeight = 0;
         }
-        panel.window->move(right - size.width(), top);
-        top += size.height() + kPanelGap / 2;
-        columnWidth = std::max(columnWidth, size.width());
+        // Kept on the screen when the sheet has no room left for it.
+        panel.window->move(
+            std::clamp(rowLeft - size.width(), desk.left(), desk.right() - size.width()),
+            std::clamp(rowTop, desk.top(), desk.bottom() - size.height()));
+        rowLeft -= size.width() + gap;
+        rowHeight = std::max(rowHeight, size.height());
+        columnLeft = std::min(columnLeft, rowLeft + gap);
     }
 }
 

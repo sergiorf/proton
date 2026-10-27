@@ -139,6 +139,9 @@ public:
     void zoomIn();
     void zoomOut();
     void zoomToFit();
+    // Shows the whole drawing in `area`, a rectangle of the viewport, centred there and zoomed
+    // out if it must be, never in: the part of the sheet the instruments' panels leave free.
+    void fitInto(const QRect& area);
     double zoom() const;
     void setGridShown(bool shown);
     bool gridShown() const { return gridShown_; }

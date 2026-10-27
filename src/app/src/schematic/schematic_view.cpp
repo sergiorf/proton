@@ -66,6 +66,14 @@ QPointF at(Point p)
     return {static_cast<double>(p.x), static_cast<double>(p.y)};
 }
 
+// The drawing's bounds in scene pixels, with a margin of a few grid units for the names drawn
+// above and beside the symbols.
+QRectF framed(const schematic::Box& box)
+{
+    return {(box.left - 3) * kGrid, (box.top - 3) * kGrid, (box.right - box.left + 6) * kGrid,
+            (box.bottom - box.top + 6) * kGrid};
+}
+
 Rotation turned(Rotation r)
 {
     return static_cast<Rotation>((static_cast<int>(r) + 1) % 4);
@@ -615,15 +623,30 @@ void SchematicView::zoomToFit()
         centerOn(0, 0);
         return;
     }
-    // A margin of a few grid units for the names drawn above and beside the symbols.
-    const QRectF area((box->left - 3) * kGrid, (box->top - 3) * kGrid,
-                      (box->right - box->left + 6) * kGrid, (box->bottom - box->top + 6) * kGrid);
+    const QRectF area = framed(*box);
     fitInView(area, Qt::KeepAspectRatio);
     if (zoom() > kMaxZoom || zoom() < kMinZoom) {
         setTransform(QTransform::fromScale(std::clamp(zoom(), kMinZoom, kMaxZoom),
                                            std::clamp(zoom(), kMinZoom, kMaxZoom)));
         centerOn(area.center());
     }
+}
+
+void SchematicView::fitInto(const QRect& area)
+{
+    const std::optional<schematic::Box> box = schematic::bounds(scene_);
+    if (!box || area.width() <= 0 || area.height() <= 0) {
+        return;
+    }
+    const QRectF drawing = framed(*box);
+    const double scale =
+        std::clamp(std::min({zoom(), area.width() / drawing.width(),
+                             area.height() / drawing.height()}),
+                   kMinZoom, kMaxZoom);
+    setTransform(QTransform::fromScale(scale, scale));
+    // centerOn() puts a point at the viewport's centre; shifted, the drawing's centre lands on
+    // the area's.
+    centerOn(drawing.center() + QPointF(viewport()->rect().center() - area.center()) / scale);
 }
 
 double SchematicView::zoom() const

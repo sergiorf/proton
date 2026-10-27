@@ -814,9 +814,8 @@ void checkEditor(MainWindow& window)
             }
             return meter->displayText() + QLatin1Char(' ') + meter->displayUnit();
         };
-        // Ideal measurements: the frame holds the probed voltages exactly, give or take the
-        // generator's 50 ohm into the 1k load.
-        const double sinePeak = 1000.0 / 1050.0;
+        // Ideal measurements and an ideal generator: the frame holds the probed voltages exactly.
+        const double sinePeak = 1.0;
         const auto flat = [](std::optional<std::pair<double, double>> e, double v) {
             return e && std::abs(e->first - v) < 1e-3 && std::abs(e->second - v) < 1e-3;
         };
@@ -1426,6 +1425,128 @@ void smokeMenus(MainWindow& window)
                 QApplication::exit(checker->failed() ? 1 : 0);
                 break;
             }
+        });
+        timer->start(16);
+    });
+}
+
+namespace {
+
+// The first time at or after the trigger where channel `channel` of `frame` rises through 0 V,
+// relative to the trigger, by linear interpolation between samples.
+std::optional<double> risingZero(const instruments::ScopeFrame& frame, std::size_t channel)
+{
+    const std::vector<double>& v = frame.values[channel];
+    for (std::size_t i = 1; i < v.size(); ++i) {
+        const double t = frame.startTime + static_cast<double>(i) * frame.sampleInterval;
+        if (t >= 0.0 && v[i - 1] < 0.0 && v[i] >= 0.0) {
+            return t - frame.sampleInterval * v[i] / (v[i] - v[i - 1]);
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+void smokeSession(MainWindow& window)
+{
+    window.showMaximized();
+    // Once the window has its maximised size.
+    QTimer::singleShot(500, &window, [&window] {
+        auto checker = std::make_shared<Checker>();
+        window.findChild<QAction*>(QStringLiteral("file-example-0"))->trigger();
+
+        // Side by side: when the sheet has room for every panel, none covers another.
+        const QWidget* viewport = window.sheet().viewport();
+        const QRect sheet(viewport->mapToGlobal(QPoint(0, 0)), viewport->size());
+        std::vector<QRect> panels;
+        for (const QWidget* panel : window.panelWindows()) {
+            if (panel->isVisible()) {
+                panels.push_back(panel->frameGeometry());
+            }
+        }
+        checker->check(panels.size() == 3, QStringLiteral("the example opens its three panels"));
+        if (std::ranges::all_of(panels, [&](const QRect& r) { return sheet.contains(r); })) {
+            for (std::size_t i = 0; i < panels.size(); ++i) {
+                for (std::size_t j = i + 1; j < panels.size(); ++j) {
+                    checker->check(!panels[i].intersects(panels[j]),
+                                   QStringLiteral("panels %1 and %2 overlap").arg(i).arg(j));
+                }
+            }
+        } else {
+            std::printf("proton: the sheet (%dx%d) has no room for the panels side by side; "
+                        "their layout is not checked\n",
+                        sheet.width(), sheet.height());
+        }
+
+        // 1.592 kHz with the cursor and the knob, as in M4.6.
+        GeneratorPanel& generator = window.generator();
+        panel::KnobWidget* frequency = nullptr;
+        for (panel::KnobWidget* knob : generator.findChildren<panel::KnobWidget*>()) {
+            if (knob->accessibleName() == QStringLiteral("Frequency")) {
+                frequency = knob;
+            }
+        }
+        const QPoint hundreds = generator.digitPosition(GeneratorPanel::Setting::Frequency, 2);
+        if (frequency != nullptr) {
+            mouse(generator.display(), QEvent::MouseButtonPress, hundreds, Qt::LeftButton);
+            mouse(generator.display(), QEvent::MouseButtonRelease, hundreds, Qt::NoButton);
+            wheel(frequency, 5);
+            key(frequency, Qt::Key_Right);
+            wheel(frequency, 9);
+            key(frequency, Qt::Key_Right);
+            wheel(frequency, 2);
+        }
+        checker->check(generator.config().frequency == 1592.0,
+                       QStringLiteral("the generator is set to 1.592 kHz"));
+
+        // 50 us/div: two steps faster than the example's 200 us/div, clockwise.
+        ScopePanel& scope = window.scope();
+        for (panel::KnobWidget* knob : scope.findChildren<panel::KnobWidget*>()) {
+            if (knob->accessibleName() == QStringLiteral("Time/div")) {
+                for (int click = 0; click < 2 && scope.config().timePerDiv > 50e-6; ++click) {
+                    wheel(knob, 1);
+                }
+            }
+        }
+        checker->check(scope.config().timePerDiv == 50e-6,
+                       QStringLiteral("the scope is at 50 us/div, not %1 s/div")
+                           .arg(scope.config().timePerDiv));
+
+        pressRun(window);
+        auto* timer = new QTimer(&window);
+        auto clock = std::make_shared<QElapsedTimer>();
+        clock->start();
+        QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, clock, checker] {
+            const bool late = clock->elapsed() > std::chrono::milliseconds(kExampleTimeout).count();
+            if (window.control().state() != bench::RunControl::State::Running || late) {
+                checker->check(false, late ? QStringLiteral("no reading in time")
+                                           : QString::fromStdString(window.control().error()));
+            } else if (!window.reading() || window.reading()->time < 0.2 ||
+                       !window.scope().screen().frame()) {
+                return; // past the second gate, as a student waits for the reading to settle
+            } else {
+                // -3 dB of 1 V peak is 0.5000 V RMS, give or take the last digit.
+                const MultimeterPanel& meter = window.multimeter();
+                const double volts = meter.displayText().toDouble();
+                checker->check(meter.displayUnit() == QStringLiteral("V") &&
+                                   std::abs(volts - 0.5) <= 2e-4,
+                               QStringLiteral("the meter shows %1 %2, not 0.5000 V")
+                                   .arg(meter.displayText(), meter.displayUnit()));
+                const instruments::ScopeFrame& frame = *window.scope().screen().frame();
+                const std::optional<double> in = risingZero(frame, 0);
+                const std::optional<double> out = risingZero(frame, 1);
+                const double lag = in && out ? (*out - *in) * 1592.0 * 360.0 : 0.0;
+                checker->check(std::abs(lag - 45.0) < 1.0,
+                               QStringLiteral("CH2 lags CH1 by %1 degrees, not 45").arg(lag));
+                std::printf("proton: at 1.592 kHz the meter shows %s V and CH2 lags CH1 by "
+                            "%.1f degrees (%.1f us)\n",
+                            meter.displayText().toStdString().c_str(), lag,
+                            in && out ? (*out - *in) * 1e6 : 0.0);
+                std::fflush(stdout);
+            }
+            timer->stop();
+            QApplication::exit(checker->failed() ? 1 : 0);
         });
         timer->start(16);
     });

@@ -25,7 +25,7 @@ using schematic::Scene;
 const std::string kGround(schematic::kGroundNet);
 
 // The instruments' settings, by name; their nets come from the drawing: gen1 1 kHz sine, 1 V,
-// 50 ohm; scope1 200 us/div (two periods of 1 kHz), 1 V/div, Auto, triggered by CH1 rising through
+// ideal (0 ohm); scope1 200 us/div (two periods of 1 kHz), 1 V/div, Auto, triggered by CH1 rising through
 // 0 V; dmm1 in `mode`.
 Bench::Config settings(Multimeter::Mode mode)
 {
@@ -35,7 +35,7 @@ Bench::Config settings(Multimeter::Mode mode)
         .frequency = 1e3,
         .amplitude = 1.0,
         .offset = 0.0,
-        .outputImpedance = 50.0,
+        .outputImpedance = 0.0,
         .output = true,
     };
 

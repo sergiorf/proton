@@ -51,4 +51,11 @@ void smokeUndo(MainWindow& window);
 // the pause without a restart, Pause, Stop, Run from t = 0 and Stop, and Quit.
 void smokeMenus(MainWindow& window);
 
+// The usability session (PLAN.md M4.8), as a student would do it with the panels: maximise the
+// window, load the RC low-pass from File > Examples, check that its panels open side by side
+// when the screen has room for them, set the generator to 1.592 kHz with the cursor and the knob,
+// turn the scope to 50 us/div, press Run, and read the corner: the multimeter shows -3 dB of the
+// generator's 1 V peak (0.500 V) and the scope's CH2 rises through 0 V 45 degrees after CH1.
+void smokeSession(MainWindow& window);
+
 } // namespace proton::app
