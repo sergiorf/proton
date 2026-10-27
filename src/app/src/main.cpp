@@ -3,7 +3,7 @@
 //
 //     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
 //             --smoke-editor | --smoke-undo | --smoke-menus | --smoke-session |
-//             --smoke-diagnostics | --screenshot <file.png>]
+//             --smoke-diagnostics | --smoke-selection | --screenshot <file.png>]
 //
 // Without an option the window opens maximised.
 //
@@ -11,12 +11,13 @@
 // check that the app, its Qt DLLs and plugins start.
 //
 // --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor, --smoke-undo, --smoke-menus,
-// --smoke-session and --smoke-diagnostics are CI checks (smoke.h): every example runs in turn,
+// --smoke-session, --smoke-diagnostics and --smoke-selection are CI checks (smoke.h): every
+// example runs in turn,
 // every front-panel control answers wheel, keys, drag and clicks, a generator knob reaches the
 // scope in time, circuits and instruments placed from the parts panel and wired by hand measure
 // what they should, the sheet's edits undo to the empty sheet and redo, every menu and toolbar
-// action does what it says, the RC low-pass's corner is found with the panels, and each drawing
-// mistake is marked where it is.
+// action does what it says, the RC low-pass's corner is found with the panels, each drawing
+// mistake is marked where it is, and box selection and the right-click menu work.
 // Each exits 0 when it passes and 1 otherwise.
 //
 // --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the
@@ -90,6 +91,9 @@ int main(int argc, char** argv)
     const QCommandLineOption smokeDiagnosticsOption(QStringLiteral("smoke-diagnostics"),
         QStringLiteral("Make each drawing mistake, check where it is marked, then exit."));
     parser.addOption(smokeDiagnosticsOption);
+    const QCommandLineOption smokeSelectionOption(QStringLiteral("smoke-selection"),
+        QStringLiteral("Select with boxes and right-click menus, check each, then exit."));
+    parser.addOption(smokeSelectionOption);
     parser.addOption(screenshot);
     parser.process(app);
 
@@ -100,7 +104,8 @@ int main(int argc, char** argv)
                              !parser.isSet(smokePanelOption) && !parser.isSet(smokeLatencyOption) &&
                              !parser.isSet(smokeEditorOption) && !parser.isSet(smokeUndoOption) &&
                              !parser.isSet(smokeMenusOption) && !parser.isSet(smokeSessionOption) &&
-                             !parser.isSet(smokeDiagnosticsOption) && !parser.isSet(screenshot);
+                             !parser.isSet(smokeDiagnosticsOption) &&
+                             !parser.isSet(smokeSelectionOption) && !parser.isSet(screenshot);
     if (interactive) {
         window.showMaximized();
     } else {
@@ -130,6 +135,8 @@ int main(int argc, char** argv)
         proton::app::smokeSession(window);
     } else if (parser.isSet(smokeDiagnosticsOption)) {
         proton::app::smokeDiagnostics(window);
+    } else if (parser.isSet(smokeSelectionOption)) {
+        proton::app::smokeSelection(window);
     } else if (parser.isSet(screenshot)) {
         window.loadExample(0);
         window.setRunning(true);

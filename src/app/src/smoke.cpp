@@ -1450,6 +1450,151 @@ std::optional<double> risingZero(const instruments::ScopeFrame& frame, std::size
 
 } // namespace
 
+void smokeSelection(MainWindow& window)
+{
+    Checker checker;
+    sheet::SchematicView& sheet = window.sheet();
+    QWidget* viewport = sheet.viewport();
+    const auto at = [&](Point p) { return QPointF(sheet.viewPoint(p)); };
+    const auto mouseAt = [&](QEvent::Type type, Point p, Qt::MouseButton button,
+                             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers = {}) {
+        QMouseEvent event(type, at(p), viewport->mapToGlobal(at(p)), button, buttons, modifiers);
+        QCoreApplication::sendEvent(viewport, &event);
+    };
+    // A box drag from `from` to `to`, in steps as a hand would.
+    const auto boxDrag = [&](Point from, Point to, Qt::KeyboardModifiers modifiers = {}) {
+        mouseAt(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton, modifiers);
+        for (int i = 1; i <= 4; ++i) {
+            const Point step{from.x + (to.x - from.x) * i / 4, from.y + (to.y - from.y) * i / 4};
+            mouseAt(QEvent::MouseMove, step, Qt::NoButton, Qt::LeftButton, modifiers);
+        }        mouseAt(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton, modifiers);
+    };
+    using Indices = std::vector<std::size_t>;
+
+    // R1 with a wire on its right, scope1 beyond it, and R2 below, outside the box.
+    sheet.placePart(ComponentKind::Resistor, {0, 0});       // part 0, pins (-2, 0), (2, 0)
+    sheet.drawWire({2, 0}, {6, 0});                         // wire 0
+    sheet.placeInstrument(InstrumentKind::Scope, {12, 0});  // instrument 0
+    sheet.placePart(ComponentKind::Resistor, {0, 10});      // part 1
+    sheet.drawWire({2, 10}, {30, 10});                      // wire 1, half inside the Shift box
+    const schematic::Scene drawn = sheet.scene();
+
+    boxDrag({-4, -4}, {20, 5});
+    schematic::Selection selected = sheet.selection();
+    checker.check(selected.parts == Indices{0} && selected.wires == Indices{0} &&
+                      selected.instruments == Indices{0},
+                  QStringLiteral("a box selects R1, its wire and scope1, not R2 or the long wire"));
+    // Shift and a second box add R2.
+    boxDrag({-4, 8}, {4, 12}, Qt::ShiftModifier);
+    selected = sheet.selection();
+    checker.check(selected.parts == (Indices{0, 1}) && selected.instruments == Indices{0},
+                  QStringLiteral("Shift and a box add to the selection"));
+    key(&sheet, Qt::Key_Delete);
+    checker.check(sheet.scene().parts.empty() && sheet.scene().instruments.empty() &&
+                      sheet.scene().wires == std::vector<schematic::Wire>{drawn.wires[1]},
+                  QStringLiteral("Delete removes what the boxes selected"));
+    sheet.undoStack().undo();
+    checker.check(sheet.scene() == drawn, QStringLiteral("undo brings them back"));
+
+    // Escape clears the selection.
+    sheet.selectAll();
+    key(&sheet, Qt::Key_Escape);
+    checker.check(sheet.selection().empty(), QStringLiteral("Escape clears the selection"));
+
+    // A right-click opens the menu where it is, the item under it selected first.
+    QStringList shown;
+    QTimer::singleShot(0, &window, [&shown] {
+        if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+            for (const QAction* action : menu->actions()) {
+                shown << action->objectName();
+            }
+            menu->close();
+        }
+    });
+    mouseAt(QEvent::MouseButtonPress, {0, 10}, Qt::RightButton, Qt::RightButton);
+    mouseAt(QEvent::MouseButtonRelease, {0, 10}, Qt::RightButton, Qt::NoButton);
+    checker.check(sheet.selection().parts == Indices{1} &&
+                      shown.contains(QStringLiteral("edit-delete")),
+                  QStringLiteral("a right-click on R2 selects it and shows its menu: %1")
+                      .arg(shown.join(QLatin1Char(' '))));
+
+    // Each entry of each menu: on a part, on an instrument, on a wire and on empty sheet.
+    const auto entry = [&](Point p, const char* id) {
+        const std::unique_ptr<QMenu> menu = sheet.contextMenu(p);
+        for (QAction* action : menu->actions()) {
+            if (action->objectName() == QLatin1String(id)) {
+                checker.check(action->isEnabled(), QStringLiteral("%1 is enabled").arg(id));
+                action->trigger();
+                return;
+            }
+        }
+        checker.check(false,
+                      QStringLiteral("the menu at (%1, %2) has %3").arg(p.x).arg(p.y).arg(id));
+    };
+    const schematic::PlacedPart before = sheet.scene().parts[0];
+    entry({0, 0}, "edit-rotate");
+    checker.check(sheet.scene().parts[0].placement.rotation != before.placement.rotation,
+                  QStringLiteral("Rotate on R1 turns it"));
+    entry({0, 0}, "edit-mirror");
+    checker.check(sheet.scene().parts[0].placement.mirrored != before.placement.mirrored,
+                  QStringLiteral("Mirror on R1 mirrors it"));
+    answerNextDialog([](QDialog& dialog) {
+        const QList<QLineEdit*> fields = dialog.findChildren<QLineEdit*>();
+        if (fields.size() == 2) {
+            fields[1]->setText(QStringLiteral("4.7k"));
+        }
+        dialog.accept();
+    });
+    entry({0, 0}, "edit-properties");
+    checker.check(sheet.scene().parts[0].value == "4.7k",
+                  QStringLiteral("Properties on R1 sets its value"));
+    entry({0, 0}, "edit-delete");
+    checker.check(sheet.scene().parts.size() == 1, QStringLiteral("Delete on R1 removes it"));
+
+    entry({12, 0}, "sheet-open-panel");
+    checker.check(window.scopePanel(QStringLiteral("scope1")) != nullptr &&
+                      window.scopePanel(QStringLiteral("scope1"))->isVisible(),
+                  QStringLiteral("Open panel on scope1 opens its panel"));
+    entry({12, 0}, "edit-rotate");
+    checker.check(sheet.scene().instruments[0].placement.rotation != schematic::Rotation::R0,
+                  QStringLiteral("Rotate on scope1 turns it"));
+    entry({12, 0}, "edit-rotate");
+    entry({12, 0}, "edit-rotate");
+    entry({12, 0}, "edit-rotate"); // back upright
+    entry({12, 0}, "edit-mirror");
+    checker.check(sheet.scene().instruments[0].placement.mirrored,
+                  QStringLiteral("Mirror on scope1 mirrors it"));
+    answerNextDialog([](QDialog& dialog) {
+        if (auto* input = qobject_cast<QInputDialog*>(&dialog)) {
+            input->setTextValue(QStringLiteral("probe"));
+        }
+        dialog.accept();
+    });
+    entry({12, 0}, "edit-properties");
+    checker.check(sheet.scene().instruments[0].name == "probe",
+                  QStringLiteral("Properties on scope1 renames it"));
+    entry({12, 0}, "edit-delete");
+    checker.check(sheet.scene().instruments.empty(), QStringLiteral("Delete on probe removes it"));
+
+    const std::size_t wires = sheet.scene().wires.size();
+    entry({20, 10}, "edit-delete");
+    checker.check(sheet.scene().wires.size() == wires - 1,
+                  QStringLiteral("Delete on a wire removes it"));
+
+    entry({40, 40}, "edit-select-all");
+    checker.check(!sheet.selection().empty(), QStringLiteral("Select all on empty sheet"));
+    sheet.copy();
+    const std::size_t parts = sheet.scene().parts.size();
+    entry({40, 40}, "edit-paste");
+    checker.check(sheet.scene().parts.size() == 2 * parts,
+                  QStringLiteral("Paste on empty sheet pastes the copy"));
+
+    std::printf("proton: box selection and every right-click menu entry checked\n");
+    std::fflush(stdout);
+    const bool failed = checker.failed();
+    QTimer::singleShot(0, &window, [failed] { QApplication::exit(failed ? 1 : 0); });
+}
+
 void smokeDiagnostics(MainWindow& window)
 {
     using schematic::DiagnosticCode;

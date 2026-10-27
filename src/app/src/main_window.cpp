@@ -522,8 +522,9 @@ void MainWindow::buildMenus()
                                   [this] { sheet_->deleteSelection(); }),
                        Icon::Delete);
     edit->addActions({cut_, copy_, paste_, delete_});
-    edit->addAction(makeAction("edit-select-all", tr("Select &all"), QKeySequence::SelectAll,
-                               [this] { sheet_->selectAll(); }));
+    QAction* selectAll = makeAction("edit-select-all", tr("Select &all"), QKeySequence::SelectAll,
+                                    [this] { sheet_->selectAll(); });
+    edit->addAction(selectAll);
     edit->addSeparator();
     rotate_ = withIcon(makeAction("edit-rotate", tr("&Rotate"), QKeySequence(Qt::Key_R),
                                   [this] { sheet_->rotate(); }),
@@ -540,6 +541,8 @@ void MainWindow::buildMenus()
     edit->addAction(properties_);
     // Delete also with Backspace, as the sheet always took it.
     delete_->setShortcuts({QKeySequence(QKeySequence::Delete), QKeySequence(Qt::Key_Backspace)});
+    // The sheet's right-click menu (PLAN.md M4.10) offers the same actions.
+    sheet_->setContextActions({delete_, rotate_, mirror_, properties_}, {paste_, selectAll});
 
     QMenu* view = menuBar()->addMenu(tr("&View"));
     view->addAction(withIcon(makeAction("view-zoom-in", tr("Zoom &in"), QKeySequence::ZoomIn,

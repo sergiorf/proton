@@ -8,19 +8,23 @@
 
 #include <QGraphicsView>
 #include <QImage>
+#include <QList>
 #include <QPoint>
 #include <QString>
 #include <QStringList>
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <variant>
 #include <vector>
 
+class QAction;
 class QGraphicsScene;
 class QLabel;
+class QMenu;
 class QUndoStack;
 
 namespace proton::app::sheet {
@@ -34,10 +38,11 @@ class SheetItem;
 //
 // Tools:
 // - Select: click a part, instrument, wire or label to select it (Shift adds); drag selected parts
-//   and instruments to move them, their wire ends following; double-click a part to edit its
-//   designator and value, a label to rename it, or an instrument to open its front panel
-//   (instrumentOpened()). R turns the selected parts and instruments, Delete removes the
-//   selection.
+//   and instruments to move them, their wire ends following; a drag that starts on empty sheet
+//   draws a box and selects what lies wholly inside it (schematic::within; Shift adds);
+//   double-click a part to edit its designator and value, a label to rename it, or an instrument
+//   to open its front panel (instrumentOpened()). R turns the selected parts and instruments,
+//   Delete removes the selection, Escape clears it. Right-click opens contextMenu() there.
 // - Wire: click where a wire starts, then where it bends or ends; each click adds the route there
 //   (horizontal, then vertical) and goes on from it. Double-click, right-click or Escape ends it.
 // - Label: click on a net to name it.
@@ -119,6 +124,16 @@ public:
     // The selection, as Select leaves it.
     schematic::Selection selection() const;
     bool hasSelection() const { return !selection().empty(); }
+    // The actions of the right-click menu (PLAN.md M4.10): `onItems` on a part, instrument, wire,
+    // label or junction, `onSheet` on empty sheet. The app passes its Edit menu's actions, so the
+    // menu shows their shortcuts and enabled state.
+    void setContextActions(const QList<QAction*>& onItems, const QList<QAction*>& onSheet);
+    // The right-click menu at grid point `p`, as a right-click there opens it with the Select
+    // tool: on an item, that item selected first unless it already is (a selection it is part of
+    // stays), then Open panel for an instrument and the item actions; on empty sheet, the
+    // selection cleared and the sheet actions.
+    std::unique_ptr<QMenu> contextMenu(schematic::Point p);
+
     // Selects these items, or everything drawn, with the Select tool.
     void select(const schematic::Selection& selection);
     void selectAll();
@@ -207,6 +222,9 @@ private:
     void refresh();
     void finishWire();
     void selectAt(schematic::Point p, bool add);
+    // Whether anything is drawn at `p`, and whether what selectAt() would pick there is selected.
+    bool itemAt(schematic::Point p) const;
+    bool selectedAt(schematic::Point p) const;
     void editPart(std::size_t index);
     void editLabel(std::size_t index);
     void editInstrument(std::size_t index);
@@ -238,6 +256,9 @@ private:
 
     std::optional<schematic::Point> wireStart_; // the Wire tool's current start
     std::optional<schematic::Point> dragFrom_;  // Select: where a drag of the selection began
+    std::optional<schematic::Point> boxFrom_;   // Select: where a selection box began
+    QList<QAction*> itemActions_;
+    QList<QAction*> sheetActions_;
 
     std::vector<Mark> marks_;
     QLabel* sheetBar_ = nullptr; // the diagnostics about the whole drawing
