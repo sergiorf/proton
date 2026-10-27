@@ -5,6 +5,8 @@
 #include "proton/schematic/validate.h"
 #include "proton/test/test.h"
 
+#include <algorithm>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -189,6 +191,124 @@ TEST(remove_drops_the_chosen_items)
     CHECK(scene.labels.empty());
     CHECK_EQ(scene.instruments.size(), 1u);
     CHECK_EQ(scene.instruments[0].name, std::string("dmm1"));
+}
+
+TEST(remove_drops_junctions_too)
+{
+    Scene scene;
+    scene.junctions = {{0, 0}, {4, 0}};
+    CHECK(junctionAt(scene, {4, 0}) == std::optional<std::size_t>(1));
+    CHECK(!junctionAt(scene, {2, 0}));
+    remove(scene, {}, {}, {}, {}, {0});
+    CHECK(scene.junctions == (std::vector<Point>{{4, 0}}));
+}
+
+// Mirroring flips the pins left to right on screen about the position, however the item is
+// turned, and twice gives the item back.
+TEST(mirroring_flips_pins_left_to_right_and_wires_follow)
+{
+    const auto flipped = [](Point p, Point about) { return Point{2 * about.x - p.x, p.y}; };
+    for (int r = 0; r < 4; ++r) {
+        const auto rotation = static_cast<Rotation>(r);
+        Scene scene;
+        scene.parts = {part(ComponentKind::VoltageSource, "V1", {3, 2}, rotation)};
+        scene.instruments = {instrument(InstrumentKind::Generator, "gen1", {-10, 4}, rotation)};
+        const PlacedPart partBefore = scene.parts[0];
+        const PlacedInstrument instrumentBefore = scene.instruments[0];
+        const Point pin = place(pinOffsets(ComponentKind::VoltageSource)[0], partBefore.placement);
+        const Point terminal = place(terminalOffsets(InstrumentKind::Generator)[0],
+                                     instrumentBefore.placement);
+        scene.wires = {{pin, {20, 20}}, {terminal, {-20, 20}}};
+
+        mirrorPart(scene, 0);
+        mirrorInstrument(scene, 0);
+        for (std::size_t i = 0; i < 2; ++i) {
+            CHECK(place(pinOffsets(ComponentKind::VoltageSource)[i], scene.parts[0].placement) ==
+                  flipped(place(pinOffsets(ComponentKind::VoltageSource)[i], partBefore.placement),
+                          {3, 2}));
+            CHECK(place(terminalOffsets(InstrumentKind::Generator)[i],
+                        scene.instruments[0].placement) ==
+                  flipped(place(terminalOffsets(InstrumentKind::Generator)[i],
+                                instrumentBefore.placement),
+                          {-10, 4}));
+        }
+        CHECK(scene.wires[0].from == flipped(pin, {3, 2}));
+        CHECK(scene.wires[1].from == flipped(terminal, {-10, 4}));
+
+        mirrorPart(scene, 0);
+        mirrorInstrument(scene, 0);
+        CHECK(scene.parts[0] == partBefore);
+        CHECK(scene.instruments[0] == instrumentBefore);
+    }
+}
+
+TEST(scene_bounds_cover_everything_drawn)
+{
+    Scene scene;
+    CHECK(!bounds(scene));
+    scene.parts = {part(ComponentKind::Resistor, "R1", {0, 0})}; // -2..2, -1..1
+    scene.wires = {{{2, 0}, {2, 9}}};
+    scene.labels = {{"out", {-5, 3}}};
+    scene.junctions = {{6, -4}};
+    CHECK(bounds(scene) == (Box{-5, -4, 6, 9}));
+}
+
+TEST(copy_and_paste_give_new_names_and_keep_labels)
+{
+    Scene scene;
+    scene.parts = {part(ComponentKind::Resistor, "R1", {0, 0}),
+                   part(ComponentKind::Resistor, "R2", {0, 4}),
+                   part(ComponentKind::Ground, "", {0, 8})};
+    scene.instruments = {instrument(InstrumentKind::Multimeter, "dmm1", {10, 0})};
+    scene.wires = {{{2, 0}, {2, 4}}, {{-2, 0}, {-2, 4}}};
+    scene.labels = {{"out", {2, 2}}};
+    scene.junctions = {{2, 2}};
+
+    Selection selection;
+    selection.parts = {2, 0}; // in scene order on the clipboard, whatever the selection's order
+    selection.wires = {0};
+    selection.labels = {0};
+    selection.instruments = {0};
+    selection.junctions = {0};
+    const Scene clip = extract(scene, selection);
+    CHECK_EQ(clip.parts.size(), 2u);
+    CHECK_EQ(clip.parts[0].designator, std::string("R1"));
+    CHECK(clip.wires == (std::vector<Wire>{{{2, 0}, {2, 4}}}));
+
+    const Scene before = scene;
+    const Selection added = paste(scene, clip, {20, 0});
+    CHECK(added.parts == (std::vector<std::size_t>{3, 4}));
+    CHECK(added.wires == (std::vector<std::size_t>{2}));
+    CHECK(added.labels == (std::vector<std::size_t>{1}));
+    CHECK(added.instruments == (std::vector<std::size_t>{1}));
+    CHECK(added.junctions == (std::vector<std::size_t>{1}));
+    CHECK_EQ(scene.parts[3].designator, std::string("R3")); // R1 and R2 are taken
+    CHECK_EQ(scene.parts[3].value, std::string("1k"));
+    CHECK(scene.parts[3].placement.position == (Point{20, 0}));
+    CHECK(scene.parts[4].designator.empty()); // ground has none
+    CHECK_EQ(scene.instruments[1].name, std::string("dmm2"));
+    CHECK(scene.instruments[1].placement.position == (Point{30, 0}));
+    CHECK(scene.wires[2] == (Wire{{22, 0}, {22, 4}}));
+    CHECK(scene.labels[1] == (NetLabel{"out", {22, 2}})); // the same net name
+    CHECK(scene.junctions[1] == (Point{22, 2}));
+    CHECK(std::equal(before.parts.begin(), before.parts.end(), scene.parts.begin()));
+
+    // Pasted again: the next names on.
+    paste(scene, clip, {40, 0});
+    CHECK_EQ(scene.parts[5].designator, std::string("R4"));
+    CHECK_EQ(scene.instruments[2].name, std::string("dmm3"));
+    CHECK(paste(scene, Scene{}, {1, 1}).empty());
+}
+
+TEST(instrument_names_are_taken_ignoring_case)
+{
+    Scene scene;
+    scene.instruments = {instrument(InstrumentKind::Scope, "scope1", {0, 0}),
+                         instrument(InstrumentKind::Multimeter, "dmm1", {10, 0})};
+    CHECK(instrumentNameTaken(scene, "SCOPE1"));
+    CHECK(!instrumentNameTaken(scene, "scope1", 0)); // its own name
+    CHECK(instrumentNameTaken(scene, "dmm1", 0));
+    CHECK(!instrumentNameTaken(scene, "probe"));
 }
 
 // The Done-when of M4.2, headless: the voltage divider drawn with the editor's operations (place,

@@ -42,4 +42,13 @@ void smokeEditor(MainWindow& window);
 // back to the last scene the same way (PLAN.md M4.3).
 void smokeUndo(MainWindow& window);
 
+// Triggers every action of the menus through its menu, and those on a toolbar through their
+// toolbar button too, on the first example, checking what each does (PLAN.md M4.7): File (an
+// example, export image answered with a temporary file, new), Edit (undo, redo, cut, copy,
+// paste, delete, select all, rotate, mirror, properties of a part and of an instrument whose
+// open panel follows its new name), View, Place (every part, instrument and tool), Options, Help,
+// Simulate > Instruments and the Window menu. Then Run, Pause (time stands still), Run on from
+// the pause without a restart, Pause, Stop, Run from t = 0 and Stop, and Quit.
+void smokeMenus(MainWindow& window);
+
 } // namespace proton::app

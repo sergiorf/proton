@@ -8,6 +8,7 @@
 
 using proton::bench::Bench;
 using proton::bench::benchFor;
+using proton::bench::carryOver;
 using proton::bench::remember;
 using proton::instruments::Multimeter;
 using proton::schematic::InstrumentConnections;
@@ -107,4 +108,25 @@ TEST(remember_keeps_deleted_instances_so_undo_brings_their_settings_back)
     if (current.scopes.size() == 2) {
         CHECK_EQ(current.scopes[1].config.timePerDiv, 2e-6);
     }
+}
+
+TEST(a_renamed_instrument_keeps_its_settings)
+{
+    Bench::Config settings;
+    Bench::Config current =
+        benchFor({connections(InstrumentKind::Scope, "scope1", {"a", "b"})}, settings);
+    current.scopes[0].config.timePerDiv = 2e-6;
+    remember(settings, current);
+    carryOver(settings, InstrumentKind::Scope, "SCOPE1", "probe");
+    carryOver(settings, InstrumentKind::Multimeter, "scope1", "meter"); // no such multimeter
+    CHECK(settings.multimeters.empty());
+    current = benchFor({connections(InstrumentKind::Scope, "probe", {"a", "b"})}, settings);
+    CHECK_EQ(current.scopes.size(), 1u);
+    if (current.scopes.size() == 1) {
+        CHECK_EQ(current.scopes[0].name, std::string("probe"));
+        CHECK_EQ(current.scopes[0].config.timePerDiv, 2e-6);
+    }
+    // The old name keeps them, for undo.
+    current = benchFor({connections(InstrumentKind::Scope, "scope1", {"a", "b"})}, settings);
+    CHECK_EQ(current.scopes[0].config.timePerDiv, 2e-6);
 }

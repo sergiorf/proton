@@ -147,7 +147,9 @@ Qt-free library, `src/bench`, tested headlessly and shared by the app and the to
 - `Bench::feed(chunk)` routes each chunk to every measuring instrument; frames and readings are
   collected per instrument id.
 - Run control lives here too: when a change restarts the run, how changes are coalesced, and how
-  simulation time relates to wall-clock time (section 4).
+  simulation time relates to wall-clock time (section 4). A paused run feeds nothing, so
+  simulation time and every instrument stand still while the worker waits on its full ring;
+  resuming goes on from there without a restart.
 - Instrument settings stay plain-data structs, so the bench can be serialised into the project
   file without touching the models.
 - The UI is a thin view: an instrument symbol on the schematic, and one front panel per

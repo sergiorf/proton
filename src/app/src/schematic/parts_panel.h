@@ -3,7 +3,9 @@
 
 #include "schematic_view.h"
 
+#include <QIcon>
 #include <QPoint>
+#include <QString>
 #include <QTabWidget>
 
 #include <utility>
@@ -25,8 +27,10 @@ class PartsPanel : public QTabWidget {
 public:
     explicit PartsPanel(QWidget* parent = nullptr);
 
-    // Every entry, in panel order.
+    // Every entry, in panel order, with its name and icon: for the Place menu too.
     std::vector<SchematicView::Placing> entries() const;
+    QString name(const SchematicView::Placing& what) const;
+    QIcon icon(const SchematicView::Placing& what) const;
     // Brings `what`'s tab to the front and returns the widget and point to click to choose it, for
     // the smoke check that places every entry by hand; no widget when there is no such entry.
     std::pair<QWidget*, QPoint> locate(const SchematicView::Placing& what);

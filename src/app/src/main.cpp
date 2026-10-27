@@ -2,21 +2,21 @@
 // proton: the Qt Widgets app.
 //
 //     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
-//             --smoke-editor | --smoke-undo | --screenshot <file.png>]
+//             --smoke-editor | --smoke-undo | --smoke-menus | --screenshot <file.png>]
 //
 // --smoke-test opens the main window, closes it once the event loop runs and exits 0: the CI
 // check that the app, its Qt DLLs and plugins start.
 //
-// --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor and --smoke-undo are CI checks
-// (smoke.h): every example runs in turn, every front-panel control answers wheel, keys, drag and
-// clicks, a generator knob reaches the scope in time, circuits and instruments placed from the
-// parts panel and wired by hand measure what they should, and the sheet's edits undo to the empty
-// sheet and redo. Each exits 0 when it passes
-// and 1 otherwise.
+// --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor, --smoke-undo and
+// --smoke-menus are CI checks (smoke.h): every example runs in turn, every front-panel control
+// answers wheel, keys, drag and clicks, a generator knob reaches the scope in time, circuits and
+// instruments placed from the parts panel and wired by hand measure what they should, the sheet's
+// edits undo to the empty sheet and redo, and every menu and toolbar action does what it says.
+// Each exits 0 when it passes and 1 otherwise.
 //
 // --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the
-// window as a PNG and each instrument's panel beside it (<file>-scope1.png, ...), and exits: for
-// checking a panel's look and for documentation.
+// window as a PNG, each instrument's panel beside it (<file>-scope1.png, ...) and each menu opened
+// (<file>-menu-edit.png, ...), and exits: for checking the look and for documentation.
 
 #include "main_window.h"
 #include "smoke.h"
@@ -28,6 +28,8 @@
 #include <QCommandLineParser>
 #include <QFileInfo>
 #include <QIcon>
+#include <QMenu>
+#include <QMenuBar>
 #include <QPixmap>
 #include <QString>
 #include <QTimer>
@@ -74,6 +76,9 @@ int main(int argc, char** argv)
     const QCommandLineOption smokeUndoOption(QStringLiteral("smoke-undo"),
         QStringLiteral("Edit the sheet, undo every edit and redo them, check each, then exit."));
     parser.addOption(smokeUndoOption);
+    const QCommandLineOption smokeMenusOption(QStringLiteral("smoke-menus"),
+        QStringLiteral("Trigger every menu and toolbar action, check each, then exit."));
+    parser.addOption(smokeMenusOption);
     parser.addOption(screenshot);
     parser.process(app);
 
@@ -97,6 +102,8 @@ int main(int argc, char** argv)
         proton::app::smokeEditor(window);
     } else if (parser.isSet(smokeUndoOption)) {
         proton::app::smokeUndo(window);
+    } else if (parser.isSet(smokeMenusOption)) {
+        proton::app::smokeMenus(window);
     } else if (parser.isSet(screenshot)) {
         window.loadExample(0);
         window.setRunning(true);
@@ -112,6 +119,22 @@ int main(int argc, char** argv)
                                               QLatin1Char('.') + info.suffix();
                     saved = panel->window()->grab().save(panelFile) && saved;
                 }
+            }
+            // Each menu of the menu bar, opened: <file>-menu-file.png, ...
+            for (QAction* entry : window.menuBar()->actions()) {
+                QMenu* menu = entry->menu();
+                if (menu == nullptr) {
+                    continue;
+                }
+                Q_EMIT menu->aboutToShow(); // menus filled as they open
+                menu->popup(window.menuBar()->mapToGlobal(
+                    window.menuBar()->actionGeometry(entry).bottomLeft()));
+                const QString name = entry->text().remove(QLatin1Char('&')).toLower();
+                const QString menuFile = info.path() + QLatin1Char('/') + info.completeBaseName() +
+                                         QStringLiteral("-menu-") + name + QLatin1Char('.') +
+                                         info.suffix();
+                saved = menu->grab().save(menuFile) && saved;
+                menu->hide();
             }
             QApplication::exit(saved ? 0 : 1);
         });

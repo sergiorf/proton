@@ -346,6 +346,113 @@ TEST(a_limit_holds_the_rest_back)
     CHECK(control.lastTime() <= 0.01);
 }
 
+TEST(pause_freezes_the_run_and_start_goes_on_from_there)
+{
+    Factory factory;
+    RunControl control(factory.get(), unpaced());
+    control.bench().configure(wired()); // the DMM reads every 10 ms gate
+    control.setCircuit(rc());
+    control.start();
+    const Clock::time_point deadline = Clock::now() + kTimeout;
+    while (control.fedThrough() < 0.015 && Clock::now() < deadline) {
+        control.pump(0.0, 0.015); // halfway through the second gate
+    }
+    CHECK_EQ(control.fedThrough(), 0.015);
+    while (control.bench().popReading(0)) {
+    }
+    while (control.bench().popFrame(0)) {
+    }
+
+    control.pause();
+    CHECK(control.state() == RunControl::State::Paused);
+    const double lastTime = control.lastTime();
+    for (int i = 0; i < 100; ++i) {
+        control.pump(0.0);
+    }
+    CHECK_EQ(control.fedThrough(), 0.015); // simulation time stands still
+    CHECK_EQ(control.lastTime(), lastTime);
+    CHECK(!control.bench().popReading(0));
+    CHECK(!control.bench().popFrame(0));
+
+    control.start();
+    CHECK(control.state() == RunControl::State::Running);
+    while (control.fedThrough() < 0.025 && Clock::now() < deadline) {
+        control.pump(0.0, 0.025);
+    }
+    CHECK_EQ(control.fedThrough(), 0.025);
+    CHECK(control.lastTime() > lastTime); // on from the pause, not from t = 0
+    CHECK_EQ(control.restarts(), 1u);
+    CHECK_EQ(factory.made, 1);
+    // The second gate, half counted before the pause, closed at 20 ms: the meter kept its state.
+    CHECK(control.bench().popReading(0).has_value());
+}
+
+TEST(a_paced_run_does_not_catch_up_on_a_pause)
+{
+    Factory factory;
+    RunControl control(factory.get()); // real time
+    control.bench().configure(wired());
+    control.setCircuit(rc());
+    control.start();
+    control.pump(100.0);
+    CHECK(pumpUntil(control, [&] { return control.fedThrough() >= 0.02 - 1e-9; }, 100.02));
+    const double paused = control.fedThrough();
+    control.pause();
+    control.pump(150.0);
+    CHECK_EQ(control.fedThrough(), paused);
+
+    // A minute later on the wall clock, the run goes on from where it paused.
+    control.start();
+    control.pump(200.0);
+    CHECK_NEAR(control.fedThrough(), paused, 1e-9);
+    CHECK(pumpUntil(control, [&] { return control.fedThrough() >= paused + 0.01 - 1e-9; },
+                    200.01));
+    CHECK_NEAR(control.fedThrough(), paused + 0.01, 1e-9);
+    CHECK_EQ(control.restarts(), 1u);
+}
+
+TEST(changes_while_paused_restart_on_start)
+{
+    Factory factory;
+    RunControl control(factory.get(), unpaced());
+    control.bench().configure(wired());
+    control.setCircuit(rc());
+    control.start();
+    CHECK(runTo(control, 0.02));
+    control.pause();
+    control.setCircuit(rc("2k"));
+    control.pump(0.0);
+    CHECK(control.state() == RunControl::State::Paused);
+    CHECK_EQ(control.restarts(), 1u);
+    const double before = control.lastTime();
+    control.start();
+    control.pump(0.0);
+    CHECK(control.state() == RunControl::State::Running);
+    CHECK_EQ(control.restarts(), 2u);
+    CHECK(control.lastTime() < before);
+}
+
+TEST(stop_ends_a_paused_run_and_start_begins_again)
+{
+    Factory factory;
+    RunControl control(factory.get(), unpaced());
+    control.pause(); // not running: nothing to pause
+    CHECK(control.state() == RunControl::State::Idle);
+    control.bench().configure(wired());
+    control.setCircuit(rc());
+    control.start();
+    CHECK(runTo(control, 0.02));
+    const double before = control.lastTime();
+    control.pause();
+    control.stop();
+    CHECK(control.state() == RunControl::State::Idle);
+    control.start();
+    control.pump(0.0);
+    CHECK(control.state() == RunControl::State::Running);
+    CHECK_EQ(control.restarts(), 2u);
+    CHECK(control.lastTime() < before); // from t = 0
+}
+
 TEST(stop_ends_the_run_and_start_restarts_it)
 {
     Factory factory;

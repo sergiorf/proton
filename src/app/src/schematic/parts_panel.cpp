@@ -142,6 +142,18 @@ std::vector<SchematicView::Placing> PartsPanel::entries() const
     return result;
 }
 
+QString PartsPanel::name(const SchematicView::Placing& what) const
+{
+    const Entry* entry = find(what);
+    return entry != nullptr ? entry->item->text() : QString();
+}
+
+QIcon PartsPanel::icon(const SchematicView::Placing& what) const
+{
+    const Entry* entry = find(what);
+    return entry != nullptr ? entry->item->icon() : QIcon();
+}
+
 std::pair<QWidget*, QPoint> PartsPanel::locate(const SchematicView::Placing& what)
 {
     const Entry* entry = find(what);

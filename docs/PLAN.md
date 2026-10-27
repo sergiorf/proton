@@ -378,7 +378,7 @@ last digit is 1.000 kHz) and stopping at the generator's range, and every freque
 can show reachable by digits alone; the panel smoke check sets 1.592 kHz with the cursor and the
 knob, and 2.2 kHz by typing 2.2 with kHz chosen.
 
-**M4.7 Menus and toolbars.** The menus and toolbar of a desktop circuit simulator, generic and
+**M4.7 Menus and toolbars.** *(done locally 2026-10-27, CI pending: Actions minutes ran out)* The menus and toolbar of a desktop circuit simulator, generic and
 original (common desktop conventions, no product's look):
 - File: New, Examples, Export image, Quit (Open, Save, Save As and Recent files come with project
   files, M4.10).

@@ -23,9 +23,26 @@ RunControl::RunControl(EngineFactory factory, const Config& config)
 
 RunControl::~RunControl() = default; // the worker stops its run
 
+void RunControl::start()
+{
+    wanted_ = true;
+    if (state_ == State::Paused) {
+        state_ = State::Running;
+        resumed_ = true;
+    }
+}
+
+void RunControl::pause()
+{
+    if (state_ == State::Running) {
+        state_ = State::Paused;
+    }
+}
+
 void RunControl::stop()
 {
     wanted_ = false;
+    resumed_ = false;
     if (worker_) {
         worker_->stop();
     }
@@ -37,7 +54,7 @@ void RunControl::stop()
 
 void RunControl::pump(double wallNow, double limit)
 {
-    if (!wanted_) {
+    if (!wanted_ || state_ == State::Paused) {
         return;
     }
     schematic::Circuit circuit = circuit_;
@@ -45,7 +62,11 @@ void RunControl::pump(double wallNow, double limit)
     const double maxStep = bench_.maxStep();
     if (!runCircuit_ || circuit != *runCircuit_ || maxStep != runMaxStep_) {
         restart(wallNow, std::move(circuit), maxStep);
+    } else if (resumed_ && config_.realTime) {
+        // On from the time it paused at, without catching up on the pause.
+        pacer_.start(wallNow, std::max(0.0, fedThrough_));
     }
+    resumed_ = false;
     if (state_ == State::Running) {
         feed(wallNow, limit);
     }
