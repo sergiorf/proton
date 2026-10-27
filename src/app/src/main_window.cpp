@@ -2,6 +2,7 @@
 #include "main_window.h"
 
 #include "generator_panel.h"
+#include "icons.h"
 #include "multimeter_panel.h"
 #include "panel/knob_widget.h"
 #include "scope_panel.h"
@@ -19,7 +20,10 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QDockWidget>
+#include <QFileDialog>
+#include <QFont>
 #include <QGuiApplication>
+#include <QImage>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenu>
@@ -36,9 +40,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <initializer_list>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 namespace proton::app {
 
@@ -96,78 +102,58 @@ MainWindow::MainWindow(QWidget* parent)
     // The schematic in the middle with the parts to place on its left; the instruments' panels
     // float beside their symbols.
     sheet_ = new sheet::SchematicView(this);
+    sheet_->setObjectName(QStringLiteral("sheet"));
     setCentralWidget(sheet_);
     connect(sheet_, &sheet::SchematicView::edited, this, &MainWindow::applyScene);
     connect(sheet_, &sheet::SchematicView::instrumentOpened, this,
             [this](const QString& name) { openPanel(name); });
 
     parts_ = new sheet::PartsPanel(this);
-    auto* partsDock = new QDockWidget(tr("Parts"), this);
-    partsDock->setObjectName(QStringLiteral("parts"));
-    partsDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
-    partsDock->setWidget(parts_);
-    addDockWidget(Qt::LeftDockWidgetArea, partsDock);
-    resizeDocks({partsDock}, {130}, Qt::Horizontal); // one icon a row
+    partsDock_ = new QDockWidget(tr("Parts"), this);
+    partsDock_->setObjectName(QStringLiteral("parts"));
+    partsDock_->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable |
+                            QDockWidget::DockWidgetClosable);
+    partsDock_->setWidget(parts_);
+    addDockWidget(Qt::LeftDockWidgetArea, partsDock_);
+    resizeDocks({partsDock_}, {130}, Qt::Horizontal); // one icon a row
     connect(parts_, &sheet::PartsPanel::chosen, this,
             [this](const sheet::SchematicView::Placing& what) { sheet_->placeKind(what); });
+    connect(sheet_, &sheet::SchematicView::instrumentRenamed, this,
+            [this](const QString& from, const QString& to) {
+                const schematic::Scene& scene = sheet_->scene();
+                const auto symbol = std::ranges::find_if(scene.instruments, [&](const auto& i) {
+                    return text(i.name) == from;
+                });
+                if (symbol != scene.instruments.end()) {
+                    bench::carryOver(settings_, symbol->kind, from.toStdString(),
+                                     to.toStdString());
+                }
+                // The old name's panel goes with the next edit; a shown one opens again.
+                const Panel* panel = panelOf(from);
+                if (panel != nullptr && panel->window->isVisible()) {
+                    reopen_ = to;
+                }
+            });
 
     status_ = new QLabel(this);
     status_->setTextFormat(Qt::PlainText);
     statusBar()->addWidget(status_, 1);
 
-    QMenu* file = menuBar()->addMenu(tr("&File"));
-    QAction* newSheet = file->addAction(tr("&New sheet"), this, [this] {
-        example_.reset();
-        sheet_->clearSheet();
-        sheet_->setTool(sheet::SchematicView::Tool::Select);
+    buildMenus();
+    buildToolBars();
+    connect(sheet_, &sheet::SchematicView::selectionChanged, this,
+            &MainWindow::updateEditActions);
+    connect(sheet_, &sheet::SchematicView::clipboardChanged, this,
+            &MainWindow::updateEditActions);
+    connect(sheet_, &sheet::SchematicView::toolChanged, this, [this](sheet::SchematicView::Tool which) {
+        for (QAction* action : tools_->actions()) {
+            action->setChecked(action->data().toInt() == static_cast<int>(which));
+        }
+        parts_->showTool(which, sheet_->placing());
+        updateEditActions();
     });
-    newSheet->setShortcut(QKeySequence::New);
-    file->addSeparator();
-    QAction* quit = file->addAction(tr("&Quit"), this, &QWidget::close);
-
-    buildToolBar();
-    quit->setShortcut(QKeySequence::Quit);
-
-    // Undo and redo the sheet's edits (M4.3); the actions name the step they undo.
-    QMenu* edit = menuBar()->addMenu(tr("&Edit"));
-    QAction* undo = sheet_->undoStack().createUndoAction(this, tr("&Undo"));
-    undo->setObjectName(QStringLiteral("undo"));
-    undo->setShortcuts(QKeySequence::Undo);
-    edit->addAction(undo);
-    QAction* redo = sheet_->undoStack().createRedoAction(this, tr("&Redo"));
-    redo->setObjectName(QStringLiteral("redo"));
-    redo->setShortcuts(QKeySequence::Redo);
-    edit->addAction(redo);
-
-    // The bench's on switch (F5), in the toolbar and its own menu.
-    QMenu* simulate = menuBar()->addMenu(tr("&Simulate"));
-    simulate->addAction(run_);
-
-    // How a drag turns the panels' knobs: round them as a hand turns a knob, or straight.
-    QMenu* options = menuBar()->addMenu(tr("&Options"));
-    QAction* circular = options->addAction(tr("Turn knobs by dragging &round them"));
-    circular->setObjectName(QStringLiteral("circular-knobs"));
-    circular->setCheckable(true);
-    circular->setChecked(panel::KnobWidget::dragMode() == panel::KnobWidget::DragMode::Circular);
-    circular->setToolTip(tr("Off: drag up or right to turn clockwise, down or left the other way"));
-    connect(circular, &QAction::toggled, this, [](bool on) {
-        panel::KnobWidget::setDragMode(on ? panel::KnobWidget::DragMode::Circular
-                                          : panel::KnobWidget::DragMode::Straight);
-    });
-
-    QMenu* examples = menuBar()->addMenu(tr("&Examples"));
-    auto* group = new QActionGroup(this);
-    for (std::size_t i = 0; i < examples_.size(); ++i) {
-        QAction* action =
-            examples->addAction(text(examples_[i].name), this, [this, i] { loadExample(i); });
-        action->setCheckable(true);
-        group->addAction(action);
-    }
-
-    QMenu* help = menuBar()->addMenu(tr("&Help"));
-    help->addAction(tr("&About Proton"), this, &MainWindow::showAbout);
-    // Qt's own dialog names the Qt version and its license, as the LGPL asks (LICENSING.md).
-    help->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
+    updateEditActions();
+    setRunState(RunState::Stopped);
 
     clock_.start();
     // Precise: on Windows a coarse 16 ms timer lands on the 15.6 ms system tick and fires every
@@ -443,45 +429,378 @@ void MainWindow::syncPanels()
     panels_ = std::move(kept);
 }
 
-void MainWindow::buildToolBar()
+template <typename Slot>
+QAction* MainWindow::makeAction(const char* id, const QString& text, const QKeySequence& key,
+                                Slot slot)
+{
+    auto* action = new QAction(text, this);
+    action->setObjectName(QString::fromLatin1(id));
+    action->setShortcut(key);
+    connect(action, &QAction::triggered, this, slot);
+    return action;
+}
+
+void MainWindow::buildMenus()
 {
     using Tool = sheet::SchematicView::Tool;
-    QToolBar* tools = addToolBar(tr("Schematic"));
-    tools->setObjectName(QStringLiteral("schematic-tools"));
-    auto* group = new QActionGroup(this);
-    // None is checked while the Place tool is on: the parts panel shows what is being placed.
-    group->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
-    const auto tool = [&](const QString& name, const QString& tip, const QKeySequence& key,
-                          Tool which) {
-        QAction* action = tools->addAction(name, this, [this, which] { sheet_->setTool(which); });
-        action->setToolTip(tip);
-        action->setShortcut(key);
-        action->setCheckable(true);
-        action->setData(static_cast<int>(which));
-        group->addAction(action);
+    const auto withIcon = [](QAction* action, Icon which) {
+        action->setIcon(icon(which));
         return action;
     };
-    tool(tr("Select"),
+
+    QMenu* file = menuBar()->addMenu(tr("&File"));
+    file->addAction(withIcon(makeAction("file-new", tr("&New"), QKeySequence::New,
+                                        [this] {
+                                            example_.reset();
+                                            sheet_->clearSheet();
+                                            sheet_->setTool(Tool::Select);
+                                        }),
+                             Icon::New));
+    QMenu* examples = file->addMenu(tr("&Examples"));
+    examples->setObjectName(QStringLiteral("file-examples"));
+    for (std::size_t i = 0; i < examples_.size(); ++i) {
+        QAction* action = examples->addAction(text(examples_[i].name), this,
+                                              [this, i] { loadExample(i); });
+        action->setObjectName(QStringLiteral("file-example-%1").arg(i));
+    }
+    file->addSeparator();
+    file->addAction(withIcon(makeAction("file-export-image", tr("&Export image..."),
+                                        QKeySequence(Qt::CTRL | Qt::Key_E),
+                                        [this] {
+                                            const QString path = QFileDialog::getSaveFileName(
+                                                this, tr("Export image"),
+                                                QStringLiteral("schematic.png"),
+                                                tr("PNG image (*.png)"));
+                                            if (!path.isEmpty() && !exportImage(path)) {
+                                                QMessageBox::warning(
+                                                    this, tr("Export image"),
+                                                    tr("Could not save %1.").arg(path));
+                                            }
+                                        }),
+                             Icon::ExportImage));
+    file->addSeparator();
+    // Ctrl+Q spelled out: Qt's standard Quit key is empty on Windows.
+    file->addAction(makeAction("file-quit", tr("&Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q),
+                               [this] { close(); }));
+
+    // Undo and redo the sheet's edits (M4.3); the actions name the step they undo.
+    QMenu* edit = menuBar()->addMenu(tr("&Edit"));
+    QAction* undo = sheet_->undoStack().createUndoAction(this, tr("&Undo"));
+    undo->setObjectName(QStringLiteral("undo"));
+    undo->setShortcuts(QKeySequence::Undo);
+    undo->setIcon(icon(Icon::Undo));
+    edit->addAction(undo);
+    QAction* redo = sheet_->undoStack().createRedoAction(this, tr("&Redo"));
+    redo->setObjectName(QStringLiteral("redo"));
+    redo->setShortcuts(QKeySequence::Redo);
+    redo->setIcon(icon(Icon::Redo));
+    edit->addAction(redo);
+    edit->addSeparator();
+    cut_ = withIcon(makeAction("edit-cut", tr("Cu&t"), QKeySequence::Cut, [this] { sheet_->cut(); }),
+                    Icon::Cut);
+    copy_ = withIcon(
+        makeAction("edit-copy", tr("&Copy"), QKeySequence::Copy, [this] { sheet_->copy(); }),
+        Icon::Copy);
+    paste_ = withIcon(
+        makeAction("edit-paste", tr("&Paste"), QKeySequence::Paste, [this] { sheet_->paste(); }),
+        Icon::Paste);
+    delete_ = withIcon(makeAction("edit-delete", tr("&Delete"), QKeySequence::Delete,
+                                  [this] { sheet_->deleteSelection(); }),
+                       Icon::Delete);
+    edit->addActions({cut_, copy_, paste_, delete_});
+    edit->addAction(makeAction("edit-select-all", tr("Select &all"), QKeySequence::SelectAll,
+                               [this] { sheet_->selectAll(); }));
+    edit->addSeparator();
+    rotate_ = withIcon(makeAction("edit-rotate", tr("&Rotate"), QKeySequence(Qt::Key_R),
+                                  [this] { sheet_->rotate(); }),
+                       Icon::Rotate);
+    mirror_ = withIcon(makeAction("edit-mirror", tr("&Mirror"), QKeySequence(Qt::Key_X),
+                                  [this] { sheet_->mirror(); }),
+                       Icon::Mirror);
+    edit->addActions({rotate_, mirror_});
+    edit->addSeparator();
+    properties_ = withIcon(makeAction("edit-properties", tr("Pr&operties..."),
+                                      QKeySequence(Qt::Key_E),
+                                      [this] { sheet_->editProperties(); }),
+                           Icon::Properties);
+    edit->addAction(properties_);
+    // Delete also with Backspace, as the sheet always took it.
+    delete_->setShortcuts({QKeySequence(QKeySequence::Delete), QKeySequence(Qt::Key_Backspace)});
+
+    QMenu* view = menuBar()->addMenu(tr("&View"));
+    view->addAction(withIcon(makeAction("view-zoom-in", tr("Zoom &in"), QKeySequence::ZoomIn,
+                                        [this] { sheet_->zoomIn(); }),
+                             Icon::ZoomIn));
+    view->addAction(withIcon(makeAction("view-zoom-out", tr("Zoom &out"), QKeySequence::ZoomOut,
+                                        [this] { sheet_->zoomOut(); }),
+                             Icon::ZoomOut));
+    view->addAction(withIcon(makeAction("view-zoom-fit", tr("Zoom to &fit"),
+                                        QKeySequence(Qt::CTRL | Qt::Key_0),
+                                        [this] { sheet_->zoomToFit(); }),
+                             Icon::ZoomFit));
+    view->addSeparator();
+    QAction* grid = withIcon(makeAction("view-grid", tr("&Grid"), QKeySequence(Qt::Key_G),
+                                        [this](bool on) { sheet_->setGridShown(on); }),
+                             Icon::Grid);
+    grid->setCheckable(true);
+    grid->setChecked(sheet_->gridShown());
+    view->addAction(grid);
+    QAction* partsPanel = partsDock_->toggleViewAction();
+    partsPanel->setObjectName(QStringLiteral("view-parts-panel"));
+    partsPanel->setText(tr("&Parts panel"));
+    partsPanel->setShortcut(QKeySequence(Qt::Key_F9));
+    view->addAction(partsPanel);
+
+    // Place: the parts panel for the keyboard, then the drawing tools.
+    QMenu* place = menuBar()->addMenu(tr("&Place"));
+    bool instruments = false;
+    for (const sheet::SchematicView::Placing& what : parts_->entries()) {
+        const bool instrument = std::holds_alternative<InstrumentKind>(what);
+        if (instrument && !instruments) {
+            place->addSeparator(); // components, then instruments
+            instruments = true;
+        }
+        QAction* action = place->addAction(parts_->icon(what), parts_->name(what), this,
+                                           [this, what] { sheet_->placeKind(what); });
+        action->setObjectName((instrument ? QStringLiteral("place-instrument-")
+                                          : QStringLiteral("place-part-")) +
+                              parts_->name(what).toLower().replace(QLatin1Char(' '),
+                                                                   QLatin1Char('-')));
+    }
+    place->addSeparator();
+    tools_ = new QActionGroup(this);
+    // None is checked while the Place tool is on: the parts panel shows what is being placed.
+    tools_->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
+    const auto tool = [&](const char* id, const QString& name, const QString& tip,
+                          const QKeySequence& key, Icon which, Tool kind) {
+        QAction* action =
+            withIcon(makeAction(id, name, key, [this, kind] { sheet_->setTool(kind); }), which);
+        action->setStatusTip(tip);
+        action->setCheckable(true);
+        action->setData(static_cast<int>(kind));
+        tools_->addAction(action);
+        place->addAction(action);
+        return action;
+    };
+    tool("tool-select", tr("&Select"),
          tr("Select, move (drag), turn (R), delete (Del); double-click to edit a part or open an "
             "instrument"),
-         QKeySequence(Qt::Key_S), Tool::Select)
+         QKeySequence(Qt::Key_S), Icon::Select, Tool::Select)
         ->setChecked(true);
-    tool(tr("Wire"), tr("Click where the wire starts, then where it bends or ends"),
-         QKeySequence(Qt::Key_W), Tool::Wire);
-    tool(tr("Label"), tr("Click a net to name it"), QKeySequence(Qt::Key_L), Tool::Label);
-    tools->addSeparator();
-    run_ = tools->addAction(tr("Run"));
-    run_->setObjectName(QStringLiteral("run"));
-    run_->setCheckable(true);
-    run_->setShortcut(QKeySequence(Qt::Key_F5));
-    run_->setToolTip(tr("Switch the bench on: simulate the circuit and run the instruments (F5)"));
-    connect(run_, &QAction::toggled, this, &MainWindow::setRunning);
-    connect(sheet_, &sheet::SchematicView::toolChanged, this, [this, group](Tool which) {
-        for (QAction* action : group->actions()) {
-            action->setChecked(action->data().toInt() == static_cast<int>(which));
-        }
-        parts_->showTool(which, sheet_->placing());
+    tool("tool-wire", tr("&Wire"), tr("Click where the wire starts, then where it bends or ends"),
+         QKeySequence(Qt::Key_W), Icon::Wire, Tool::Wire);
+    tool("tool-label", tr("&Label"), tr("Click a net to name it"), QKeySequence(Qt::Key_L),
+         Icon::Label, Tool::Label);
+    tool("tool-junction", tr("&Junction"), tr("Click where crossing wires should connect"),
+         QKeySequence(Qt::Key_J), Icon::Junction, Tool::Junction);
+
+    // The bench's switch: Run, Pause, Stop.
+    QMenu* simulate = menuBar()->addMenu(tr("&Simulate"));
+    run_ = withIcon(makeAction("run", tr("&Run"), QKeySequence(Qt::Key_F5),
+                               [this] { setRunState(RunState::Running); }),
+                    Icon::Run);
+    pause_ = withIcon(makeAction("simulate-pause", tr("&Pause"), QKeySequence(Qt::Key_F6),
+                                 [this] { pauseRun(); }),
+                      Icon::Pause);
+    stop_ = withIcon(makeAction("simulate-stop", tr("&Stop"), QKeySequence(Qt::SHIFT | Qt::Key_F5),
+                                [this] { setRunState(RunState::Stopped); }),
+                     Icon::Stop);
+    run_->setStatusTip(tr("Switch the bench on: simulate the circuit and run the instruments"));
+    pause_->setStatusTip(tr("Freeze the run where it is; Run goes on from there"));
+    stop_->setStatusTip(tr("Switch the bench off; Run starts again from t = 0"));
+    for (QAction* action : {run_, pause_}) {
+        action->setCheckable(true); // lit while the bench is in that state
+    }
+    simulate->addActions({run_, pause_, stop_});
+    simulate->addSeparator();
+    instrumentsMenu_ = simulate->addMenu(tr("&Instruments"));
+    instrumentsMenu_->setObjectName(QStringLiteral("simulate-instruments"));
+    connect(instrumentsMenu_, &QMenu::aboutToShow, this, &MainWindow::fillInstrumentsMenu);
+
+    // How a drag turns the panels' knobs: round them as a hand turns a knob, or straight.
+    QMenu* options = menuBar()->addMenu(tr("&Options"));
+    QAction* circular = options->addAction(tr("Turn knobs by dragging &round them"));
+    circular->setObjectName(QStringLiteral("circular-knobs"));
+    circular->setCheckable(true);
+    circular->setChecked(panel::KnobWidget::dragMode() == panel::KnobWidget::DragMode::Circular);
+    circular->setToolTip(tr("Off: drag up or right to turn clockwise, down or left the other way"));
+    connect(circular, &QAction::toggled, this, [](bool on) {
+        panel::KnobWidget::setDragMode(on ? panel::KnobWidget::DragMode::Circular
+                                          : panel::KnobWidget::DragMode::Straight);
     });
+
+    windowMenu_ = menuBar()->addMenu(tr("&Window"));
+    windowMenu_->setObjectName(QStringLiteral("window"));
+    connect(windowMenu_, &QMenu::aboutToShow, this, &MainWindow::fillWindowMenu);
+    // Made once, so that their shortcuts work before the menu is first opened.
+    addAction(makeAction("window-arrange", tr("&Arrange panels"),
+                         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A),
+                         [this] { arrangePanels(); }));
+    addAction(makeAction("window-close-all", tr("&Close all panels"),
+                         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W),
+                         [this] { closePanels(); }));
+    fillWindowMenu();
+
+    QMenu* help = menuBar()->addMenu(tr("&Help"));
+    help->addAction(tr("&About Proton"), this, &MainWindow::showAbout)
+        ->setObjectName(QStringLiteral("help-about"));
+    // Qt's own dialog names the Qt version and its license, as the LGPL asks (LICENSING.md).
+    help->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt)
+        ->setObjectName(QStringLiteral("help-about-qt"));
+
+    // Every tooltip names its shortcut, as the menus do.
+    for (QAction* action : findChildren<QAction*>()) {
+        if (!action->shortcut().isEmpty()) {
+            action->setToolTip(QStringLiteral("%1 (%2)").arg(
+                action->text().remove(QLatin1Char('&')).remove(QStringLiteral("...")),
+                action->shortcut().toString(QKeySequence::NativeText)));
+        }
+    }
+}
+
+void MainWindow::buildToolBars()
+{
+    const auto bar = [this](const QString& title, const char* id,
+                            std::initializer_list<const char*> actions) {
+        QToolBar* toolBar = addToolBar(title);
+        toolBar->setObjectName(QString::fromLatin1(id));
+        toolBar->setIconSize(QSize(24, 24));
+        for (const char* name : actions) {
+            toolBar->addAction(findChild<QAction*>(QString::fromLatin1(name)));
+        }
+        return toolBar;
+    };
+    bar(tr("File"), "toolbar-file", {"file-new", "file-export-image"});
+    bar(tr("Edit"), "toolbar-edit",
+        {"undo", "redo", "edit-cut", "edit-copy", "edit-paste", "edit-delete", "edit-rotate",
+         "edit-mirror"});
+    bar(tr("View"), "toolbar-view",
+        {"view-zoom-in", "view-zoom-out", "view-zoom-fit", "view-grid"});
+    bar(tr("Tools"), "toolbar-tools", {"tool-select", "tool-wire", "tool-label", "tool-junction"});
+    QToolBar* simulation = bar(tr("Simulation"), "toolbar-simulation",
+                               {"run", "simulate-pause", "simulate-stop"});
+    runTime_ = new QLabel(simulation);
+    runTime_->setObjectName(QStringLiteral("run-time"));
+    runTime_->setTextFormat(Qt::PlainText);
+    runTime_->setContentsMargins(8, 0, 8, 0);
+    QFont mono = runTime_->font();
+    mono.setFamily(QStringLiteral("Consolas"));
+    mono.setStyleHint(QFont::Monospace);
+    runTime_->setFont(mono);
+    runTime_->setMinimumWidth(runTime_->fontMetrics().horizontalAdvance(
+                                  QStringLiteral("Paused  t = 0000.000 s")) +
+                              16);
+    simulation->addWidget(runTime_);
+    // Undo and Redo take the step's name as their text: their tooltips follow, with the shortcut.
+    for (const char* id : {"undo", "redo"}) {
+        auto* action = findChild<QAction*>(QString::fromLatin1(id));
+        connect(action, &QAction::changed, this, [action] {
+            const QString tip = action->text().remove(QLatin1Char('&')) + QStringLiteral(" (") +
+                                action->shortcut().toString(QKeySequence::NativeText) +
+                                QLatin1Char(')');
+            if (action->toolTip() != tip) {
+                action->setToolTip(tip);
+            }
+        });
+    }
+}
+
+void MainWindow::updateEditActions()
+{
+    using Tool = sheet::SchematicView::Tool;
+    const bool selecting = sheet_->tool() == Tool::Select;
+    const bool selected = selecting && sheet_->hasSelection();
+    const schematic::Selection selection = sheet_->selection();
+    const bool turnable =
+        selecting && !(selection.parts.empty() && selection.instruments.empty());
+    cut_->setEnabled(selected);
+    copy_->setEnabled(selected);
+    delete_->setEnabled(selected);
+    paste_->setEnabled(sheet_->canPaste());
+    rotate_->setEnabled(turnable || sheet_->tool() == Tool::Place);
+    mirror_->setEnabled(turnable);
+    properties_->setEnabled(selecting && sheet_->canEditProperties());
+}
+
+void MainWindow::fillInstrumentsMenu()
+{
+    instrumentsMenu_->clear();
+    const schematic::Scene& scene = sheet_->scene();
+    for (const schematic::PlacedInstrument& instrument : scene.instruments) {
+        const QString name = text(instrument.name);
+        QAction* action =
+            instrumentsMenu_->addAction(tr("%1 %2").arg(kindTitle(instrument.kind), name), this,
+                                        [this, name] { openPanel(name); });
+        action->setObjectName(QStringLiteral("simulate-instrument-%1").arg(name));
+    }
+    if (scene.instruments.empty()) {
+        instrumentsMenu_->addAction(tr("No instruments on the sheet"))->setEnabled(false);
+    }
+}
+
+void MainWindow::fillWindowMenu()
+{
+    windowMenu_->clear();
+    for (const Panel& panel : panels_) {
+        QWidget* window = panel.window;
+        QAction* action = windowMenu_->addAction(window->windowTitle(), this, [this, window] {
+            window->show();
+            window->raise();
+            window->activateWindow();
+        });
+        action->setObjectName(QStringLiteral("window-panel-%1").arg(panel.name));
+        action->setCheckable(true);
+        action->setChecked(window->isVisible());
+    }
+    if (!panels_.empty()) {
+        windowMenu_->addSeparator();
+    }
+    windowMenu_->addAction(findChild<QAction*>(QStringLiteral("window-arrange")));
+    windowMenu_->addAction(findChild<QAction*>(QStringLiteral("window-close-all")));
+}
+
+std::vector<QWidget*> MainWindow::panelWindows() const
+{
+    std::vector<QWidget*> windows;
+    for (const Panel& panel : panels_) {
+        windows.push_back(panel.window);
+    }
+    return windows;
+}
+
+void MainWindow::arrangePanels()
+{
+    const QRect area(sheet_->viewport()->mapToGlobal(QPoint(0, 0)), sheet_->viewport()->size());
+    int right = area.right(); // the current column's right edge
+    int top = area.top();
+    int columnWidth = 0;
+    for (const Panel& panel : panels_) {
+        if (!panel.window->isVisible()) {
+            continue;
+        }
+        const QSize size = panel.window->frameGeometry().size();
+        if (top > area.top() && top + size.height() > area.bottom()) {
+            right -= columnWidth + kPanelGap / 2;
+            top = area.top();
+            columnWidth = 0;
+        }
+        panel.window->move(right - size.width(), top);
+        top += size.height() + kPanelGap / 2;
+        columnWidth = std::max(columnWidth, size.width());
+    }
+}
+
+void MainWindow::closePanels()
+{
+    for (const Panel& panel : panels_) {
+        panel.window->hide();
+    }
+}
+
+bool MainWindow::exportImage(const QString& path)
+{
+    const QImage image = sheet_->image();
+    return !image.isNull() && image.save(path, "PNG");
 }
 
 // The drawing changed: the bench takes the instruments it draws, and the circuit runs. A drawing
@@ -495,6 +814,9 @@ void MainWindow::applyScene()
     }
     bench::remember(settings_, config);
     syncPanels();
+    if (!reopen_.isEmpty()) {
+        openPanel(std::exchange(reopen_, QString()));
+    }
 
     sceneError_.clear();
     for (const schematic::Diagnostic& diagnostic : conversion.diagnostics) {
@@ -509,7 +831,7 @@ void MainWindow::applyScene()
         return;
     }
     control_.setCircuit(conversion.circuit);
-    if (running_) {
+    if (runState_ == RunState::Running) {
         control_.start();
     }
     showStatus();
@@ -517,20 +839,39 @@ void MainWindow::applyScene()
 
 void MainWindow::setRunning(bool running)
 {
-    running_ = running;
-    {
-        const QSignalBlocker blocker(run_);
-        run_->setChecked(running);
+    setRunState(running ? RunState::Running : RunState::Stopped);
+}
+
+void MainWindow::pauseRun()
+{
+    if (runState_ == RunState::Running) {
+        setRunState(RunState::Paused);
+    } else {
+        setRunState(runState_); // the action's check mark back as it was
     }
-    run_->setText(running ? tr("Stop") : tr("Run"));
-    run_->setToolTip(running ? tr("Switch the bench off: stop the simulation (F5)")
-                             : tr("Switch the bench on: simulate the circuit and run the "
-                                  "instruments (F5)"));
-    if (running && sceneError_.empty()) {
-        control_.start();
-    } else if (!running) {
+}
+
+void MainWindow::setRunState(RunState state)
+{
+    runState_ = state;
+    switch (state) {
+    case RunState::Running:
+        if (sceneError_.empty()) {
+            control_.start(); // goes on from a pause
+        }
+        break;
+    case RunState::Paused:
+        control_.pause();
+        break;
+    case RunState::Stopped:
         control_.stop();
+        break;
     }
+    run_->setChecked(state == RunState::Running);
+    pause_->setChecked(state == RunState::Paused);
+    run_->setEnabled(state != RunState::Running);
+    pause_->setEnabled(state == RunState::Running);
+    stop_->setEnabled(state != RunState::Stopped);
     showStatus();
 }
 
@@ -578,6 +919,12 @@ void MainWindow::pump()
 
 void MainWindow::showStatus()
 {
+    if (runTime_ != nullptr) {
+        const QString time = QStringLiteral("t = %1 s").arg(control_.lastTime(), 0, 'f', 3);
+        runTime_->setText(runState_ == RunState::Stopped ? tr("Stopped")
+                          : runState_ == RunState::Paused ? tr("Paused  %1").arg(time)
+                                                          : time);
+    }
     if (!bench::haveNgspice()) {
         status_->setText(tr("This build has no simulator: circuits will not run."));
         return;
@@ -593,9 +940,13 @@ void MainWindow::showStatus()
     lines << (example_ ? text(examples_[*example_].name) : tr("Sheet"));
     switch (control_.state()) {
     case bench::RunControl::State::Idle:
-        lines << (!sceneError_.empty() ? text(sceneError_)
-                  : running_           ? tr("Starting")
-                                       : tr("Stopped: press Run (F5) to simulate"));
+        lines << (!sceneError_.empty()             ? text(sceneError_)
+                  : runState_ == RunState::Stopped ? tr("Stopped: press Run (F5) to simulate")
+                                                   : tr("Starting"));
+        break;
+    case bench::RunControl::State::Paused:
+        lines << tr("Paused at t = %1 s: Run (F5) goes on, Stop (Shift+F5) ends the run")
+                     .arg(control_.lastTime(), 0, 'f', 3);
         break;
     case bench::RunControl::State::Invalid:
         lines << tr("The circuit cannot be simulated: %1").arg(text(control_.error()));

@@ -12,7 +12,9 @@
 #include <QGraphicsScene>
 #include <QInputDialog>
 #include <QKeyEvent>
+#include <QCursor>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
@@ -45,6 +47,10 @@ constexpr double kGrid = 12.0;    // pixels per grid unit at 100 %
 constexpr int kSheetHalf = 200;   // the sheet runs from -kSheetHalf to kSheetHalf grid units
 constexpr double kLine = 0.14;    // pen width, grid units
 constexpr int kMajor = 5;         // grid units between the darker lines
+constexpr double kStartZoom = 2.0; // a first-year circuit fills the sheet at this size
+constexpr double kMinZoom = 0.25;
+constexpr double kMaxZoom = 6.0;
+constexpr double kZoomStep = 1.25; // View > Zoom in and out
 
 const QColor kPaper(250, 250, 247);
 const QColor kGridMinor(232, 234, 237); // a line every grid unit
@@ -116,6 +122,12 @@ public:
         for (const Point dot : schematic::junctionDots(scene)) {
             painter->drawEllipse(at(dot), 0.28, 0.28);
         }
+        painter->setBrush(kSelected);
+        for (const std::size_t i : selectedJunctions) {
+            if (i < scene.junctions.size()) {
+                painter->drawEllipse(at(scene.junctions[i]), 0.36, 0.36);
+            }
+        }
         painter->setBrush(Qt::NoBrush);
         for (std::size_t i = 0; i < scene.labels.size(); ++i) {
             drawLabel(*painter, scene.labels[i], selectedLabels.contains(i));
@@ -138,7 +150,8 @@ public:
     std::set<std::size_t> selectedWires;
     std::set<std::size_t> selectedLabels;
     std::set<std::size_t> selectedInstruments;
-    std::optional<PlacedPart> ghost;      // the part being placed
+    std::set<std::size_t> selectedJunctions;
+    std::optional<PlacedPart> ghost;     // the part being placed
     std::optional<PlacedInstrument> ghostInstrument; // the instrument being placed
     std::vector<Wire> wirePreview;        // the wire being drawn
     std::optional<Point> dragOffset;      // how far the selected parts are being dragged
@@ -277,7 +290,7 @@ SchematicView::SchematicView(QWidget* parent) : QGraphicsView(parent)
     setFocusPolicy(Qt::StrongFocus);
     setDragMode(QGraphicsView::NoDrag);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
-    scale(2.0, 2.0); // a first-year circuit fills the sheet at this size
+    scale(kStartZoom, kStartZoom);
     centerOn(5 * kGrid, 3 * kGrid);
 }
 
@@ -401,11 +414,248 @@ void SchematicView::rotateItems(const std::vector<std::size_t>& parts,
 void SchematicView::removeItems(const std::vector<std::size_t>& parts,
                                 const std::vector<std::size_t>& wires,
                                 const std::vector<std::size_t>& labels,
-                                const std::vector<std::size_t>& instruments)
+                                const std::vector<std::size_t>& instruments,
+                                const std::vector<std::size_t>& junctions)
 {
-    schematic::remove(scene_, parts, wires, labels, instruments);
+    schematic::remove(scene_, parts, wires, labels, instruments, junctions);
     clearSelection();
     commit(tr("Delete"));
+}
+
+bool SchematicView::renameInstrument(std::size_t index, const std::string& name)
+{
+    if (index >= scene_.instruments.size() || name.empty() ||
+        schematic::instrumentNameTaken(scene_, name, index)) {
+        return false;
+    }
+    const QString from = text(scene_.instruments[index].name);
+    if (from == text(name)) {
+        return true;
+    }
+    Q_EMIT instrumentRenamed(from, text(name));
+    scene_.instruments[index].name = name;
+    commit(tr("Rename %1 to %2").arg(from, text(name)));
+    return true;
+}
+
+void SchematicView::addJunction(Point where)
+{
+    if (schematic::junctionAt(scene_, where)) {
+        return;
+    }
+    scene_.junctions.push_back(where);
+    commit(tr("Place junction"));
+}
+
+schematic::Selection SchematicView::selection() const
+{
+    return {{selectedParts_.begin(), selectedParts_.end()},
+            {selectedWires_.begin(), selectedWires_.end()},
+            {selectedLabels_.begin(), selectedLabels_.end()},
+            {selectedInstruments_.begin(), selectedInstruments_.end()},
+            {selectedJunctions_.begin(), selectedJunctions_.end()}};
+}
+
+void SchematicView::select(const schematic::Selection& selection)
+{
+    if (tool_ != Tool::Select) {
+        setTool(Tool::Select);
+    }
+    selectedParts_ = {selection.parts.begin(), selection.parts.end()};
+    selectedWires_ = {selection.wires.begin(), selection.wires.end()};
+    selectedLabels_ = {selection.labels.begin(), selection.labels.end()};
+    selectedInstruments_ = {selection.instruments.begin(), selection.instruments.end()};
+    selectedJunctions_ = {selection.junctions.begin(), selection.junctions.end()};
+    refresh();
+}
+
+void SchematicView::selectAll()
+{
+    const auto all = [](std::size_t n) {
+        std::vector<std::size_t> indices(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            indices[i] = i;
+        }
+        return indices;
+    };
+    select({all(scene_.parts.size()), all(scene_.wires.size()), all(scene_.labels.size()),
+            all(scene_.instruments.size()), all(scene_.junctions.size())});
+}
+
+void SchematicView::rotate()
+{
+    if (tool_ == Tool::Place) {
+        placingRotation_ = turned(placingRotation_);
+        refresh();
+    } else if (tool_ == Tool::Select &&
+               !(selectedParts_.empty() && selectedInstruments_.empty())) {
+        rotateItems({selectedParts_.begin(), selectedParts_.end()},
+                    {selectedInstruments_.begin(), selectedInstruments_.end()});
+    }
+}
+
+void SchematicView::mirror()
+{
+    if (tool_ != Tool::Select || (selectedParts_.empty() && selectedInstruments_.empty())) {
+        return;
+    }
+    for (const std::size_t i : selectedParts_) {
+        schematic::mirrorPart(scene_, i);
+    }
+    for (const std::size_t i : selectedInstruments_) {
+        schematic::mirrorInstrument(scene_, i);
+    }
+    commit(tr("Mirror"));
+}
+
+void SchematicView::deleteSelection()
+{
+    if (tool_ == Tool::Select && hasSelection()) {
+        const schematic::Selection s = selection();
+        removeItems(s.parts, s.wires, s.labels, s.instruments, s.junctions);
+    }
+}
+
+void SchematicView::copy()
+{
+    if (!hasSelection()) {
+        return;
+    }
+    clip_ = schematic::extract(scene_, selection());
+    const std::optional<schematic::Box> box = schematic::bounds(*clip_);
+    clipOrigin_ = box ? Point{box->left, box->top} : Point{};
+    pastes_ = 0;
+    Q_EMIT clipboardChanged();
+}
+
+void SchematicView::cut()
+{
+    if (!hasSelection()) {
+        return;
+    }
+    copy();
+    const schematic::Selection s = selection();
+    schematic::remove(scene_, s.parts, s.wires, s.labels, s.instruments, s.junctions);
+    clearSelection();
+    commit(tr("Cut"));
+}
+
+void SchematicView::paste()
+{
+    if (!clip_) {
+        return;
+    }
+    // Under the mouse, or a step further below and right of the copy with each paste.
+    const QPoint mouse = viewport()->mapFromGlobal(QCursor::pos());
+    Point to;
+    if (viewport()->rect().contains(mouse) && underMouse()) {
+        to = gridPoint(mouse);
+    } else {
+        ++pastes_;
+        to = {clipOrigin_.x + 2 * pastes_, clipOrigin_.y + 2 * pastes_};
+    }
+    const schematic::Selection added =
+        schematic::paste(scene_, *clip_, {to.x - clipOrigin_.x, to.y - clipOrigin_.y});
+    clearSelection();
+    commit(tr("Paste"));
+    select(added);
+}
+
+bool SchematicView::canEditProperties() const
+{
+    const std::size_t count = selectedParts_.size() + selectedWires_.size() +
+                              selectedLabels_.size() + selectedInstruments_.size() +
+                              selectedJunctions_.size();
+    if (count != 1 || !selectedWires_.empty() || !selectedJunctions_.empty()) {
+        return false;
+    }
+    return selectedParts_.empty() ||
+           scene_.parts[*selectedParts_.begin()].kind != ComponentKind::Ground;
+}
+
+bool SchematicView::editProperties()
+{
+    if (!canEditProperties()) {
+        return false;
+    }
+    if (!selectedParts_.empty()) {
+        editPart(*selectedParts_.begin());
+    } else if (!selectedInstruments_.empty()) {
+        editInstrument(*selectedInstruments_.begin());
+    } else {
+        editLabel(*selectedLabels_.begin());
+    }
+    return true;
+}
+
+void SchematicView::zoomBy(double factor)
+{
+    const double target = std::clamp(zoom() * factor, kMinZoom, kMaxZoom);
+    const ViewportAnchor anchor = transformationAnchor();
+    setTransformationAnchor(QGraphicsView::AnchorViewCenter);
+    scale(target / zoom(), target / zoom());
+    setTransformationAnchor(anchor);
+}
+
+void SchematicView::zoomIn()
+{
+    zoomBy(kZoomStep);
+}
+
+void SchematicView::zoomOut()
+{
+    zoomBy(1.0 / kZoomStep);
+}
+
+void SchematicView::zoomToFit()
+{
+    const std::optional<schematic::Box> box = schematic::bounds(scene_);
+    if (!box) {
+        setTransform(QTransform::fromScale(kStartZoom, kStartZoom));
+        centerOn(0, 0);
+        return;
+    }
+    // A margin of a few grid units for the names drawn above and beside the symbols.
+    const QRectF area((box->left - 3) * kGrid, (box->top - 3) * kGrid,
+                      (box->right - box->left + 6) * kGrid, (box->bottom - box->top + 6) * kGrid);
+    fitInView(area, Qt::KeepAspectRatio);
+    if (zoom() > kMaxZoom || zoom() < kMinZoom) {
+        setTransform(QTransform::fromScale(std::clamp(zoom(), kMinZoom, kMaxZoom),
+                                           std::clamp(zoom(), kMinZoom, kMaxZoom)));
+        centerOn(area.center());
+    }
+}
+
+double SchematicView::zoom() const
+{
+    return transform().m11();
+}
+
+void SchematicView::setGridShown(bool shown)
+{
+    gridShown_ = shown;
+    viewport()->update();
+}
+
+QImage SchematicView::image(double pixelsPerUnit) const
+{
+    const std::optional<schematic::Box> box = schematic::bounds(scene_);
+    if (!box) {
+        return {};
+    }
+    constexpr int kMargin = 3; // grid units, room for the names
+    const int left = box->left - kMargin;
+    const int top = box->top - kMargin;
+    const QSize size(static_cast<int>((box->right - box->left + 2 * kMargin) * pixelsPerUnit),
+                     static_cast<int>((box->bottom - box->top + 2 * kMargin) * pixelsPerUnit));
+    QImage image(size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    painter.scale(pixelsPerUnit / kGrid, pixelsPerUnit / kGrid);
+    painter.translate(-left * kGrid, -top * kGrid);
+    SheetItem drawing(*this); // nothing selected, no tool's preview
+    drawing.paint(&painter, nullptr, nullptr);
+    return image;
 }
 
 void SchematicView::setPartText(std::size_t index, const std::string& designator,
@@ -470,6 +720,7 @@ void SchematicView::clearSelection()
     selectedWires_.clear();
     selectedLabels_.clear();
     selectedInstruments_.clear();
+    selectedJunctions_.clear();
 }
 
 void SchematicView::refresh()
@@ -482,10 +733,17 @@ void SchematicView::refresh()
     prune(selectedWires_, scene_.wires.size());
     prune(selectedLabels_, scene_.labels.size());
     prune(selectedInstruments_, scene_.instruments.size());
+    prune(selectedJunctions_, scene_.junctions.size());
+    const bool changed =
+        sheet_->selectedParts != selectedParts_ || sheet_->selectedWires != selectedWires_ ||
+        sheet_->selectedLabels != selectedLabels_ ||
+        sheet_->selectedInstruments != selectedInstruments_ ||
+        sheet_->selectedJunctions != selectedJunctions_;
     sheet_->selectedParts = selectedParts_;
     sheet_->selectedWires = selectedWires_;
     sheet_->selectedLabels = selectedLabels_;
     sheet_->selectedInstruments = selectedInstruments_;
+    sheet_->selectedJunctions = selectedJunctions_;
     sheet_->ghost.reset();
     sheet_->ghostInstrument.reset();
     sheet_->wirePreview.clear();
@@ -502,6 +760,9 @@ void SchematicView::refresh()
         sheet_->wirePreview = schematic::route(*wireStart_, cursor_);
     }
     sheet_->update();
+    if (changed) {
+        Q_EMIT selectionChanged();
+    }
 }
 
 void SchematicView::selectAt(Point p, bool add)
@@ -509,9 +770,11 @@ void SchematicView::selectAt(Point p, bool add)
     if (!add) {
         clearSelection();
     }
-    // Labels and wires are thin, instruments and parts large: try them in that order; instruments
-    // are drawn over parts.
-    if (const auto label = schematic::labelAt(scene_, p)) {
+    // Junctions, labels and wires are thin, instruments and parts large: try them in that order;
+    // instruments are drawn over parts.
+    if (const auto junction = schematic::junctionAt(scene_, p)) {
+        selectedJunctions_.insert(*junction);
+    } else if (const auto label = schematic::labelAt(scene_, p)) {
         selectedLabels_.insert(*label);
     } else if (const auto wire = schematic::wireAt(scene_, p)) {
         selectedWires_.insert(*wire);
@@ -552,7 +815,8 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
         const bool add = (event->modifiers() & Qt::ShiftModifier) != 0;
         // A press on a selected part or instrument drags the selection.
         const auto onSelection = [&] {
-            if (schematic::labelAt(scene_, p) || schematic::wireAt(scene_, p)) {
+            if (schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p) ||
+                schematic::wireAt(scene_, p)) {
                 return false;
             }
             if (const auto instrument = schematic::instrumentAt(scene_, p)) {
@@ -586,6 +850,9 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
         }
         break;
     }
+    case Tool::Junction:
+        addJunction(p);
+        break;
     case Tool::Place:
         if (const auto* kind = std::get_if<ComponentKind>(&placing_)) {
             placePart(*kind, p, placingRotation_);
@@ -659,26 +926,13 @@ void SchematicView::keyPressEvent(QKeyEvent* event)
             setTool(Tool::Select);
         }
         return;
+    // In the app the Edit menu's shortcuts take R and Delete first, to the same operations.
     case Qt::Key_R:
-        if (tool_ == Tool::Place) {
-            placingRotation_ = turned(placingRotation_);
-            refresh();
-        } else if (tool_ == Tool::Select &&
-                   !(selectedParts_.empty() && selectedInstruments_.empty())) {
-            rotateItems({selectedParts_.begin(), selectedParts_.end()},
-                        {selectedInstruments_.begin(), selectedInstruments_.end()});
-        }
+        rotate();
         return;
     case Qt::Key_Delete:
     case Qt::Key_Backspace:
-        if (tool_ == Tool::Select &&
-            !(selectedParts_.empty() && selectedWires_.empty() && selectedLabels_.empty() &&
-              selectedInstruments_.empty())) {
-            removeItems({selectedParts_.begin(), selectedParts_.end()},
-                        {selectedWires_.begin(), selectedWires_.end()},
-                        {selectedLabels_.begin(), selectedLabels_.end()},
-                        {selectedInstruments_.begin(), selectedInstruments_.end()});
-        }
+        deleteSelection();
         return;
     default:
         QGraphicsView::keyPressEvent(event);
@@ -692,8 +946,8 @@ void SchematicView::wheelEvent(QWheelEvent* event)
         return;
     }
     const double factor = std::pow(1.0015, event->angleDelta().y());
-    const double zoom = transform().m11() * factor;
-    if (zoom > 0.25 && zoom < 6.0) {
+    const double target = zoom() * factor;
+    if (target > kMinZoom && target < kMaxZoom) {
         scale(factor, factor);
     }
     event->accept();
@@ -705,7 +959,7 @@ void SchematicView::drawBackground(QPainter* painter, const QRectF& rect)
     // kMajor units. Far out, only the darker lines, then none.
     painter->fillRect(rect, kPaper);
     const double pixelsPerUnit = transform().m11() * kGrid;
-    if (pixelsPerUnit * kMajor < 8.0) {
+    if (!gridShown_ || pixelsPerUnit * kMajor < 8.0) {
         return;
     }
     const int left = static_cast<int>(std::floor(rect.left() / kGrid));
@@ -762,6 +1016,25 @@ void SchematicView::editPart(std::size_t index)
     }
     setPartText(index, designator->text().trimmed().toStdString(),
                 value->text().trimmed().toStdString());
+}
+
+void SchematicView::editInstrument(std::size_t index)
+{
+    const PlacedInstrument& instrument = scene_.instruments[index];
+    bool ok = false;
+    const QString name = QInputDialog::getText(
+        this, tr("Rename %1").arg(text(instrument.name)), tr("Instrument name:"),
+        QLineEdit::Normal, text(instrument.name), &ok);
+    if (!ok) {
+        return;
+    }
+    const std::string wanted = name.trimmed().toStdString();
+    if (!renameInstrument(index, wanted)) {
+        QMessageBox::warning(this, tr("Rename"),
+                             wanted.empty()
+                                 ? tr("An instrument needs a name.")
+                                 : tr("Another instrument is called %1.").arg(text(wanted)));
+    }
 }
 
 void SchematicView::editLabel(std::size_t index)

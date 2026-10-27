@@ -35,6 +35,12 @@ namespace proton::bench {
 // run while the longest step stays the same, and otherwise made anew by the engine factory, after
 // the old engine is gone (ngspice allows one engine per process).
 //
+// pause() freezes a running run where it is: nothing more is fed, so simulation time and every
+// instrument stand still (a half-made frame, a gate half counted), and the worker soon waits on
+// its full ring. start() goes on from there, the pacer taking up at the simulation time it paused
+// at, as if no wall-clock time had passed. Changes made while paused wait for start(), which then
+// restarts from t = 0 as any change does. stop() ends a paused run like a running one.
+//
 // Wall-clock time is passed in as seconds from any fixed epoch, so RunControl reads no clock and
 // is tested with any time it is given. With realTime off, the output is fed as fast as it comes.
 class RunControl
@@ -50,6 +56,7 @@ public:
         Invalid, // validate() found errors: diagnostics() says which, nothing runs
         Failed,  // the engine could not be made, the netlist did not load, or the run failed
         Running,
+        Paused,  // a run frozen by pause(), until start() or stop()
     };
 
     struct Config
@@ -75,8 +82,11 @@ public:
     const schematic::Circuit& circuit() const { return circuit_; }
 
     // Runs from the next pump() on, until stop(). Stopping ends the run; starting again restarts.
-    void start() { wanted_ = true; }
+    // Started while Paused, the run goes on from where it paused.
+    void start();
     void stop();
+    // Freezes a Running run (state Paused); does nothing in any other state.
+    void pause();
 
     // Applies the changes since the last pump (one restart at most), then feeds the bench the
     // output of the run that is due at `wallNow`, up to simulation time `limit`. Output past
@@ -114,6 +124,7 @@ private:
     Bench bench_;
     schematic::Circuit circuit_;
     bool wanted_ = false;
+    bool resumed_ = false; // start() after pause(): the next pump picks the pacer up again
 
     // What the last restart ran: the circuit with the bench's contributions, and the step.
     std::optional<schematic::Circuit> runCircuit_;

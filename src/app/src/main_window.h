@@ -16,7 +16,11 @@
 #include <vector>
 
 class QAction;
+class QActionGroup;
+class QDockWidget;
+class QKeySequence;
 class QLabel;
+class QMenu;
 
 namespace proton::app {
 namespace sheet {
@@ -41,22 +45,46 @@ namespace proton::app {
 // instance's name, so an instrument deleted and brought back by undo has them again.
 //
 // Nothing runs until the student switches the bench on with Run (F5), as on a real bench or in a
-// circuit simulator: then the drawing runs, and every edit or knob restarts it on the next pump;
-// Stop ends the run and the panels keep their last frame and reading. The Examples menu loads a
-// built-in circuit with its instruments, opening their panels, without switching on. The run's
-// state shows in the status bar.
+// circuit simulator: then the drawing runs, and every edit or knob restarts it on the next pump.
+// Pause (F6) freezes the run, simulation time and instruments included, and Run goes on from
+// there; Stop (Shift+F5) ends it, the panels keeping their last frame and reading, and Run starts
+// again from t = 0 (bench::RunControl::pause). File > Examples loads a built-in circuit with its
+// instruments, opening their panels, without switching on. The run's state shows in the status
+// bar and its simulation time beside the switch.
+//
+// The menus and toolbars (PLAN.md M4.7) are a desktop circuit simulator's: File, Edit, View,
+// Place, Simulate, Window, with Proton's own icons (icons.h) and every shortcut shown. Each action
+// has an object name ("edit-copy", "simulate-pause") for the smoke checks.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
+    enum class RunState {
+        Stopped,
+        Running,
+        Paused,
+    };
+
     explicit MainWindow(QWidget* parent = nullptr);
 
     // Loads example `index` of bench::examples(), as its menu entry does; it runs if Run is on.
     void loadExample(std::size_t index);
-    // Run (F5) on or off, as the toolbar's switch does.
+    // Run (F5) or Stop, as the toolbar's switch does.
     void setRunning(bool running);
-    bool running() const { return running_; }
+    // Pause (F6): freezes a running bench.
+    void pauseRun();
+    bool running() const { return runState_ == RunState::Running; }
+    RunState runState() const { return runState_; }
     std::size_t exampleCount() const { return examples_.size(); }
+
+    // Saves the drawing as a PNG, as File > Export image does after asking where.
+    bool exportImage(const QString& path);
+    // Window > Arrange panels: the open panels in columns over the sheet's right side, from its
+    // top right corner leftwards. Window > Close all panels hides them.
+    void arrangePanels();
+    void closePanels();
+    // The windows of the panels made so far, shown or hidden.
+    std::vector<QWidget*> panelWindows() const;
 
     const bench::RunControl& control() const { return control_; }
     sheet::SchematicView& sheet() { return *sheet_; }
@@ -100,6 +128,15 @@ private:
     void showAbout();
     void pump();
     void showStatus();
+    void setRunState(RunState state);
+    void buildMenus();
+    void buildToolBars();
+    void updateEditActions();
+    void fillInstrumentsMenu();
+    void fillWindowMenu();
+    // A menu action called `id`, with its shortcut in its tooltip, doing `slot`.
+    template <typename Slot>
+    QAction* makeAction(const char* id, const QString& text, const QKeySequence& key, Slot slot);
     void applyScope(const QString& name);
     void applyMultimeter(const QString& name);
     void applyGenerator(const QString& name);
@@ -107,14 +144,29 @@ private:
     // Brings every panel in line with the bench: a panel whose instance is gone goes, the others
     // show their instance's settings and nets.
     void syncPanels();
-    void buildToolBar();
     const Panel* panelOf(const QString& name) const;
 
     std::vector<bench::Example> examples_;
     std::optional<std::size_t> example_; // the loaded one, until New sheet
     bench::RunControl control_;
-    bool running_ = false; // the Run switch
+    RunState runState_ = RunState::Stopped; // the simulation switch
     QAction* run_ = nullptr;
+    QAction* pause_ = nullptr;
+    QAction* stop_ = nullptr;
+    QLabel* runTime_ = nullptr; // the run's simulation time, beside the switch
+    // Actions that need a selection, the clipboard or one item to edit.
+    QAction* cut_ = nullptr;
+    QAction* copy_ = nullptr;
+    QAction* paste_ = nullptr;
+    QAction* delete_ = nullptr;
+    QAction* rotate_ = nullptr;
+    QAction* mirror_ = nullptr;
+    QAction* properties_ = nullptr;
+    QActionGroup* tools_ = nullptr; // Select, Wire, Label, Junction
+    QMenu* instrumentsMenu_ = nullptr;
+    QMenu* windowMenu_ = nullptr;
+    QDockWidget* partsDock_ = nullptr;
+    QString reopen_; // a renamed instrument whose panel opens again under its new name
     // Every instance's settings by name, those deleted from the sheet included (bench::remember).
     bench::Bench::Config settings_;
     QElapsedTimer clock_; // wall-clock time for the pacer

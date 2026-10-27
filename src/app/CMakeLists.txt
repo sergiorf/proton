@@ -4,6 +4,8 @@
 add_executable(proton WIN32
     src/generator_panel.cpp
     src/generator_panel.h
+    src/icons.cpp
+    src/icons.h
     src/main.cpp
     src/main_window.cpp
     src/main_window.h
@@ -72,4 +74,6 @@ if(PROTON_NGSPICE_FOUND)
     # Parts and instruments placed from the parts panel and wired by hand measure their own nets,
     # two scopes and two multimeters at once (M4.2, M4.4).
     add_test(NAME app_draws_by_hand COMMAND proton --smoke-editor)
+    # Every menu and toolbar action, Pause and Run on from it included (M4.7).
+    add_test(NAME app_menus_and_toolbars COMMAND proton --smoke-menus)
 endif()

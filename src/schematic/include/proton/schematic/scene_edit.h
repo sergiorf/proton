@@ -72,10 +72,54 @@ void rotatePart(Scene& scene, std::size_t index);
 void moveInstrument(Scene& scene, std::size_t index, Point position);
 void rotateInstrument(Scene& scene, std::size_t index);
 
-// Removes the parts, wires, labels and instruments with these indices (any order, duplicates
-// ignored).
+// Mirrors part `index` left to right on screen about its position, its wire ends following: the
+// same placement turned the other way and mirrored in its own frame (PLAN.md M4.7).
+void mirrorPart(Scene& scene, std::size_t index);
+void mirrorInstrument(Scene& scene, std::size_t index);
+
+// The explicit junction at `p`.
+std::optional<std::size_t> junctionAt(const Scene& scene, Point p);
+
+// Removes the parts, wires, labels, instruments and junctions with these indices (any order,
+// duplicates ignored).
 void remove(Scene& scene, const std::vector<std::size_t>& parts,
             const std::vector<std::size_t>& wires, const std::vector<std::size_t>& labels,
-            const std::vector<std::size_t>& instruments = {});
+            const std::vector<std::size_t>& instruments = {},
+            const std::vector<std::size_t>& junctions = {});
+
+// The area everything drawn covers: parts' and instruments' symbols, wires, labels and junctions.
+// None for an empty scene.
+std::optional<Box> bounds(const Scene& scene);
+
+// Indices into a scene's lists: what the editor has selected, or what paste() added.
+struct Selection
+{
+    std::vector<std::size_t> parts;
+    std::vector<std::size_t> wires;
+    std::vector<std::size_t> labels;
+    std::vector<std::size_t> instruments;
+    std::vector<std::size_t> junctions;
+
+    bool empty() const
+    {
+        return parts.empty() && wires.empty() && labels.empty() && instruments.empty() &&
+               junctions.empty();
+    }
+
+    friend bool operator==(const Selection&, const Selection&) = default;
+};
+
+// The selected items as a scene of their own, in scene order: what Copy puts on the clipboard.
+Scene extract(const Scene& scene, const Selection& selection);
+
+// Adds `clip` to `scene`, moved by `offset`, and returns where its items went. Pasted parts get the
+// next free designators of their kinds and instruments the next free names, so nothing pasted
+// clashes with what is there (R3 and R4 pasted beside R1 and R2); labels keep their names, so a
+// pasted label joins the net of that name.
+Selection paste(Scene& scene, const Scene& clip, Point offset);
+
+// Whether an instrument other than `except` is called `name`, ignoring case.
+bool instrumentNameTaken(const Scene& scene, const std::string& name,
+                         std::optional<std::size_t> except = std::nullopt);
 
 } // namespace proton::schematic

@@ -20,14 +20,25 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialog>
+#include <QDir>
+#include <QDockWidget>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileDialog>
+#include <QImage>
+#include <QInputDialog>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QList>
 #include <QMouseEvent>
 #include <QPointF>
 #include <QString>
 #include <QTimer>
+#include <QToolBar>
+#include <QToolButton>
 #include <QUndoStack>
 #include <QWheelEvent>
 
@@ -36,6 +47,7 @@
 #include <cstddef>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <numbers>
 #include <optional>
@@ -962,6 +974,461 @@ void smokeUndo(MainWindow& window)
 {
     // In the event loop, so that failing can end it.
     QTimer::singleShot(0, &window, [&window] { checkUndo(window); });
+}
+
+namespace {
+
+using Tool = sheet::SchematicView::Tool;
+
+// Answers the next modal dialog with `answer` once it shows, from inside its own event loop.
+void answerNextDialog(std::function<void(QDialog&)> answer)
+{
+    auto* timer = new QTimer(qApp);
+    auto tries = std::make_shared<int>(0);
+    QObject::connect(timer, &QTimer::timeout, timer, [timer, tries, answer] {
+        auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (dialog != nullptr || ++*tries > 500) {
+            timer->stop();
+            timer->deleteLater();
+        }
+        if (dialog != nullptr) {
+            answer(*dialog);
+        }
+    });
+    timer->start(10);
+}
+
+// Triggers the window's actions as a student does: through their menus and their toolbar
+// buttons, failing with what went wrong.
+class Actions
+{
+public:
+    Actions(MainWindow& window, Checker& checker) : window_(window), checker_(checker) {}
+
+    QAction* find(const char* id)
+    {
+        auto* action = window_.findChild<QAction*>(QString::fromLatin1(id));
+        checker_.check(action != nullptr, QStringLiteral("an action %1").arg(id));
+        return action;
+    }
+
+    // Chooses `id` from its menu: it must be in one and enabled.
+    bool menu(const char* id)
+    {
+        QAction* action = find(id);
+        if (action == nullptr) {
+            return false;
+        }
+        const QList<QObject*> owners = action->associatedObjects();
+        const bool inMenu = std::ranges::any_of(
+            owners, [](QObject* owner) { return qobject_cast<QMenu*>(owner) != nullptr; });
+        checker_.check(inMenu, QStringLiteral("%1 is in a menu").arg(id));
+        checker_.check(action->isEnabled(), QStringLiteral("%1 is enabled").arg(id));
+        if (!inMenu || !action->isEnabled()) {
+            return false;
+        }
+        action->trigger();
+        return true;
+    }
+
+    // Clicks `id`'s toolbar button: it must have one, enabled, with an icon and a tooltip.
+    bool toolbar(const char* id)
+    {
+        QAction* action = find(id);
+        if (action == nullptr) {
+            return false;
+        }
+        QToolButton* button = nullptr;
+        for (QToolBar* bar : window_.findChildren<QToolBar*>()) {
+            if (auto* widget = qobject_cast<QToolButton*>(bar->widgetForAction(action))) {
+                button = widget;
+            }
+        }
+        checker_.check(button != nullptr, QStringLiteral("%1 is on a toolbar").arg(id));
+        if (button == nullptr) {
+            return false;
+        }
+        checker_.check(button->isEnabled(), QStringLiteral("%1's button is enabled").arg(id));
+        checker_.check(!action->icon().isNull() && !action->toolTip().isEmpty(),
+                       QStringLiteral("%1 has an icon and a tooltip").arg(id));
+        button->click();
+        return true;
+    }
+
+    // Both ways, checking `effect` after each; `between` puts things back in between.
+    void both(const char* id, const std::function<bool()>& effect,
+              const std::function<void()>& between = {})
+    {
+        if (menu(id)) {
+            checker_.check(effect(), QStringLiteral("%1 from its menu").arg(id));
+        }
+        if (between) {
+            between();
+        }
+        if (toolbar(id)) {
+            checker_.check(effect(), QStringLiteral("%1 from the toolbar").arg(id));
+        }
+    }
+
+private:
+    MainWindow& window_;
+    Checker& checker_;
+};
+
+// The menus' actions that need no simulation, one by one.
+void checkEditingActions(MainWindow& window, Actions& actions, Checker& checker)
+{
+    using schematic::Scene;
+    sheet::SchematicView& sheet = window.sheet();
+    QUndoStack& undo = sheet.undoStack();
+
+    actions.menu("file-example-0");
+    const Scene example = sheet.scene();
+    checker.check(!example.parts.empty() && !example.instruments.empty() && !window.running(),
+                  QStringLiteral("File > Examples loads the example, not running"));
+
+    // Edit: select all, copy and paste twice, undo and redo both ways.
+    actions.menu("edit-select-all");
+    const schematic::Selection all = sheet.selection();
+    checker.check(all.parts.size() == example.parts.size() &&
+                      all.wires.size() == example.wires.size() &&
+                      all.instruments.size() == example.instruments.size(),
+                  QStringLiteral("Select all selects everything"));
+    actions.both("edit-copy", [&] { return sheet.canPaste(); },
+                 [&] { sheet.selectAll(); });
+    const std::size_t parts = example.parts.size();
+    actions.menu("edit-paste");
+    checker.check(sheet.scene().parts.size() == 2 * parts &&
+                      sheet.scene().instruments.size() == 2 * example.instruments.size(),
+                  QStringLiteral("Paste from the menu adds a copy"));
+    actions.toolbar("edit-paste");
+    checker.check(sheet.scene().parts.size() == 3 * parts,
+                  QStringLiteral("Paste from the toolbar adds another"));
+    actions.menu("undo");
+    checker.check(sheet.scene().parts.size() == 2 * parts, QStringLiteral("Undo from its menu"));
+    actions.toolbar("undo");
+    checker.check(sheet.scene() == example, QStringLiteral("Undo from the toolbar"));
+    actions.menu("redo");
+    checker.check(sheet.scene().parts.size() == 2 * parts, QStringLiteral("Redo from its menu"));
+    actions.toolbar("redo");
+    checker.check(sheet.scene().parts.size() == 3 * parts, QStringLiteral("Redo from the toolbar"));
+    undo.undo();
+    undo.undo();
+
+    // Cut and delete empty the sheet; undo brings it back.
+    const auto emptied = [&] { return sheet.scene() == Scene{}; };
+    const auto restore = [&] {
+        undo.undo();
+        sheet.selectAll();
+    };
+    sheet.selectAll();
+    actions.both("edit-cut", [&] { return emptied() && sheet.canPaste(); }, restore);
+    restore();
+    actions.both("edit-delete", emptied, restore);
+    undo.undo();
+    checker.check(sheet.scene() == example, QStringLiteral("back to the example"));
+
+    // Rotate and mirror the first resistor.
+    std::size_t resistor = 0;
+    while (resistor < example.parts.size() &&
+           example.parts[resistor].kind != schematic::ComponentKind::Resistor) {
+        ++resistor;
+    }
+    schematic::Selection one;
+    one.parts = {resistor};
+    sheet.select(one);
+    auto rotation = example.parts[resistor].placement.rotation;
+    actions.both("edit-rotate", [&] {
+        const bool turned = sheet.scene().parts[resistor].placement.rotation != rotation;
+        rotation = sheet.scene().parts[resistor].placement.rotation;
+        return turned;
+    });
+    bool mirrored = false;
+    actions.both("edit-mirror", [&] {
+        mirrored = !mirrored;
+        return sheet.scene().parts[resistor].placement.mirrored == mirrored;
+    });
+
+    // Properties: a part's value, then an instrument's name, its open panel following it.
+    answerNextDialog([](QDialog& dialog) {
+        const QList<QLineEdit*> fields = dialog.findChildren<QLineEdit*>();
+        if (fields.size() == 2) {
+            fields[1]->setText(QStringLiteral("2.2k"));
+        }
+        dialog.accept();
+    });
+    actions.menu("edit-properties");
+    checker.check(sheet.scene().parts[resistor].value == "2.2k",
+                  QStringLiteral("Properties sets the part's value"));
+    window.openPanel(QString::fromStdString(example.instruments.back().name));
+    schematic::Selection instrument;
+    instrument.instruments = {example.instruments.size() - 1};
+    sheet.select(instrument);
+    answerNextDialog([](QDialog& dialog) {
+        if (auto* input = qobject_cast<QInputDialog*>(&dialog)) {
+            input->setTextValue(QStringLiteral("meter9"));
+        }
+        dialog.accept();
+    });
+    actions.menu("edit-properties");
+    checker.check(sheet.scene().instruments.back().name == "meter9",
+                  QStringLiteral("Properties renames the instrument"));
+    const std::vector<QWidget*> panels = window.panelWindows();
+    checker.check(std::ranges::any_of(panels,
+                                      [](QWidget* w) {
+                                          return w->isVisible() &&
+                                                 w->windowTitle().endsWith(
+                                                     QStringLiteral("meter9"));
+                                      }),
+                  QStringLiteral("the renamed instrument's panel is open under its new name"));
+
+    // View.
+    double zoom = sheet.zoom();
+    actions.both("view-zoom-in", [&] {
+        const bool larger = sheet.zoom() > zoom;
+        zoom = sheet.zoom();
+        return larger;
+    });
+    actions.both("view-zoom-out", [&] {
+        const bool smaller = sheet.zoom() < zoom;
+        zoom = sheet.zoom();
+        return smaller;
+    });
+    const auto fits = [&] {
+        const std::optional<schematic::Box> box = schematic::bounds(sheet.scene());
+        const QRect visible = sheet.viewport()->rect();
+        return box && visible.contains(sheet.viewPoint({box->left, box->top})) &&
+               visible.contains(sheet.viewPoint({box->right, box->bottom}));
+    };
+    actions.both("view-zoom-fit", fits, [&] {
+        sheet.zoomIn();
+        sheet.zoomIn();
+        sheet.zoomIn();
+    });
+    actions.both("view-grid", [&, shown = sheet.gridShown()]() mutable {
+        shown = !shown;
+        return sheet.gridShown() == shown;
+    });
+    auto* dock = window.findChild<QDockWidget*>(QStringLiteral("parts"));
+    actions.menu("view-parts-panel");
+    checker.check(dock != nullptr && dock->isHidden(), QStringLiteral("Parts panel hides it"));
+    actions.menu("view-parts-panel");
+    checker.check(dock != nullptr && !dock->isHidden(), QStringLiteral("Parts panel shows it"));
+
+    // Place: every part and instrument by name, then the drawing tools.
+    for (const sheet::SchematicView::Placing& what : window.parts().entries()) {
+        sheet.setTool(Tool::Select);
+        QAction* action = nullptr;
+        for (QAction* candidate : window.findChildren<QAction*>()) {
+            if (candidate->objectName().startsWith(QStringLiteral("place-")) &&
+                candidate->text() == window.parts().name(what)) {
+                action = candidate;
+            }
+        }
+        checker.check(action != nullptr,
+                      QStringLiteral("Place > %1").arg(window.parts().name(what)));
+        if (action != nullptr && actions.menu(action->objectName().toLatin1().constData())) {
+            checker.check(sheet.tool() == Tool::Place && sheet.placing() == what,
+                          QStringLiteral("Place > %1 places it").arg(window.parts().name(what)));
+        }
+    }
+    const std::pair<const char*, Tool> tools[] = {{"tool-wire", Tool::Wire},
+                                                  {"tool-label", Tool::Label},
+                                                  {"tool-junction", Tool::Junction},
+                                                  {"tool-select", Tool::Select}};
+    for (const auto& [id, tool] : tools) {
+        actions.both(id, [&sheet, tool] { return sheet.tool() == tool; },
+                     [&sheet] { sheet.setTool(Tool::Place); });
+    }
+    actions.menu("tool-junction");
+    const std::size_t junctions = sheet.scene().junctions.size();
+    const QPointF at = sheet.viewPoint({40, 40});
+    mouse(sheet.viewport(), QEvent::MouseButtonPress, at, Qt::LeftButton);
+    mouse(sheet.viewport(), QEvent::MouseButtonRelease, at, Qt::NoButton);
+    checker.check(sheet.scene().junctions.size() == junctions + 1,
+                  QStringLiteral("the Junction tool places a junction"));
+    sheet.setTool(Tool::Select);
+
+    // Export image, answering the file dialog with a file in the temporary directory.
+    const QString base = QDir::temp().filePath(QStringLiteral("proton-smoke-export-%1.png"));
+    int exports = 0;
+    const auto answerSave = [&base](int n) {
+        answerNextDialog([path = base.arg(n)](QDialog& dialog) {
+            if (auto* files = qobject_cast<QFileDialog*>(&dialog)) {
+                files->selectFile(path);
+            }
+            dialog.accept();
+        });
+    };
+    answerSave(0);
+    actions.both(
+        "file-export-image",
+        [&] {
+            const QString path = base.arg(exports);
+            const bool saved = !QImage(path).isNull();
+            QFile::remove(path);
+            ++exports;
+            return saved;
+        },
+        [&] { answerSave(1); });
+
+    // Options and Help.
+    const auto dragMode = panel::KnobWidget::dragMode();
+    actions.menu("circular-knobs");
+    checker.check(panel::KnobWidget::dragMode() != dragMode, QStringLiteral("Options: knobs"));
+    actions.menu("circular-knobs");
+    for (const char* id : {"help-about", "help-about-qt"}) {
+        answerNextDialog([](QDialog& dialog) { dialog.accept(); });
+        actions.menu(id);
+    }
+
+    // File > New both ways, undone in between.
+    actions.both("file-new", [&] { return sheet.scene() == Scene{}; }, [&] { undo.undo(); });
+    actions.menu("file-example-0");
+}
+
+} // namespace
+
+void smokeMenus(MainWindow& window)
+{
+    // Qt's own file dialog, which the check can answer; the platform's is not a widget.
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    QTimer::singleShot(0, &window, [&window] {
+        auto checker = std::make_shared<Checker>();
+        auto actions = std::make_shared<Actions>(window, *checker);
+        checkEditingActions(window, *actions, *checker);
+
+        // Simulate > Instruments, and the Window menu.
+        actions->menu("window-close-all");
+        const auto shown = [&window] {
+            int count = 0;
+            for (QWidget* panel : window.panelWindows()) {
+                count += panel->isVisible() ? 1 : 0;
+            }
+            return count;
+        };
+        checker->check(shown() == 0, QStringLiteral("Close all panels closes them"));
+        if (auto* instruments = window.findChild<QMenu*>(QStringLiteral("simulate-instruments"))) {
+            Q_EMIT instruments->aboutToShow();
+            actions->menu("simulate-instrument-scope1");
+            actions->menu("simulate-instrument-gen1");
+            checker->check(shown() == 2, QStringLiteral("Simulate > Instruments opens panels"));
+        }
+        if (auto* windows = window.findChild<QMenu*>(QStringLiteral("window"))) {
+            actions->menu("window-close-all");
+            Q_EMIT windows->aboutToShow();
+            actions->menu("window-panel-scope1");
+            checker->check(shown() == 1, QStringLiteral("Window > a panel shows it"));
+        }
+        window.openPanel(QStringLiteral("gen1"));
+        window.openPanel(QStringLiteral("dmm1"));
+        actions->menu("window-arrange");
+        const QRect area(window.sheet().viewport()->mapToGlobal(QPoint(0, 0)),
+                         window.sheet().viewport()->size());
+        for (QWidget* panel : window.panelWindows()) {
+            if (panel->isVisible()) {
+                const QRect frame = panel->frameGeometry();
+                checker->check(frame.right() <= area.right() + 1 && frame.top() >= area.top() - 1,
+                               QStringLiteral("Arrange puts %1 over the sheet's right side")
+                                   .arg(panel->windowTitle()));
+            }
+        }
+
+        // Simulate: Run, Pause, Run on, Pause, Stop, Run again, Stop; menu and toolbar.
+        struct Sim
+        {
+            int step = 0;
+            double pausedAt = 0.0;
+            std::size_t restarts = 0;
+            QElapsedTimer clock; // since the step began
+        };
+        auto sim = std::make_shared<Sim>();
+        sim->clock.start();
+        auto* timer = new QTimer(&window);
+        QObject::connect(timer, &QTimer::timeout, &window, [&window, timer, sim, checker,
+                                                            actions] {
+            using State = bench::RunControl::State;
+            const bench::RunControl& control = window.control();
+            const auto next = [&] {
+                ++sim->step;
+                sim->clock.restart();
+            };
+            const auto failed = [&](const QString& why) {
+                checker->check(false, why);
+                timer->stop();
+                QApplication::exit(1);
+            };
+            if (sim->clock.elapsed() > std::chrono::milliseconds(kExampleTimeout).count()) {
+                failed(QStringLiteral("Simulate: step %1 timed out").arg(sim->step));
+                return;
+            }
+            auto* runTime = window.findChild<QLabel*>(QStringLiteral("run-time"));
+            switch (sim->step) {
+            case 0:
+                actions->menu("run");
+                next();
+                break;
+            case 1: // running for a while
+                if (control.state() == State::Running && control.lastTime() > 0.05) {
+                    sim->restarts = control.restarts();
+                    actions->menu("simulate-pause");
+                    sim->pausedAt = control.lastTime();
+                    checker->check(window.runState() == MainWindow::RunState::Paused &&
+                                       control.state() == State::Paused,
+                                   QStringLiteral("Pause from its menu"));
+                    next();
+                }
+                break;
+            case 2: // paused: time stands still
+                if (control.lastTime() != sim->pausedAt || control.state() != State::Paused) {
+                    failed(QStringLiteral("Pause: the run went on"));
+                    return;
+                }
+                if (sim->clock.elapsed() > 300) {
+                    checker->check(runTime != nullptr &&
+                                       runTime->text().startsWith(QStringLiteral("Paused")),
+                                   QStringLiteral("the run time shows Paused"));
+                    actions->toolbar("run");
+                    next();
+                }
+                break;
+            case 3: // on from the pause, without a restart
+                if (control.lastTime() > sim->pausedAt + 0.05) {
+                    checker->check(control.restarts() == sim->restarts,
+                                   QStringLiteral("Run after Pause goes on without a restart"));
+                    actions->toolbar("simulate-pause");
+                    checker->check(control.state() == State::Paused,
+                                   QStringLiteral("Pause from the toolbar"));
+                    actions->menu("simulate-stop");
+                    checker->check(control.state() == State::Idle && !window.running(),
+                                   QStringLiteral("Stop from its menu"));
+                    actions->menu("run");
+                    next();
+                } else if (control.lastTime() < sim->pausedAt) {
+                    failed(QStringLiteral("Run after Pause started again from t = 0"));
+                    return;
+                }
+                break;
+            case 4: // started again from t = 0
+                if (control.restarts() > sim->restarts && control.state() == State::Running) {
+                    actions->toolbar("simulate-stop");
+                    checker->check(control.state() == State::Idle,
+                                   QStringLiteral("Stop from the toolbar"));
+                    next();
+                }
+                break;
+            case 5:
+                timer->stop();
+                actions->menu("file-quit");
+                checker->check(!window.isVisible(), QStringLiteral("Quit closes the window"));
+                std::printf("proton: every menu and toolbar action checked\n");
+                std::fflush(stdout);
+                QApplication::exit(checker->failed() ? 1 : 0);
+                break;
+            }
+        });
+        timer->start(16);
+    });
 }
 
 } // namespace proton::app

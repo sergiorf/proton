@@ -53,6 +53,19 @@ void keep(std::vector<Settings>& settings, const std::vector<Settings>& current)
     }
 }
 
+template <typename Settings>
+void copyAs(std::vector<Settings>& settings, const std::string& from, const std::string& to)
+{
+    const auto found = std::ranges::find_if(
+        settings, [&](const Settings& known) { return sameName(known.name, from); });
+    if (found == settings.end()) {
+        return;
+    }
+    Settings renamed = *found;
+    renamed.name = to;
+    keep(settings, {renamed});
+}
+
 } // namespace
 
 Bench::Config benchFor(const std::vector<InstrumentConnections>& instruments,
@@ -93,6 +106,22 @@ void remember(Bench::Config& settings, const Bench::Config& current)
     keep(settings.generators, current.generators);
     keep(settings.scopes, current.scopes);
     keep(settings.multimeters, current.multimeters);
+}
+
+void carryOver(Bench::Config& settings, InstrumentKind kind, const std::string& from,
+               const std::string& to)
+{
+    switch (kind) {
+    case InstrumentKind::Generator:
+        copyAs(settings.generators, from, to);
+        break;
+    case InstrumentKind::Scope:
+        copyAs(settings.scopes, from, to);
+        break;
+    case InstrumentKind::Multimeter:
+        copyAs(settings.multimeters, from, to);
+        break;
+    }
 }
 
 } // namespace proton::bench

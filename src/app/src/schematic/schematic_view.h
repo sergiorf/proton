@@ -2,8 +2,10 @@
 #pragma once
 
 #include "proton/schematic/scene.h"
+#include "proton/schematic/scene_edit.h"
 
 #include <QGraphicsView>
+#include <QImage>
 #include <QPoint>
 #include <QString>
 
@@ -35,10 +37,16 @@ class SheetItem;
 // - Wire: click where a wire starts, then where it bends or ends; each click adds the route there
 //   (horizontal, then vertical) and goes on from it. Double-click, right-click or Escape ends it.
 // - Label: click on a net to name it.
+// - Junction: click to put a junction dot there, connecting wires that cross at it.
 // - Place a part or an instrument: it follows the mouse; R turns it; each click places one, a part
 //   with the next designator and a default value, an instrument with the next name of its kind.
 // Escape goes back to Select. Ctrl and the wheel zoom; the wheel scrolls. toolChanged() tells the
 // toolbar and the parts panel which tool is on.
+//
+// The Edit and View menus (PLAN.md M4.7) work through the public operations below: the selection
+// (selectAll, rotate, mirror, deleteSelection, editProperties), a clipboard of the view's own
+// (copy, cut and paste a part of the drawing, schematic::extract and schematic::paste), zoom and
+// the grid. The menus' keys (R, Del) reach the view as those operations, not as key presses.
 //
 // Every edit emits edited(), after which scene() is the new drawing, and is one step on
 // undoStack() (PLAN.md M4.3): a drag, a turn of the selection or one wire click is one step. A step
@@ -53,6 +61,7 @@ public:
         Select,
         Wire,
         Label,
+        Junction,
         Place,
     };
 
@@ -92,17 +101,60 @@ public:
                      const std::vector<std::size_t>& instruments);
     void removeItems(const std::vector<std::size_t>& parts, const std::vector<std::size_t>& wires,
                      const std::vector<std::size_t>& labels,
-                     const std::vector<std::size_t>& instruments = {});
+                     const std::vector<std::size_t>& instruments = {},
+                     const std::vector<std::size_t>& junctions = {});
     void setPartText(std::size_t index, const std::string& designator, const std::string& value);
     void renameLabel(std::size_t index, const std::string& name);
+    // Renames instrument `index`, emitting instrumentRenamed() before edited(). Returns false, and
+    // changes nothing, for an empty name or one another instrument has.
+    bool renameInstrument(std::size_t index, const std::string& name);
+    void addJunction(schematic::Point at);
     // Empties the sheet, as an edit that can be undone: there are no project files to reopen yet.
     void clearSheet();
+
+    // The selection, as Select leaves it.
+    schematic::Selection selection() const;
+    bool hasSelection() const { return !selection().empty(); }
+    // Selects these items, or everything drawn, with the Select tool.
+    void select(const schematic::Selection& selection);
+    void selectAll();
+    // Turns the selection a quarter turn, or the part being placed with the Place tool.
+    void rotate();
+    // Mirrors the selected parts and instruments left to right.
+    void mirror();
+    void deleteSelection();
+    // The selection to the clipboard; cut deletes it as one step.
+    void copy();
+    void cut();
+    // Adds the clipboard to the drawing as one step and selects it: under the mouse when it is
+    // over the sheet, otherwise a little below and right of where it was copied from.
+    void paste();
+    bool canPaste() const { return clip_.has_value(); }
+    // Opens the properties of the one selected item: a part's designator and value, an
+    // instrument's name, a label's net name. False when the selection is not one such item.
+    bool editProperties();
+    bool canEditProperties() const;
+
+    // Zoom by a step, and to show the whole drawing; the zoom is the view's scale, 2 at start.
+    void zoomIn();
+    void zoomOut();
+    void zoomToFit();
+    double zoom() const;
+    void setGridShown(bool shown);
+    bool gridShown() const { return gridShown_; }
+    // The drawing alone on white, without grid, selection or tools, at `pixelsPerUnit` pixels
+    // per grid unit with a margin around it: for File > Export image. Null for an empty sheet.
+    QImage image(double pixelsPerUnit = 24.0) const;
 
 Q_SIGNALS:
     void edited();
     // The student double-clicked instrument `name`.
     void instrumentOpened(const QString& name);
+    // Instrument `from` is about to be called `to`; edited() follows.
+    void instrumentRenamed(const QString& from, const QString& to);
     void toolChanged(Tool tool);
+    void selectionChanged();
+    void clipboardChanged();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -126,6 +178,8 @@ private:
     void selectAt(schematic::Point p, bool add);
     void editPart(std::size_t index);
     void editLabel(std::size_t index);
+    void editInstrument(std::size_t index);
+    void zoomBy(double factor);
 
     schematic::Scene scene_;
     schematic::Scene committed_; // scene_ as the last undo step left it
@@ -142,6 +196,12 @@ private:
     std::set<std::size_t> selectedWires_;
     std::set<std::size_t> selectedLabels_;
     std::set<std::size_t> selectedInstruments_;
+    std::set<std::size_t> selectedJunctions_;
+
+    std::optional<schematic::Scene> clip_; // the clipboard
+    schematic::Point clipOrigin_;          // top left of what was copied, to paste beside it
+    int pastes_ = 0;                       // pastes since the copy, each a step further
+    bool gridShown_ = true;
 
     std::optional<schematic::Point> wireStart_; // the Wire tool's current start
     std::optional<schematic::Point> dragFrom_;  // Select: where a drag of the selection began

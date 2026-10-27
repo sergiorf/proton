@@ -23,4 +23,10 @@ Bench::Config benchFor(const std::vector<schematic::InstrumentConnections>& inst
 // settings again.
 void remember(Bench::Config& settings, const Bench::Config& current);
 
+// An instrument renamed on the sheet (PLAN.md M4.7) keeps its settings: records the instance of
+// `kind` called `from` in `settings` under `to` as well, replacing any instance called `to`. The
+// old name keeps them too, for undo. Does nothing when there is no instance called `from`.
+void carryOver(Bench::Config& settings, schematic::InstrumentKind kind, const std::string& from,
+               const std::string& to);
+
 } // namespace proton::bench
