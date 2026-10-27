@@ -23,8 +23,9 @@ struct Example
 // The examples, in menu order. Each validates without errors. Every one has scope1 with CH1 on
 // net `in` and CH2 on net `out`, and dmm1 between `out` and ground, wired on the sheet:
 //
-// - RC low-pass: gen1 (1 kHz sine, 1 V, 50 ohm) between `in` and ground, R1 1k from `in` to
-//   `out`, C1 100n from `out` to ground. The multimeter reads AC V.
+// - RC low-pass: gen1 (1 kHz sine, 1 V, ideal source) between `in` and ground, R1 1k from `in`
+//   to `out`, C1 100n from `out` to ground: its corner is 1 / (2 pi R C) = 1.592 kHz. The
+//   multimeter reads AC V.
 // - Voltage divider: V1, a 5 V battery, on `in`, R1 10k from `in` to `out`, R2 10k from `out` to
 //   ground; no generator. The multimeter reads DC V: 2.5 V.
 // - RC high-pass: gen1 on `in`, C1 100n from `in` to `out`, R1 1k from `out` to ground.

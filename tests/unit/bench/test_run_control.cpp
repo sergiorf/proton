@@ -140,7 +140,7 @@ TEST(a_run_feeds_the_bench)
     CHECK(control.state() == RunControl::State::Running);
     CHECK(control.error().empty());
     CHECK(control.diagnostics().empty());
-    CHECK(control.netlist().find("Rgen1 gen1_int in 50") != std::string::npos);
+    CHECK(control.netlist().find("Vgen1 in 0 SIN(0 1 1k)") != std::string::npos);
     CHECK(control.probeErrors().empty());
     CHECK_EQ(control.restarts(), 1u);
     CHECK_EQ(factory.made, 1);

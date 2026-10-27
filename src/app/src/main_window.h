@@ -49,7 +49,8 @@ namespace proton::app {
 // Pause (F6) freezes the run, simulation time and instruments included, and Run goes on from
 // there; Stop (Shift+F5) ends it, the panels keeping their last frame and reading, and Run starts
 // again from t = 0 (bench::RunControl::pause). File > Examples loads a built-in circuit with its
-// instruments, opening their panels, without switching on. The run's state shows in the status
+// instruments, opening their panels side by side (arrangePanels) with the drawing in the sheet
+// they leave free, without switching on. The run's state shows in the status
 // bar and its simulation time beside the switch.
 //
 // The menus and toolbars (PLAN.md M4.7) are a desktop circuit simulator's: File, Edit, View,
@@ -79,8 +80,11 @@ public:
 
     // Saves the drawing as a PNG, as File > Export image does after asking where.
     bool exportImage(const QString& path);
-    // Window > Arrange panels: the open panels in columns over the sheet's right side, from its
-    // top right corner leftwards. Window > Close all panels hides them.
+    // Window > Arrange panels: the open panels side by side over the sheet's right side, from its
+    // top right corner leftwards, in columns as wide as their first panel: the next panel goes
+    // beside the one before while the column has room, else in a row below it, else at the top
+    // of a new column to the left; each stays on the screen. Loading an example does this too.
+    // Window > Close all panels hides them.
     void arrangePanels();
     void closePanels();
     // The windows of the panels made so far, shown or hidden.

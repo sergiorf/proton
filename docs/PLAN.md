@@ -400,11 +400,16 @@ menu and through the toolbar; `RunControl` tests show Pause keeps simulation tim
 instruments' state and Run goes on from where it paused, while Stop and Run start from t = 0; and
 a screenshot of the window with its menus and toolbar is reviewed with me.
 
-**M4.8 Usability pass.** With the circuit and its instruments on the sheet, use the app for a
+**M4.8 Usability pass.** *(done locally 2026-10-27, CI pending: Actions minutes ran out)* With the circuit and its instruments on the sheet, use the app for a
 scripted session as a student would: open the RC low-pass, find its corner frequency by sweeping
 the generator, reading -3 dB on the multimeter and checking the 45 degree lag on the scope, and
 compare with 1 / (2 pi R C). Fix what gets in the way.
 *Done when:* the session is possible without reading code, and fixes are in.
+Found and fixed: the example's panels opened over one another (the multimeter on the scope's
+screen), now side by side with the drawing beside them in a maximised window; and the
+generator's hidden 50 ohm moved the corner to 1.516 kHz, now an ideal source by default, so -3 dB
+lands on 1 / (2 pi R C). Checked by `--smoke-session` and a bench test at the corner. Left for
+later: a meter dB or ratio reading, and scope cursors for the lag.
 
 **M4.9 Diagnostics in the editor.** `validate()` results highlighted on the parts and nets they
 refer to, with the message on hover.

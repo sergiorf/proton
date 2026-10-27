@@ -2,16 +2,20 @@
 // proton: the Qt Widgets app.
 //
 //     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
-//             --smoke-editor | --smoke-undo | --smoke-menus | --screenshot <file.png>]
+//             --smoke-editor | --smoke-undo | --smoke-menus | --smoke-session |
+//             --screenshot <file.png>]
+//
+// Without an option the window opens maximised.
 //
 // --smoke-test opens the main window, closes it once the event loop runs and exits 0: the CI
 // check that the app, its Qt DLLs and plugins start.
 //
-// --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor, --smoke-undo and
-// --smoke-menus are CI checks (smoke.h): every example runs in turn, every front-panel control
-// answers wheel, keys, drag and clicks, a generator knob reaches the scope in time, circuits and
-// instruments placed from the parts panel and wired by hand measure what they should, the sheet's
-// edits undo to the empty sheet and redo, and every menu and toolbar action does what it says.
+// --smoke-examples, --smoke-panel, --smoke-latency, --smoke-editor, --smoke-undo, --smoke-menus
+// and --smoke-session are CI checks (smoke.h): every example runs in turn, every front-panel
+// control answers wheel, keys, drag and clicks, a generator knob reaches the scope in time,
+// circuits and instruments placed from the parts panel and wired by hand measure what they should,
+// the sheet's edits undo to the empty sheet and redo, every menu and toolbar action does what it
+// says, and the RC low-pass's corner is found with the panels.
 // Each exits 0 when it passes and 1 otherwise.
 //
 // --screenshot loads the first example, presses Run, lets it run for kScreenshotDelay, saves the
@@ -79,11 +83,25 @@ int main(int argc, char** argv)
     const QCommandLineOption smokeMenusOption(QStringLiteral("smoke-menus"),
         QStringLiteral("Trigger every menu and toolbar action, check each, then exit."));
     parser.addOption(smokeMenusOption);
+    const QCommandLineOption smokeSessionOption(QStringLiteral("smoke-session"),
+        QStringLiteral("Find the RC low-pass's corner with the panels, check it, then exit."));
+    parser.addOption(smokeSessionOption);
     parser.addOption(screenshot);
     parser.process(app);
 
     proton::app::MainWindow window;
-    window.show();
+    // A student gets the whole screen, room for the sheet and the panels side by side; the checks
+    // and screenshots keep the window's fixed size, so they do not depend on the screen.
+    const bool interactive = !parser.isSet(smokeTest) && !parser.isSet(smokeExamplesOption) &&
+                             !parser.isSet(smokePanelOption) && !parser.isSet(smokeLatencyOption) &&
+                             !parser.isSet(smokeEditorOption) && !parser.isSet(smokeUndoOption) &&
+                             !parser.isSet(smokeMenusOption) && !parser.isSet(smokeSessionOption) &&
+                             !parser.isSet(screenshot);
+    if (interactive) {
+        window.showMaximized();
+    } else {
+        window.show();
+    }
     if (parser.isSet(smokeTest)) {
         QTimer::singleShot(0, &window, [&window] {
             if (!window.isVisible()) {
@@ -104,6 +122,8 @@ int main(int argc, char** argv)
         proton::app::smokeUndo(window);
     } else if (parser.isSet(smokeMenusOption)) {
         proton::app::smokeMenus(window);
+    } else if (parser.isSet(smokeSessionOption)) {
+        proton::app::smokeSession(window);
     } else if (parser.isSet(screenshot)) {
         window.loadExample(0);
         window.setRunning(true);

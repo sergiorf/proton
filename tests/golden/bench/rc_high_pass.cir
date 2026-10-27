@@ -3,5 +3,4 @@ C1 in out 100n
 R1 out 0 1k
 * gen1
 * function generator gen1
-Vgen1 gen1_int 0 SIN(0 1 1k)
-Rgen1 gen1_int in 50
+Vgen1 in 0 SIN(0 1 1k)

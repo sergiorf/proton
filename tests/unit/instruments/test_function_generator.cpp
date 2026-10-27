@@ -148,7 +148,7 @@ TEST(golden_derived_times_are_rounded)
 
 TEST(fragment_uses_the_given_names_and_nets)
 {
-    const FunctionGenerator generator;
+    const FunctionGenerator generator(makeConfig(Waveform::Sine, 1e3, 1.0, 0.0, 50.0));
     const SpiceFragment fragment = generator.toSpice("gen2", "drive", "gnd");
     CHECK_EQ(joined(fragment), "* function generator gen2\n"
                                "Vgen2 gen2_int gnd SIN(0 1 1k)\n"
@@ -181,10 +181,10 @@ TEST(fragment_passes_validate_and_reaches_the_netlist)
     }
 }
 
-TEST(default_config_is_a_1khz_1v_sine_behind_50_ohm)
+TEST(default_config_is_an_ideal_1khz_1v_sine)
 {
     const FunctionGenerator generator;
-    checkConfig(generator.config(), makeConfig(Waveform::Sine, 1e3, 1.0, 0.0, 50.0));
+    checkConfig(generator.config(), makeConfig(Waveform::Sine, 1e3, 1.0, 0.0, 0.0));
 }
 
 TEST(valid_settings_pass_unchanged)
