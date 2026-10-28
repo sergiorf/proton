@@ -136,6 +136,16 @@ void multimeter(QPainter& painter)
     painter.drawLine(QPointF(0.0, -0.1), QPointF(0.35, -0.55));
 }
 
+// Two displays on the left, one per channel, and a battery sign for DC beside them.
+void supply(QPainter& painter)
+{
+    instrumentCase(painter, -4.0, -4.0, 2.0, 4.0);
+    painter.drawRect(QRectF(QPointF(-3.5, -3.4), QPointF(-1.3, -2.0)));
+    painter.drawRect(QRectF(QPointF(-3.5, 0.6), QPointF(-1.3, 2.0)));
+    line(painter, -2.9, -0.6, -1.9, -0.6); // the long plate
+    line(painter, -2.65, -0.2, -2.15, -0.2); // the short one
+}
+
 } // namespace
 
 void drawSymbol(QPainter& painter, InstrumentKind kind)
@@ -150,6 +160,9 @@ void drawSymbol(QPainter& painter, InstrumentKind kind)
     case InstrumentKind::Multimeter:
         multimeter(painter);
         break;
+    case InstrumentKind::Supply:
+        supply(painter);
+        break;
     }
     connectors(painter, kind);
 }
@@ -163,6 +176,8 @@ std::vector<QPointF> terminalLabelOffsets(InstrumentKind kind)
         return {{-2.1, -1.0}, {-2.1, 1.0}};
     case InstrumentKind::Multimeter:
         return {{-1.0, 1.3}, {1.0, 1.3}};
+    case InstrumentKind::Supply:
+        return {{0.6, -3.0}, {0.6, -1.0}, {0.6, 1.0}, {0.6, 3.0}};
     }
     return {};
 }

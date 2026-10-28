@@ -61,6 +61,7 @@ enum class InstrumentKind {
     Generator,  // terminals + and COM
     Scope,      // terminals CH1 and CH2
     Multimeter, // terminals + and COM
+    Supply,     // terminals CH1+, CH1-, CH2+ and CH2-
 };
 
 // An instrument on the sheet (ADR 0009): a symbol with terminals, wired like a part.
@@ -110,7 +111,8 @@ std::vector<Point> pinOffsets(ComponentKind kind);
 
 // An instrument kind's terminal names and offsets, in the same order: a generator's + and COM at
 // (2, -1) and (2, 1) on its right; a scope's CH1 and CH2 at (-3, -1) and (-3, 1) on its left; a
-// multimeter's + and COM at (-1, 2) and (1, 2) along its bottom.
+// multimeter's + and COM at (-1, 2) and (1, 2) along its bottom; a supply's CH1+, CH1-, CH2+ and
+// CH2- at (2, -3), (2, -1), (2, 1) and (2, 3) on its right.
 std::vector<std::string_view> terminalNames(InstrumentKind kind);
 std::vector<Point> terminalOffsets(InstrumentKind kind);
 

@@ -447,7 +447,7 @@ reopen, and measure the corner frequency.
 The remaining MVP instruments and the parts a student changes while the circuit runs, built
 straight onto the schematic.
 
-**M5.1 DC power supply.** Placed and wired on the sheet like the other instruments (ADR 0009).
+**M5.1 DC power supply.** *(done locally 2026-10-28, CI pending: Actions billing)* Placed and wired on the sheet like the other instruments (ADR 0009).
 Two channels, set voltage, output on/off, current limit as a plain value: the panel shows the
 current drawn and flags when it exceeds the limit (CC/CV behaviour comes after the MVP). `toSpice()` contributes a voltage source per channel; current is read from the source's
 branch current.

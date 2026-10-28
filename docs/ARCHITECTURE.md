@@ -40,7 +40,7 @@ flowchart TB
   bench["src/bench: Bench model,<br/>instrument instances, signal routing, run control"]
   tools["tools/proton-spike: headless demo"]
   sim["src/sim: ISimEngine, MockEngine,<br/>NgspiceEngine, SimWorker"]
-  ins["src/instruments: Scope, Multimeter,<br/>FunctionGenerator"]
+  ins["src/instruments: Scope, Multimeter,<br/>FunctionGenerator, DcPowerSupply"]
   sch["src/schematic: Circuit, validate(),<br/>buildNetlist()"]
   core["src/core: SpscRing, formatting,<br/>SPICE numbers"]
   app --> project --> bench
@@ -128,7 +128,7 @@ An instrument is a class that:
 | `Scope` | measures | 2 channels sharing timebase and trigger (section 6) |
 | `Multimeter` | measures | one probe voltage integrated over a gate of simulation time; DC V and true-RMS AC V |
 | `FunctionGenerator` | sources | an ideal source behind a series output resistor, 0 ohm by default; amplitude and offset are open-circuit values |
-| DC power supply | sources | planned |
+| `DcPowerSupply` | sources and measures | 2 ideal voltage sources; its displays read each channel's voltage and the source's branch current; the current limit flags, it does not regulate |
 | Bode plotter, spectrum analyzer, VNA | measures | after the MVP (ROADMAP) |
 
 Measurements on the irregular SPICE grid are exact: instruments take the signal as linear between
@@ -144,9 +144,10 @@ Qt-free library, `src/bench`, tested headlessly and shared by the app and the to
   **connections**: a net per instrument terminal. Instruments are parts on the schematic, wired to
   the circuit like components (ADR 0009), so their terminals get nets the same way pins do: the
   scope's `CH1` and `CH2` measure against ground; the multimeter reads between `+` and `COM`; a
-  generator or supply drives between its output terminals.
+  generator drives between its output terminals, and a supply between each channel's `+` and `-`,
+  reading back the branch current of its own source.
 - Before a run, `Bench::contributeTo(Circuit&)` adds every source instrument's `Fragment` under a
-  unique name (`gen1`, `gen2`, ...).
+  unique name (`gen1`, `psu1`, ...).
 - After the engine loads, `Bench::attach(signalNames)` resolves each probe's net to a signal and
   reports probes whose net does not exist: a clear error instead of a flat line.
 - `Bench::feed(chunk)` routes each chunk to every measuring instrument; frames and readings are

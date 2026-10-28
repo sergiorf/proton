@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 
+#include "proton/instruments/dc_power_supply.h"
 #include "proton/instruments/function_generator.h"
 #include "proton/instruments/multimeter.h"
 #include "proton/instruments/scope.h"
@@ -33,12 +34,16 @@ struct ProbeError
 };
 
 // The instruments on the bench and how they are wired to the circuit (ARCHITECTURE.md section
-// 5.1, ADR 0009), on one thread and without a clock: any number of function generators, scopes
-// and multimeters, each a named instance with a net per terminal.
+// 5.1, ADR 0009), on one thread and without a clock: any number of function generators, DC power
+// supplies, scopes and multimeters, each a named instance with a net per terminal.
 //
 // - A generator drives its output between `+` and `COM`; COM may be any net. It is connected only
 //   when both terminals have a net, and then contributes its SPICE elements named after the
 //   instance ("Vgen1", "Rgen1").
+// - A supply drives each channel between its `+` and `-`, a channel being connected when both
+//   have a net ("Vpsu1_1"). Its displays read `v(+) - v(-)` and the current out of `+`, the
+//   negative of its source's branch current; a channel not connected reads its open output: the
+//   set voltage while on, and no current.
 // - A scope's CH1 and CH2 each measure their net against ground (single-ended).
 // - A multimeter reads `v(+) - v(COM)`: it floats, as a handheld meter does.
 //
@@ -85,12 +90,24 @@ public:
         friend bool operator==(const MultimeterSettings&, const MultimeterSettings&) = default;
     };
 
+    struct SupplySettings
+    {
+        std::string name = "psu1";
+        instruments::DcPowerSupply::Config config;
+        // Each channel's + and -; a channel is connected only when both have a net.
+        std::array<instruments::DcPowerSupply::Terminals, instruments::DcPowerSupply::kChannels>
+            channels;
+
+        friend bool operator==(const SupplySettings&, const SupplySettings&) = default;
+    };
+
     // Plain data, so it can be compared, copied and saved without touching the models.
     struct Config
     {
         std::vector<GeneratorSettings> generators;
         std::vector<ScopeSettings> scopes;
         std::vector<MultimeterSettings> multimeters;
+        std::vector<SupplySettings> supplies;
 
         friend bool operator==(const Config&, const Config&) = default;
     };
@@ -107,8 +124,8 @@ public:
     // The engine's longest step: maxStepFor() the fastest scope, or kMaxStepWithoutScope.
     double maxStep() const;
 
-    // Adds the fragment of every connected generator under its instance name, and remembers which
-    // of the circuit's nets are ground.
+    // Adds the fragment of every connected generator and supply under its instance name, and
+    // remembers which of the circuit's nets are ground.
     void contributeTo(schematic::Circuit& circuit);
 
     // Diagnostics for the instance names: empty, not unique (ignoring case), or the designator of
@@ -120,7 +137,7 @@ public:
     // keeps the names for configure(). Returns probeErrors().
     const std::vector<ProbeError>& attach(std::span<const std::string> signalNames);
 
-    // The terminals attach() could not resolve, in order: scopes, then multimeters.
+    // The terminals attach() could not resolve, in order: scopes, multimeters, then supplies.
     const std::vector<ProbeError>& probeErrors() const { return errors_; }
 
     // Starts every instrument again for a new run from t = 0, keeping the settings.
@@ -140,6 +157,7 @@ public:
     // nothing for an index past the instruments.
     std::optional<instruments::ScopeFrame> popFrame(std::size_t scope);
     std::optional<instruments::DmmReading> popReading(std::size_t multimeter);
+    std::optional<instruments::SupplyReading> popSupplyReading(std::size_t supply);
 
 private:
     // Where a terminal's samples come from.
@@ -162,15 +180,30 @@ private:
     Config config_;
     std::vector<instruments::Scope> scopes_;
     std::vector<instruments::Multimeter> multimeters_;
+    std::vector<instruments::DcPowerSupply> supplies_;
 
     std::vector<std::string> groundNets_; // lower case
     bool attached_ = false;               // attach() has been called
     std::vector<std::string> signalNames_;
     std::vector<std::array<Source, instruments::Scope::kChannels>> scopeSources_;
     std::vector<std::array<Source, 2>> multimeterSources_; // +, COM
+    // Per supply channel: +, -, and the source's branch current. None of them is resolved for a
+    // channel that is not connected.
+    struct SupplyChannelSources
+    {
+        bool connected = false;
+        Source plus;
+        Source minus;
+        Source current;
+    };
+    std::vector<std::array<SupplyChannelSources, instruments::DcPowerSupply::kChannels>>
+        supplySources_;
     std::vector<ProbeError> errors_;
     std::vector<double> zeros_;
     std::vector<double> difference_; // v(+) - v(COM) for the multimeter being fed
+    // A supply's channels being fed: their voltages and the currents they deliver.
+    std::array<std::vector<double>, instruments::DcPowerSupply::kChannels> supplyVoltages_;
+    std::array<std::vector<double>, instruments::DcPowerSupply::kChannels> supplyCurrents_;
 };
 
 } // namespace proton::bench

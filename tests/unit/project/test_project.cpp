@@ -38,6 +38,7 @@ Project everything()
         {InstrumentKind::Scope, "scope1", {{17, -1}, Rotation::R0, false}},
         {InstrumentKind::Multimeter, "dmm1", {{16, 7}, Rotation::R90, true}},
         {InstrumentKind::Generator, "gen1", {{-6, 1}, Rotation::R0, false}},
+        {InstrumentKind::Supply, "psu1", {{-14, 1}, Rotation::R0, false}},
     };
     p.scene.wires = {{{0, 0}, {2, 0}}, {{6, 0}, {8, 0}}, {{8, 4}, {8, 6}}};
     p.scene.junctions = {{8, 0}, {-1, -2}};
@@ -63,6 +64,10 @@ Project everything()
     p.settings.generators = {generator};
     p.settings.scopes = {scope};
     p.settings.multimeters = {meter};
+    bench::Bench::SupplySettings supply;
+    supply.config.channels[0] = {12.5, 0.25, false};
+    supply.config.channels[1] = {3.3, 2.0, true};
+    p.settings.supplies = {supply};
     return p;
 }
 

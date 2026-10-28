@@ -1,0 +1,4 @@
+* DC power supply psu1
+Vpsu1_1 vcc 0 DC 5
+Vpsu1_2 psu1_2_int neg DC 0
+Rpsu1_2 psu1_2_int pos 1g

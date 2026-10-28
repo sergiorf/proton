@@ -96,6 +96,14 @@ Bench::Config benchFor(const std::vector<InstrumentConnections>& instruments,
             bench.multimeters.push_back(std::move(meter));
             break;
         }
+        case InstrumentKind::Supply: {
+            Bench::SupplySettings supply = settingsOf(settings.supplies, instrument.name);
+            for (std::size_t c = 0; c < supply.channels.size(); ++c) {
+                supply.channels[c] = {netOf(instrument, 2 * c), netOf(instrument, 2 * c + 1)};
+            }
+            bench.supplies.push_back(std::move(supply));
+            break;
+        }
         }
     }
     return bench;
@@ -106,6 +114,7 @@ void remember(Bench::Config& settings, const Bench::Config& current)
     keep(settings.generators, current.generators);
     keep(settings.scopes, current.scopes);
     keep(settings.multimeters, current.multimeters);
+    keep(settings.supplies, current.supplies);
 }
 
 void carryOver(Bench::Config& settings, InstrumentKind kind, const std::string& from,
@@ -120,6 +129,9 @@ void carryOver(Bench::Config& settings, InstrumentKind kind, const std::string& 
         break;
     case InstrumentKind::Multimeter:
         copyAs(settings.multimeters, from, to);
+        break;
+    case InstrumentKind::Supply:
+        copyAs(settings.supplies, from, to);
         break;
     }
 }

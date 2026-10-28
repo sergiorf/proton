@@ -22,6 +22,7 @@ namespace {
 
 using Json = nlohmann::ordered_json;
 using bench::Bench;
+using instruments::DcPowerSupply;
 using instruments::FunctionGenerator;
 using instruments::Multimeter;
 using instruments::Scope;
@@ -61,6 +62,7 @@ constexpr Word<InstrumentKind> kInstrumentKinds[] = {
     {InstrumentKind::Generator, "generator"},
     {InstrumentKind::Scope, "scope"},
     {InstrumentKind::Multimeter, "multimeter"},
+    {InstrumentKind::Supply, "supply"},
 };
 constexpr Word<FunctionGenerator::Waveform> kWaveforms[] = {
     {FunctionGenerator::Waveform::Sine, "sine"},
@@ -393,10 +395,26 @@ Json writeSettings(const Bench::Config& config)
         json["gateTime"] = meter.config.gateTime;
         multimeters.push_back(std::move(json));
     }
+    Json supplies = Json::array();
+    for (const Bench::SupplySettings& supply : config.supplies) {
+        Json channels = Json::array();
+        for (const DcPowerSupply::ChannelConfig& channel : supply.config.channels) {
+            Json json;
+            json["voltage"] = channel.voltage;
+            json["currentLimit"] = channel.currentLimit;
+            json["output"] = channel.output;
+            channels.push_back(std::move(json));
+        }
+        Json json;
+        json["name"] = supply.name;
+        json["channels"] = std::move(channels);
+        supplies.push_back(std::move(json));
+    }
     Json json;
     json["generators"] = std::move(generators);
     json["scopes"] = std::move(scopes);
     json["multimeters"] = std::move(multimeters);
+    json["supplies"] = std::move(supplies);
     return json;
 }
 
@@ -460,6 +478,24 @@ Bench::Config readSettings(const Json& json)
         meter.config.range = word(item, "range", kMeterRanges, meter.config.range);
         meter.config.gateTime = number(item, "gateTime", meter.config.gateTime);
         config.multimeters.push_back(std::move(meter));
+    }
+    for (const Json& item : array(json, "supplies")) {
+        requireObject(item, "a power supply's settings");
+        Bench::SupplySettings supply;
+        supply.name = text(item, "name", supply.name);
+        const Json& channels = array(item, "channels");
+        if (channels.size() > supply.config.channels.size()) {
+            throw FormatError("a power supply has more than two channels");
+        }
+        for (std::size_t i = 0; i < channels.size(); ++i) {
+            const Json& channelJson = channels[i];
+            requireObject(channelJson, "a power supply channel");
+            DcPowerSupply::ChannelConfig& channel = supply.config.channels[i];
+            channel.voltage = number(channelJson, "voltage", channel.voltage);
+            channel.currentLimit = number(channelJson, "currentLimit", channel.currentLimit);
+            channel.output = flag(channelJson, "output", channel.output);
+        }
+        config.supplies.push_back(std::move(supply));
     }
     return config;
 }
@@ -655,6 +691,9 @@ Bench::Config withoutNets(Bench::Config config)
     for (Bench::MultimeterSettings& meter : config.multimeters) {
         meter.plus.clear();
         meter.com.clear();
+    }
+    for (Bench::SupplySettings& supply : config.supplies) {
+        supply.channels = {};
     }
     return config;
 }

@@ -4,6 +4,7 @@
 #include "generator_panel.h"
 #include "icons.h"
 #include "multimeter_panel.h"
+#include "supply_panel.h"
 #include "panel/knob_widget.h"
 #include "scope_panel.h"
 #include "schematic/parts_panel.h"
@@ -89,6 +90,8 @@ QString kindTitle(InstrumentKind kind)
         return MainWindow::tr("Oscilloscope");
     case InstrumentKind::Multimeter:
         return MainWindow::tr("Multimeter");
+    case InstrumentKind::Supply:
+        return MainWindow::tr("DC power supply");
     }
     return {};
 }
@@ -120,6 +123,17 @@ std::filesystem::path fsPath(const QString& path)
 QString generatorNet(const bench::Bench::GeneratorSettings& generator)
 {
     return generator.plus.empty() || generator.com.empty() ? QString() : text(generator.plus);
+}
+
+// The nets a supply panel shows: each channel's + and -.
+std::vector<QString> supplyNets(const bench::Bench::SupplySettings& supply)
+{
+    std::vector<QString> nets;
+    for (const instruments::DcPowerSupply::Terminals& channel : supply.channels) {
+        nets.push_back(text(channel.plus));
+        nets.push_back(text(channel.minus));
+    }
+    return nets;
 }
 
 } // namespace
@@ -245,6 +259,8 @@ void MainWindow::showProject(const project::Project& project, const QString& pat
             scope->clear();
         } else if (auto* meter = qobject_cast<MultimeterPanel*>(panel.face)) {
             meter->clear();
+        } else if (auto* supply = qobject_cast<SupplyPanel*>(panel.face)) {
+            supply->clear();
         }
     }
     for (const schematic::PlacedInstrument& instrument : project.scene.instruments) {
@@ -457,6 +473,12 @@ MultimeterPanel& MainWindow::multimeter()
         openPanel(text(control_.bench().config().multimeters.at(0).name)));
 }
 
+SupplyPanel* MainWindow::supplyPanel(const QString& name) const
+{
+    const Panel* panel = panelOf(name);
+    return panel != nullptr ? qobject_cast<SupplyPanel*>(panel->face) : nullptr;
+}
+
 GeneratorPanel& MainWindow::generator()
 {
     return *qobject_cast<GeneratorPanel*>(
@@ -532,6 +554,19 @@ QWidget* MainWindow::openPanel(const QString& name)
         panel.face = face;
         break;
     }
+    case InstrumentKind::Supply: {
+        const auto index = indexOf(config.supplies, name);
+        if (!index) {
+            return nullptr;
+        }
+        const bench::Bench::SupplySettings& supply = config.supplies[*index];
+        auto* face = new SupplyPanel(this);
+        face->setConfig(supply.config, supply.channels);
+        panel.nets = supplyNets(supply);
+        connect(face, &SupplyPanel::changed, this, [this, name] { applySupply(name); });
+        panel.face = face;
+        break;
+    }
     }
 
     // A window of its own beside the symbol, kept on the screen: a tool window, above the main
@@ -604,6 +639,20 @@ void MainWindow::applyGenerator(const QString& name)
     bench::remember(settings_, config);
 }
 
+// A supply knob changes the circuit too: the next pump restarts the run, as a generator's does.
+void MainWindow::applySupply(const QString& name)
+{
+    bench::Bench::Config config = control_.bench().config();
+    const auto index = indexOf(config.supplies, name);
+    const SupplyPanel* face = supplyPanel(name);
+    if (!index || face == nullptr) {
+        return;
+    }
+    config.supplies[*index].config = face->config();
+    control_.bench().configure(config);
+    bench::remember(settings_, config);
+}
+
 void MainWindow::syncPanels()
 {
     const bench::Bench::Config& config = control_.bench().config();
@@ -648,6 +697,18 @@ void MainWindow::syncPanels()
                 const std::vector<QString> nets = {generatorNet(generator)};
                 if (!(face->config() == generator.config) || panel.nets != nets) {
                     face->setConfig(generator.config, nets[0]);
+                    panel.nets = nets;
+                }
+            }
+            break;
+        case InstrumentKind::Supply:
+            if (const auto i = indexOf(config.supplies, panel.name)) {
+                present = true;
+                const bench::Bench::SupplySettings& supply = config.supplies[*i];
+                auto* face = qobject_cast<SupplyPanel*>(panel.face);
+                const std::vector<QString> nets = supplyNets(supply);
+                if (!(face->config() == supply.config) || panel.nets != nets) {
+                    face->setConfig(supply.config, supply.channels); // clears the displays
                     panel.nets = nets;
                 }
             }
@@ -1172,6 +1233,14 @@ void MainWindow::pump()
             }
             if (i == 0) {
                 reading_ = std::move(reading);
+            }
+        }
+    }
+    for (std::size_t i = 0; i < config.supplies.size(); ++i) {
+        if (std::optional<instruments::SupplyReading> reading =
+                control_.bench().popSupplyReading(i)) {
+            if (SupplyPanel* panel = supplyPanel(text(config.supplies[i].name))) {
+                panel->showReading(*reading);
             }
         }
     }

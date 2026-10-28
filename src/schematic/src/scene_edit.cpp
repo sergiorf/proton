@@ -39,6 +39,8 @@ Box ownBounds(InstrumentKind kind)
         return {-3, -3, 4, 3};
     case InstrumentKind::Multimeter:
         return {-2, -3, 2, 2};
+    case InstrumentKind::Supply:
+        return {-4, -4, 2, 4};
     }
     return {};
 }
@@ -59,6 +61,8 @@ std::string_view namePrefix(InstrumentKind kind)
         return "scope";
     case InstrumentKind::Multimeter:
         return "dmm";
+    case InstrumentKind::Supply:
+        return "psu";
     }
     return "instrument";
 }
