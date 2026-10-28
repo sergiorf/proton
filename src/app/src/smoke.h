@@ -83,4 +83,10 @@ void smokeDiagnostics(MainWindow& window);
 // generator's 1 V peak (0.500 V) and the scope's CH2 rises through 0 V 45 degrees after CH1.
 void smokeSession(MainWindow& window);
 
+// The DC power supply (PLAN.md M5.1), drawn by hand: psu1 from the parts panel with CH1 across a
+// 1k resistor to ground, its panel opened from the symbol, Run. Passes when CH1's displays show
+// 5.000 V and V/R, 0.0050 A, without LIMIT; then, the limit typed down to 1 mA, LIMIT lights; and
+// with CH1's Output switched off the current display reads 0.0000 A.
+void smokeSupply(MainWindow& window);
+
 } // namespace proton::app

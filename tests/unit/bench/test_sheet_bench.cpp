@@ -53,6 +53,30 @@ TEST(each_instrument_on_the_sheet_is_an_instance_on_its_nets)
     }
 }
 
+// A supply's terminals are CH1+, CH1-, CH2+, CH2- in that order; it keeps its settings by name.
+TEST(a_supply_on_the_sheet_takes_its_channels_from_its_terminals)
+{
+    Bench::Config settings;
+    Bench::SupplySettings known;
+    known.name = "psu1";
+    known.config.channels[1].voltage = 12.0;
+    settings.supplies = {known};
+    const Bench::Config bench = benchFor(
+        {connections(InstrumentKind::Supply, "psu1", {"vcc", "0", "pos", ""})}, settings);
+    CHECK_EQ(bench.supplies.size(), 1u);
+    if (bench.supplies.size() == 1) {
+        CHECK_EQ(bench.supplies[0].channels[0].plus, std::string("vcc"));
+        CHECK_EQ(bench.supplies[0].channels[0].minus, std::string("0"));
+        CHECK_EQ(bench.supplies[0].channels[1].plus, std::string("pos"));
+        CHECK(bench.supplies[0].channels[1].minus.empty());
+        CHECK_EQ(bench.supplies[0].config.channels[1].voltage, 12.0);
+    }
+    Bench::Config remembered;
+    remember(remembered, bench);
+    carryOver(remembered, InstrumentKind::Supply, "psu1", "bench");
+    CHECK_EQ(remembered.supplies.size(), 2u);
+}
+
 TEST(an_instance_keeps_its_settings_by_name_when_its_wiring_changes)
 {
     Bench::Config settings;

@@ -78,6 +78,8 @@ std::string instrumentKindName(InstrumentKind kind)
         return "scope";
     case InstrumentKind::Multimeter:
         return "multimeter";
+    case InstrumentKind::Supply:
+        return "power supply";
     }
     return "instrument";
 }
@@ -108,6 +110,8 @@ std::vector<std::string_view> terminalNames(InstrumentKind kind)
         return {"+", "COM"};
     case InstrumentKind::Scope:
         return {"CH1", "CH2"};
+    case InstrumentKind::Supply:
+        return {"CH1+", "CH1-", "CH2+", "CH2-"};
     }
     return {};
 }
@@ -121,6 +125,8 @@ std::vector<Point> terminalOffsets(InstrumentKind kind)
         return {{-3, -1}, {-3, 1}};
     case InstrumentKind::Multimeter:
         return {{-1, 2}, {1, 2}};
+    case InstrumentKind::Supply:
+        return {{2, -3}, {2, -1}, {2, 1}, {2, 3}};
     }
     return {};
 }

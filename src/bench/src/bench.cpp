@@ -9,8 +9,10 @@ namespace proton::bench {
 
 namespace {
 
+using instruments::DcPowerSupply;
 using instruments::FunctionGenerator;
 using instruments::Scope;
+using instruments::SpiceFragment;
 
 std::string lower(std::string_view text)
 {
@@ -49,6 +51,13 @@ void Bench::configure(const Config& config)
             multimeters_[i].configure(config.multimeters[i].config);
         }
     }
+    supplies_.resize(config.supplies.size());
+    for (std::size_t i = 0; i < config.supplies.size(); ++i) {
+        if (i >= config_.supplies.size() ||
+            config.supplies[i].config != config_.supplies[i].config) {
+            supplies_[i].configure(config.supplies[i].config);
+        }
+    }
     config_ = config;
     resolveAll();
 }
@@ -74,6 +83,12 @@ void Bench::contributeTo(schematic::Circuit& circuit)
                                  .toSpice(generator.name, generator.plus, generator.com)
                                  .lines});
     }
+    for (const SupplySettings& supply : config_.supplies) {
+        SpiceFragment fragment = DcPowerSupply(supply.config).toSpice(supply.name, supply.channels);
+        if (!fragment.lines.empty()) {
+            circuit.fragments.push_back({supply.name, std::move(fragment.lines)});
+        }
+    }
     groundNets_ = {std::string(schematic::kGroundNet)};
     for (const schematic::Component& component : circuit.components) {
         if (component.kind == schematic::ComponentKind::Ground) {
@@ -95,6 +110,9 @@ std::vector<schematic::Diagnostic> Bench::check(const schematic::Circuit& circui
     }
     for (const MultimeterSettings& multimeter : config_.multimeters) {
         names.push_back(multimeter.name);
+    }
+    for (const SupplySettings& supply : config_.supplies) {
+        names.push_back(supply.name);
     }
 
     std::vector<schematic::Diagnostic> diagnostics;
@@ -138,6 +156,9 @@ void Bench::restart()
     for (std::size_t i = 0; i < multimeters_.size(); ++i) {
         multimeters_[i].configure(config_.multimeters[i].config);
     }
+    for (std::size_t i = 0; i < supplies_.size(); ++i) {
+        supplies_[i].configure(config_.supplies[i].config);
+    }
 }
 
 void Bench::feed(const sim::SimChunk& chunk, std::size_t begin, std::size_t end)
@@ -169,6 +190,44 @@ void Bench::feed(const sim::SimChunk& chunk, std::size_t begin, std::size_t end)
             difference_[k] -= com[k];
         }
         multimeters_[i].feed(time, difference_);
+    }
+    for (std::size_t i = 0; i < supplies_.size(); ++i) {
+        const auto& channels = supplySources_[i];
+        const bool resolved = std::ranges::none_of(channels, [&](const SupplyChannelSources& c) {
+            return missing(c.plus) || missing(c.minus) || missing(c.current);
+        });
+        if (!resolved) {
+            continue;
+        }
+        std::array<std::span<const double>, DcPowerSupply::kChannels> voltages;
+        std::array<std::span<const double>, DcPowerSupply::kChannels> currents;
+        for (std::size_t c = 0; c < DcPowerSupply::kChannels; ++c) {
+            std::vector<double>& v = supplyVoltages_[c];
+            std::vector<double>& a = supplyCurrents_[c];
+            if (!channels[c].connected) {
+                // An open output: the set voltage while on, and nothing flows.
+                const DcPowerSupply::ChannelConfig& set = supplies_[i].config().channels[c];
+                v.assign(count, set.output ? set.voltage : 0.0);
+                a.assign(count, 0.0);
+            } else {
+                const std::span<const double> plus = samples(channels[c].plus, chunk, begin, count);
+                v.assign(plus.begin(), plus.end());
+                const std::span<const double> minus =
+                    samples(channels[c].minus, chunk, begin, count);
+                for (std::size_t k = 0; k < count; ++k) {
+                    v[k] -= minus[k];
+                }
+                const std::span<const double> branch =
+                    samples(channels[c].current, chunk, begin, count);
+                a.resize(count);
+                for (std::size_t k = 0; k < count; ++k) {
+                    a[k] = -branch[k]; // SPICE's branch current flows into +
+                }
+            }
+            voltages[c] = v;
+            currents[c] = a;
+        }
+        supplies_[i].feed(time, voltages, currents);
     }
 }
 
@@ -207,6 +266,14 @@ std::optional<instruments::DmmReading> Bench::popReading(std::size_t multimeter)
     return multimeters_[multimeter].popReading();
 }
 
+std::optional<instruments::SupplyReading> Bench::popSupplyReading(std::size_t supply)
+{
+    if (supply >= supplies_.size()) {
+        return std::nullopt;
+    }
+    return supplies_[supply].popReading();
+}
+
 Bench::Source Bench::resolve(const std::string& net) const
 {
     if (net.empty() || std::ranges::find(groundNets_, lower(net)) != groundNets_.end()) {
@@ -224,6 +291,7 @@ void Bench::resolveAll()
     errors_.clear();
     scopeSources_.assign(config_.scopes.size(), {});
     multimeterSources_.assign(config_.multimeters.size(), {});
+    supplySources_.assign(config_.supplies.size(), {});
     if (!attached_) {
         return;
     }
@@ -247,6 +315,32 @@ void Bench::resolveAll()
         const MultimeterSettings& multimeter = config_.multimeters[i];
         check(multimeterSources_[i][0], multimeter.name + " +", multimeter.plus);
         check(multimeterSources_[i][1], multimeter.name + " COM", multimeter.com);
+    }
+    for (std::size_t i = 0; i < config_.supplies.size(); ++i) {
+        const SupplySettings& supply = config_.supplies[i];
+        for (std::size_t c = 0; c < DcPowerSupply::kChannels; ++c) {
+            const DcPowerSupply::Terminals& terminals = supply.channels[c];
+            SupplyChannelSources& sources = supplySources_[i][c];
+            sources.connected = !terminals.plus.empty() && !terminals.minus.empty();
+            if (!sources.connected) {
+                continue;
+            }
+            const std::string channel = supply.name + " CH" + std::to_string(c + 1);
+            check(sources.plus, channel + "+", terminals.plus);
+            check(sources.minus, channel + "-", terminals.minus);
+            // The supply's own source is in every netlist it contributes to; an engine that
+            // gives no currents cannot show what it delivers.
+            const std::string source = DcPowerSupply::sourceName(supply.name, c);
+            if (const std::optional<std::size_t> index =
+                    sim::indexOfSignal(signalNames_, "i(" + source + ")")) {
+                sources.current = {Source::Kind::Signal, *index};
+            } else {
+                sources.current = {Source::Kind::Missing, 0};
+                errors_.push_back({channel, {},
+                                   "The simulator gives no current for " + channel +
+                                       ", so its display cannot show what it delivers."});
+            }
+        }
     }
 }
 

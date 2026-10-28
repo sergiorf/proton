@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The examples on ngspice through RunControl, as the app runs them, against the analytic answers.
+// The examples, and the power supply, on ngspice through RunControl, as the app runs them, against
+// the analytic answers.
 // Its own executable: ngspice keeps process-wide state.
 #include "proton/bench/engines.h"
+#include "proton/core/spice_number.h"
 #include "proton/project/project.h"
 #include "proton/bench/run_control.h"
 #include "proton/test/test.h"
@@ -229,4 +231,69 @@ TEST(rlc_at_resonance_passes_the_input)
     CHECK(std::abs(example.bench.generators[0].config.frequency - resonance) < 0.1);
     const std::optional<DmmReading> reading = secondReading(example);
     CHECK(reading && std::abs(reading->value - 1.0 / std::sqrt(2.0)) < 2e-3);
+}
+
+// The PLAN.md M5.1 check on ngspice: psu1's CH1 at 5 V across R1 shows V/R on its display, and
+// with the limit below that current, the flag.
+namespace {
+
+std::optional<proton::instruments::SupplyReading> supplyReading(double ohms, double limit)
+{
+    using proton::schematic::ComponentKind;
+    proton::schematic::Circuit circuit;
+    circuit.components = {
+        {ComponentKind::Resistor, "R1", {"vcc", "0"}, proton::core::formatSpiceNumber(ohms)},
+        {ComponentKind::Ground, "", {"0"}, ""},
+    };
+    proton::bench::Bench::Config bench;
+    proton::bench::Bench::SupplySettings& supply = bench.supplies.emplace_back();
+    supply.config.channels[0].voltage = 5.0;
+    supply.config.channels[0].currentLimit = limit;
+    supply.channels[0] = {"vcc", "0"};
+
+    RunControl::Config config;
+    config.realTime = false;
+    RunControl control(proton::bench::ngspiceEngines(), config);
+    control.bench().configure(bench);
+    control.setCircuit(circuit);
+    control.start();
+    const Clock::time_point deadline = Clock::now() + kTimeout;
+    std::optional<proton::instruments::SupplyReading> reading;
+    while (Clock::now() < deadline) {
+        control.pump(0.0, 0.25);
+        if (auto r = control.bench().popSupplyReading(0)) {
+            reading = r;
+        }
+        if (control.state() != RunControl::State::Running) {
+            std::printf("supply: %s\n", control.error().c_str());
+            return std::nullopt;
+        }
+        if (control.fedThrough() >= 0.25) {
+            return reading;
+        }
+        std::this_thread::yield();
+    }
+    return std::nullopt;
+}
+
+} // namespace
+
+TEST(a_supply_into_a_resistor_shows_v_over_r)
+{
+    const auto reading = supplyReading(1e3, 1.0);
+    CHECK(reading.has_value());
+    if (!reading) {
+        return;
+    }
+    CHECK_NEAR(reading->channels[0].voltage, 5.0, 1e-9);
+    CHECK_NEAR(reading->channels[0].current, 5.0 / 1e3, 1e-9);
+    CHECK_EQ(reading->channels[0].currentText, std::string("0.0050"));
+    CHECK(!reading->channels[0].overLimit);
+}
+
+TEST(a_supply_beyond_its_limit_shows_the_flag)
+{
+    const auto reading = supplyReading(10.0, 0.1); // 0.5 A against a 0.1 A limit
+    CHECK(reading && reading->channels[0].overLimit);
+    CHECK(reading && std::abs(reading->channels[0].current - 0.5) < 1e-9);
 }

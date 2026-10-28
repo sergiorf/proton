@@ -36,6 +36,8 @@ add_executable(proton WIN32
     src/smoke.h
     src/start_page.cpp
     src/start_page.h
+    src/supply_panel.cpp
+    src/supply_panel.h
     resources/resources.qrc
 )
 # The app's icon: proton.png for the window (Qt resource), proton.ico for the executable.
@@ -93,4 +95,6 @@ if(PROTON_NGSPICE_FOUND)
     add_test(NAME app_menus_and_toolbars COMMAND proton --smoke-menus)
     # A student finds the RC low-pass's corner with the panels: -3 dB and a 45 degree lag (M4.8).
     add_test(NAME app_corner_frequency_session COMMAND proton --smoke-session)
+    # A supply drawn into a resistor shows V/R, and the flag beyond its limit (M5.1).
+    add_test(NAME app_power_supply COMMAND proton --smoke-supply)
 endif()

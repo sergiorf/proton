@@ -11,11 +11,13 @@
 
 using proton::bench::Bench;
 using proton::bench::ProbeError;
+using proton::instruments::DcPowerSupply;
 using proton::instruments::DmmReading;
 using proton::instruments::FunctionGenerator;
 using proton::instruments::Multimeter;
 using proton::instruments::Scope;
 using proton::instruments::ScopeFrame;
+using proton::instruments::SupplyReading;
 using proton::schematic::Circuit;
 using proton::schematic::Component;
 using proton::schematic::ComponentKind;
@@ -354,4 +356,118 @@ TEST(rearming_takes_another_single_frame)
     CHECK(!bench.scopeStopped(0));
     bench.feed(c, 15000, c.time.size());
     CHECK(bench.popFrame(0).has_value());
+}
+
+namespace {
+
+// psu1 with CH1 between `vcc` and ground; CH2 open.
+Bench::SupplySettings supply(const std::string& name = "psu1")
+{
+    Bench::SupplySettings settings;
+    settings.name = name;
+    settings.channels[0] = {"vcc", "0"};
+    return settings;
+}
+
+// 0.2 s of a supply's CH1 at 5 V into a 1k load, as ngspice gives it: v(vcc) and the source's
+// branch current, which flows into + and so is negative while the channel delivers.
+SimChunk supplyChunk(double amps)
+{
+    SimChunk result;
+    result.signals.resize(2);
+    for (int i = 0; i <= 2100; ++i) {
+        result.time.push_back(static_cast<double>(i) * 1e-4);
+        result.signals[0].push_back(5.0);
+        result.signals[1].push_back(-amps);
+    }
+    return result;
+}
+
+const std::vector<std::string> kSupplySignals = {"v(vcc)", "i(vpsu1_1)"};
+
+} // namespace
+
+TEST(a_connected_supply_contributes_its_fragment_under_its_name)
+{
+    Bench::Config config;
+    config.supplies = {supply()};
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    CHECK_EQ(circuit.fragments.size(), 1u);
+    CHECK_EQ(circuit.fragments[0].name, std::string("psu1"));
+    CHECK(circuit.fragments[0].lines ==
+          DcPowerSupply(config.supplies[0].config).toSpice("psu1", config.supplies[0].channels).lines);
+
+    config.supplies[0].channels[0].minus.clear(); // no channel connected: nothing
+    bench.configure(config);
+    Circuit open;
+    bench.contributeTo(open);
+    CHECK(open.fragments.empty());
+}
+
+TEST(a_supply_reads_the_voltage_across_it_and_the_current_it_delivers)
+{
+    Bench::Config config;
+    config.supplies = {supply()};
+    config.supplies[0].config.channels[1].voltage = 12.0; // CH2 open, on
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    CHECK(bench.attach(kSupplySignals).empty());
+    feedAll(bench, supplyChunk(5e-3));
+    const std::optional<SupplyReading> reading = bench.popSupplyReading(0);
+    CHECK(reading.has_value());
+    if (!reading) {
+        return;
+    }
+    CHECK_NEAR(reading->channels[0].voltage, 5.0, 1e-12);
+    CHECK_NEAR(reading->channels[0].current, 5e-3, 1e-15);
+    CHECK_EQ(reading->channels[0].currentText, std::string("0.0050"));
+    CHECK(!reading->channels[0].overLimit);
+    // An open channel shows its set voltage and delivers nothing.
+    CHECK_EQ(reading->channels[1].voltageText, std::string("12.000"));
+    CHECK_EQ(reading->channels[1].current, 0.0);
+    CHECK(!bench.popSupplyReading(1).has_value());
+}
+
+TEST(a_supply_beyond_its_limit_is_flagged)
+{
+    Bench::Config config;
+    config.supplies = {supply()};
+    config.supplies[0].config.channels[0].currentLimit = 0.1;
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    bench.attach(kSupplySignals);
+    feedAll(bench, supplyChunk(0.5));
+    const std::optional<SupplyReading> reading = bench.popSupplyReading(0);
+    CHECK(reading && reading->channels[0].overLimit);
+}
+
+TEST(a_supply_without_its_current_is_reported_and_not_fed)
+{
+    Bench::Config config;
+    config.supplies = {supply()};
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    const std::vector<std::string> voltagesOnly = {"v(vcc)"};
+    const std::vector<ProbeError>& errors = bench.attach(voltagesOnly);
+    CHECK_EQ(errors.size(), 1u);
+    CHECK(!errors.empty() && errors[0].probe == "psu1 CH1");
+    feedAll(bench, supplyChunk(5e-3));
+    CHECK(!bench.popSupplyReading(0).has_value());
+}
+
+TEST(supply_names_share_the_name_space)
+{
+    Bench::Config config;
+    config.multimeters = {meter("psu1", "out")};
+    config.supplies = {supply()};
+    Circuit circuit;
+    circuit.components = {Component{ComponentKind::Resistor, "PSU2", {"vcc", "0"}, "1k"}};
+    CHECK_EQ(Bench(config).check(circuit).size(), 1u);
+    config.supplies[0].name = "psu2";
+    CHECK_EQ(Bench(config).check(circuit).size(), 1u);
 }

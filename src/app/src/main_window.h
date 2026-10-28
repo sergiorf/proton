@@ -33,6 +33,7 @@ class GeneratorPanel;
 class MultimeterPanel;
 class ScopePanel;
 class StartPage;
+class SupplyPanel;
 } // namespace proton::app
 
 namespace proton::app {
@@ -124,6 +125,7 @@ public:
     ScopePanel* scopePanel(const QString& name) const;
     MultimeterPanel* multimeterPanel(const QString& name) const;
     GeneratorPanel* generatorPanel(const QString& name) const;
+    SupplyPanel* supplyPanel(const QString& name) const;
     // The panel of the first scope, multimeter or generator on the bench, opened: for the smoke
     // checks, after an example has put one there.
     ScopePanel& scope();
@@ -147,9 +149,9 @@ private:
         QString name;
         schematic::InstrumentKind kind = schematic::InstrumentKind::Scope;
         QWidget* window = nullptr; // the tool window holding the face
-        QWidget* face = nullptr; // a ScopePanel, MultimeterPanel or GeneratorPanel
+        QWidget* face = nullptr; // a ScopePanel, MultimeterPanel, GeneratorPanel or SupplyPanel
         std::vector<QString> nets; // the nets the face shows: a meter's + and COM, a generator's
-                                   // output, a scope's CH1 and CH2
+                                   // output, a scope's CH1 and CH2, a supply's + and - per channel
     };
 
     void showAbout();
@@ -179,6 +181,7 @@ private:
     void applyScope(const QString& name);
     void applyMultimeter(const QString& name);
     void applyGenerator(const QString& name);
+    void applySupply(const QString& name);
     void applyScene();
     // Brings every panel in line with the bench: a panel whose instance is gone goes, the others
     // show their instance's settings and nets.

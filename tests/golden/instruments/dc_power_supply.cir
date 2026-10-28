@@ -1,0 +1,3 @@
+* DC power supply psu1
+Vpsu1_1 vcc 0 DC 5
+Vpsu1_2 pos neg DC 12

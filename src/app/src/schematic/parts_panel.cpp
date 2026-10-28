@@ -89,6 +89,7 @@ PartsPanel::PartsPanel(QWidget* parent) : QTabWidget(parent)
     addEntry(sources, tr("Ground"), ComponentKind::Ground);
     QListWidget* instruments = addGroup(tr("Instruments"));
     addEntry(instruments, tr("Function generator"), InstrumentKind::Generator);
+    addEntry(instruments, tr("DC power supply"), InstrumentKind::Supply);
     addEntry(instruments, tr("Oscilloscope"), InstrumentKind::Scope);
     addEntry(instruments, tr("Multimeter"), InstrumentKind::Multimeter);
 }

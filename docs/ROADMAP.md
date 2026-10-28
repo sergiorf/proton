@@ -22,7 +22,7 @@ its front panel (ADR 0009).
 
 | Instrument | MVP scope | State |
 |---|---|---|
-| DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | planned (M5.1) |
+| DC power supply | 2 channels (enough for +/- rails), set voltage, current limit as a plain value | done (M5.1) |
 | Function generator | sine, square, triangle, DC, offset, output impedance, output on/off | model done (M0), front panel done (M2.6) |
 | Function generator | frequency, amplitude and offset set digit by digit; unit lists on the entry fields | done (M4.6) |
 | Oscilloscope | 2 channels, timebase, V/div, DC/AC coupling, edge trigger, Auto / Normal / Single | model done (M0), screen and front panel done (M2.4) |

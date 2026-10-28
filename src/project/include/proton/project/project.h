@@ -27,7 +27,8 @@ namespace proton::project {
 //       "description": "...",
 //       "scene": {"parts": [...], "instruments": [...], "wires": [...], "junctions": [...],
 //                 "labels": [...]},
-//       "settings": {"generators": [...], "scopes": [...], "multimeters": [...]}
+//       "settings": {"generators": [...], "scopes": [...], "multimeters": [...],
+//                    "supplies": [...]}
 //     }
 //
 // Settings are stored by instance name, without nets: the drawing says where each instrument is

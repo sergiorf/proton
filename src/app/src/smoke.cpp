@@ -11,6 +11,7 @@
 #include "schematic/parts_panel.h"
 #include "schematic/schematic_view.h"
 #include "scope_widget.h"
+#include "supply_panel.h"
 
 #include "proton/bench/bench.h"
 #include "proton/core/spice_number.h"
@@ -1946,6 +1947,100 @@ void smokeSession(MainWindow& window)
         });
         timer->start(16);
     });
+}
+
+namespace {
+
+// The body of smokeSupply().
+void checkSupply(MainWindow& window)
+{
+    sheet::SchematicView& sheet = window.sheet();
+    sheet.setScene({});
+    // psu1 with CH1 across R1, 1k, standing to its right, and ground below.
+    placeFromPanel(window, InstrumentKind::Supply, {0, 0}); // CH1+: (2,-3), CH1-: (2,-1)
+    placeFromPanel(window, ComponentKind::Resistor, {6, -1}, 1); // R1: (6,-3), (6,1)
+    placeFromPanel(window, ComponentKind::Ground, {6, 3});
+    sheet.drawWire({2, -3}, {6, -3});
+    sheet.drawWire({6, 1}, {6, 3});
+    sheet.drawWire({2, -1}, {4, -1});
+    sheet.drawWire({4, -1}, {4, 3});
+    sheet.drawWire({4, 3}, {6, 3});
+    sheet.setTool(sheet::SchematicView::Tool::Select);
+    if (sheet.scene().instruments.size() != 1 || sheet.scene().instruments[0].name != "psu1") {
+        std::fprintf(stderr, "proton: the parts panel did not place psu1\n");
+        QApplication::exit(1);
+        return;
+    }
+    mouse(sheet.viewport(), QEvent::MouseButtonDblClick, sheet.viewPoint({0, 0}), Qt::LeftButton);
+    SupplyPanel* panel = window.supplyPanel(QStringLiteral("psu1"));
+    if (panel == nullptr) {
+        std::fprintf(stderr, "proton: psu1's panel did not open from its symbol\n");
+        QApplication::exit(1);
+        return;
+    }
+    pressRun(window);
+
+    // Stage 0: V/R on the displays; 1: the limit typed down to 1 mA lights LIMIT; 2: Output off.
+    auto* timer = new QTimer(&window);
+    auto clock = std::make_shared<QElapsedTimer>();
+    auto stage = std::make_shared<int>(0);
+    clock->start();
+    QObject::connect(timer, &QTimer::timeout, &window, [&window, panel, timer, clock, stage] {
+        const QString volts = panel->voltageText(0);
+        const QString amps = panel->currentText(0);
+        bool done = false;
+        switch (*stage) {
+        case 0:
+            done = volts == QStringLiteral("5.000") && amps == QStringLiteral("0.0050") &&
+                   !panel->limitLit(0);
+            if (done) {
+                std::printf("proton: psu1 CH1 into 1k: %s V, %s A\n", volts.toStdString().c_str(),
+                            amps.toStdString().c_str());
+                panel->limitEntry(0)->setText(QStringLiteral("0.001"));
+                key(panel->limitEntry(0), Qt::Key_Return);
+            }
+            break;
+        case 1:
+            done = amps == QStringLiteral("0.0050") && panel->limitLit(0);
+            if (done) {
+                std::printf("proton: psu1 CH1 beyond a 1 mA limit: LIMIT lit\n");                panel->outputButton(0)->click();
+            }
+            break;
+        default:
+            done = amps == QStringLiteral("0.0000") && !panel->limitLit(0);
+            if (done) {
+                std::printf("proton: psu1 CH1 output off: %s A\n", amps.toStdString().c_str());
+                std::fflush(stdout);
+                timer->stop();
+                window.close();
+                return;
+            }
+            break;
+        }
+        if (done) {
+            ++*stage;
+            clock->restart();
+            return;
+        }
+        const bool late = clock->elapsed() > std::chrono::milliseconds(kExampleTimeout).count();
+        if (late || window.control().state() == bench::RunControl::State::Invalid ||
+            window.control().state() == bench::RunControl::State::Failed) {
+            std::fprintf(stderr,
+                         "proton: psu1 at stage %d shows '%s V', '%s A', LIMIT %s; %s\n", *stage,
+                         volts.toStdString().c_str(), amps.toStdString().c_str(),
+                         panel->limitLit(0) ? "lit" : "dark", window.control().error().c_str());
+            timer->stop();
+            QApplication::exit(1);
+        }
+    });
+    timer->start(16);
+}
+
+} // namespace
+
+void smokeSupply(MainWindow& window)
+{
+    QTimer::singleShot(0, &window, [&window] { checkSupply(window); });
 }
 
 } // namespace proton::app
