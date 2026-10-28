@@ -297,3 +297,31 @@ TEST(a_supply_beyond_its_limit_shows_the_flag)
     CHECK(reading && reading->channels[0].overLimit);
     CHECK(reading && std::abs(reading->channels[0].current - 0.5) < 1e-9);
 }
+
+// The PLAN.md M5.2 check: V1 5 V drives R1 1k, the meter in series, and R2 1k. dmm1 on DC A reads
+// Ohm's law, 5 / 2k = 2.5 mA; dmm2 on DC V across the meter reads 0 V.
+TEST(an_ammeter_in_series_reads_ohms_law_and_drops_nothing)
+{
+    using proton::schematic::ComponentKind;
+    Example example = examples()[1]; // the divider, for its meter
+    example.circuit.components = {
+        {ComponentKind::VoltageSource, "V1", {"in", "0"}, "5"},
+        {ComponentKind::Resistor, "R1", {"in", "a"}, "1k"},
+        {ComponentKind::Resistor, "R2", {"b", "0"}, "1k"},
+        {ComponentKind::Ground, "", {"0"}, ""},
+    };
+    example.bench.multimeters.resize(1);
+    example.bench.multimeters[0].config.mode = proton::instruments::Multimeter::Mode::DcCurrent;
+    example.bench.multimeters[0].plus = "a";
+    example.bench.multimeters[0].com = "b";
+    proton::bench::Bench::MultimeterSettings across;
+    across.name = "dmm2";
+    across.plus = "a";
+    across.com = "b";
+    example.bench.multimeters.push_back(across);
+    const std::optional<DmmReading> current = secondReading(example, 0);
+    const std::optional<DmmReading> drop = secondReading(example, 1);
+    CHECK(current && std::abs(current->value - 2.5e-3) < 1e-9);
+    CHECK(current && current->display.text == "2.500" && current->display.unit == "mA");
+    CHECK(drop && std::abs(drop->value) < 1e-9);
+}

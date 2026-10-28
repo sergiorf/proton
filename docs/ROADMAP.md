@@ -29,7 +29,7 @@ its front panel (ADR 0009).
 | Oscilloscope | channel on/off, horizontal position, GND coupling, force trigger, fine V/div; a bench scope's panel layout | done (M4.5) |
 | All instruments | knobs with coarse and fine, circular drag, scale marks, hover feedback | done (M4.5) |
 | Multimeter | DC V, AC V (true RMS), auto/fixed range | model done (M0), front panel done (M2.5) |
-| Multimeter | DC current | planned (M5.2) |
+| Multimeter | DC current | done (M5.2) |
 | Multimeter | resistance | planned (M5.3) |
 
 How the multimeter measures what it cannot read directly from a node voltage:

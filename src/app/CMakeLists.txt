@@ -97,4 +97,6 @@ if(PROTON_NGSPICE_FOUND)
     add_test(NAME app_corner_frequency_session COMMAND proton --smoke-session)
     # A supply drawn into a resistor shows V/R, and the flag beyond its limit (M5.1).
     add_test(NAME app_power_supply COMMAND proton --smoke-supply)
+    # A multimeter wired in series on DC A reads Ohm's law (M5.2).
+    add_test(NAME app_ammeter COMMAND proton --smoke-ammeter)
 endif()

@@ -27,8 +27,8 @@ constexpr int kDisplayCells = 6; // sign and five digit places: "-1.9999", "-199
 const QString kDashes = QStringLiteral("-----");
 
 // The dial's positions, in order, and the modes they select.
-constexpr std::array<Multimeter::Mode, 2> kModes = {Multimeter::Mode::DcVoltage,
-                                                    Multimeter::Mode::AcVoltage};
+constexpr std::array<Multimeter::Mode, 3> kModes = {
+    Multimeter::Mode::DcVoltage, Multimeter::Mode::AcVoltage, Multimeter::Mode::DcCurrent};
 
 std::size_t positionOf(Multimeter::Mode mode)
 {
@@ -64,7 +64,7 @@ protected:
         const double r = 13.0;
         const std::array<std::pair<QString, QColor>, 2> jacks = {
             std::pair{QStringLiteral("COM"), QColor(30, 30, 32)},
-            std::pair{QStringLiteral("+ V"), QColor(200, 40, 35)}};
+            std::pair{QStringLiteral("+ V A"), QColor(200, 40, 35)}};
         for (std::size_t i = 0; i < jacks.size(); ++i) {
             const QPointF c(width() * (0.3 + 0.4 * static_cast<double>(i)), r + 6);
             painter.setPen(QPen(panel::kPanelEdge, 2.0));
@@ -108,8 +108,10 @@ void MultimeterPanel::build()
     display_ = new panel::SegmentDisplay(kDisplayCells, this);
     display_->setMaximumHeight(150);
     // The DC symbol (a line over a dashed line, U+2393) and a tilde for AC, as printed on meters.
-    mode_ = new panel::SelectorWidget(
-        tr("Function"), {tr("V %1 DC").arg(QChar(0x2393)), tr("V ~ AC")}, 60.0, this);
+    mode_ = new panel::SelectorWidget(tr("Function"),
+                                      {tr("V %1 DC").arg(QChar(0x2393)), tr("V ~ AC"),
+                                       tr("A %1 DC").arg(QChar(0x2393))},
+                                      60.0, this);
     mode_->setMaximumSize(280, 230);
     range_ = new panel::LitButton(tr("Range"), panel::kLampWhite, this);
     auto_ = new panel::LitButton(tr("Auto"), panel::kLampWhite, this);
@@ -136,10 +138,12 @@ void MultimeterPanel::build()
 
     connect(mode_, &panel::SelectorWidget::positionChanged, this, [this](std::size_t position) {
         config_.mode = kModes[std::min(position, kModes.size() - 1)];
+        config_ = Multimeter::sanitise(config_); // a V range does not carry over to A
         apply();
     });
     connect(range_, &panel::LitButton::clicked, this, [this] {
-        config_.range = Multimeter::nextRange(config_.range, last_ ? last_->range : 0.0);
+        config_.range =
+            Multimeter::nextRange(config_.mode, config_.range, last_ ? last_->range : 0.0);
         apply();
     });
     connect(auto_, &panel::LitButton::clicked, this, [this] {
@@ -169,7 +173,7 @@ void MultimeterPanel::showReading(const instruments::DmmReading& reading)
 void MultimeterPanel::clear()
 {
     last_.reset();
-    display_->setReading(kDashes, QStringLiteral("V"));
+    display_->setReading(kDashes, QString::fromLatin1(Multimeter::unit(config_.mode)));
 }
 
 QString MultimeterPanel::displayText() const
@@ -200,6 +204,10 @@ void MultimeterPanel::showSettings()
         annunciators << tr("AUTO");
     }
     annunciators << (config_.mode == Multimeter::Mode::AcVoltage ? tr("AC") : tr("DC"));
+    jacks_->setToolTip(config_.mode == Multimeter::Mode::DcCurrent
+                           ? tr("Current flows through the meter from + to COM: wire it in "
+                                "series, breaking the circuit where you measure")
+                           : tr("The meter reads the voltage of + against COM"));
     display_->setAnnunciators(annunciators);
 }
 

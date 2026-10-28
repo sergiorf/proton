@@ -350,15 +350,65 @@ TEST(full_scale_of_each_range)
     CHECK_EQ(Multimeter::fullScale(Range::Volts2), 2.0);
     CHECK_EQ(Multimeter::fullScale(Range::Volts20), 20.0);
     CHECK_EQ(Multimeter::fullScale(Range::Volts200), 200.0);
+    CHECK_EQ(Multimeter::fullScale(Range::Milliamps2), 0.002);
+    CHECK_EQ(Multimeter::fullScale(Range::Milliamps20), 0.02);
+    CHECK_EQ(Multimeter::fullScale(Range::Milliamps200), 0.2);
+    CHECK_EQ(Multimeter::fullScale(Range::Amps2), 2.0);
     CHECK_EQ(Multimeter::fullScale(Range::Auto), 0.0);
 }
 
 TEST(the_range_button_holds_the_auto_range_then_steps_up_and_wraps)
 {
-    CHECK(Multimeter::nextRange(Range::Auto, 2.0) == Range::Volts2);
-    CHECK(Multimeter::nextRange(Range::Auto, 0.2) == Range::Millivolts200);
-    CHECK(Multimeter::nextRange(Range::Auto, 0.0) == Range::Volts200); // no reading yet
-    CHECK(Multimeter::nextRange(Range::Millivolts200, 0.0) == Range::Volts2);
-    CHECK(Multimeter::nextRange(Range::Volts20, 0.0) == Range::Volts200);
-    CHECK(Multimeter::nextRange(Range::Volts200, 0.0) == Range::Millivolts200);
+    const Mode v = Mode::DcVoltage;
+    CHECK(Multimeter::nextRange(v, Range::Auto, 2.0) == Range::Volts2);
+    CHECK(Multimeter::nextRange(v, Range::Auto, 0.2) == Range::Millivolts200);
+    CHECK(Multimeter::nextRange(v, Range::Auto, 0.0) == Range::Volts200); // no reading yet
+    CHECK(Multimeter::nextRange(v, Range::Millivolts200, 0.0) == Range::Volts2);
+    CHECK(Multimeter::nextRange(v, Range::Volts20, 0.0) == Range::Volts200);
+    CHECK(Multimeter::nextRange(v, Range::Volts200, 0.0) == Range::Millivolts200);
+    const Mode a = Mode::DcCurrent;
+    CHECK(Multimeter::nextRange(a, Range::Auto, 0.02) == Range::Milliamps20);
+    CHECK(Multimeter::nextRange(a, Range::Auto, 0.2) == Range::Milliamps200); // 200 mA, not V
+    CHECK(Multimeter::nextRange(a, Range::Auto, 0.0) == Range::Amps2);
+    CHECK(Multimeter::nextRange(a, Range::Milliamps200, 0.0) == Range::Amps2);
+    CHECK(Multimeter::nextRange(a, Range::Amps2, 0.0) == Range::Milliamps2);
+}
+
+TEST(a_range_of_the_other_quantity_goes_back_to_auto)
+{
+    CHECK_EQ(Multimeter::sanitise(makeConfig(Mode::DcCurrent, Range::Volts2, 0.1)).range,
+             Range::Auto);
+    CHECK_EQ(Multimeter::sanitise(makeConfig(Mode::AcVoltage, Range::Milliamps20, 0.1)).range,
+             Range::Auto);
+    CHECK_EQ(Multimeter::sanitise(makeConfig(Mode::DcCurrent, Range::Milliamps20, 0.1)).range,
+             Range::Milliamps20);
+}
+
+// DC A is the mean current over the gate, auto-ranged over the current ranges: 5 mA reads
+// 5.000 mA on the 20 mA range.
+TEST(dc_current_reads_the_mean_in_amps)
+{
+    Multimeter meter(makeConfig(Mode::DcCurrent, Range::Auto, 0.01));
+    const Signal s = sampleIrregular([](double) { return 5e-3; }, 0.0, 0.011, 1e-4);
+    meter.feed(s.time, s.values);
+    const std::optional<DmmReading> reading = meter.popReading();
+    CHECK(reading.has_value());
+    CHECK(reading && std::abs(reading->value - 5e-3) < 1e-15);
+    CHECK(reading && reading->range == 0.02);
+    CHECK(reading && reading->display.text == "5.000");
+    CHECK(reading && reading->display.unit == "mA");
+}
+
+TEST(only_dc_current_puts_the_meter_in_series)
+{
+    CHECK(Multimeter(makeConfig(Mode::DcVoltage, Range::Auto, 0.1))
+              .toSpice("dmm1", "a", "b")
+              .lines.empty());
+    const Multimeter ammeter(makeConfig(Mode::DcCurrent, Range::Auto, 0.1));
+    const std::vector<std::string> expected = {"* multimeter dmm1, DC current",
+                                               "Vdmm1 a b DC 0"};
+    CHECK(ammeter.toSpice("dmm1", "a", "b").lines == expected);
+    CHECK(ammeter.toSpice("dmm1", "a", "").lines.empty());  // open
+    CHECK(ammeter.toSpice("dmm1", "a", "A").lines.empty()); // shorted by its leads
+    CHECK_EQ(Multimeter::sourceName("dmm2"), std::string("Vdmm2"));
 }

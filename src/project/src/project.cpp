@@ -91,6 +91,7 @@ constexpr Word<ScopeFrontEnd::Coupling> kCouplings[] = {
 constexpr Word<Multimeter::Mode> kMeterModes[] = {
     {Multimeter::Mode::DcVoltage, "dc-voltage"},
     {Multimeter::Mode::AcVoltage, "ac-voltage"},
+    {Multimeter::Mode::DcCurrent, "dc-current"},
 };
 constexpr Word<Multimeter::Range> kMeterRanges[] = {
     {Multimeter::Range::Auto, "auto"},
@@ -98,6 +99,10 @@ constexpr Word<Multimeter::Range> kMeterRanges[] = {
     {Multimeter::Range::Volts2, "2V"},
     {Multimeter::Range::Volts20, "20V"},
     {Multimeter::Range::Volts200, "200V"},
+    {Multimeter::Range::Milliamps2, "2mA"},
+    {Multimeter::Range::Milliamps20, "20mA"},
+    {Multimeter::Range::Milliamps200, "200mA"},
+    {Multimeter::Range::Amps2, "2A"},
 };
 
 template <typename E, std::size_t N>

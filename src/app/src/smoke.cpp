@@ -2043,4 +2043,74 @@ void smokeSupply(MainWindow& window)
     QTimer::singleShot(0, &window, [&window] { checkSupply(window); });
 }
 
+namespace {
+
+// The body of smokeAmmeter().
+void checkAmmeter(MainWindow& window)
+{
+    sheet::SchematicView& sheet = window.sheet();
+    sheet.setScene({});
+    // V1 5 V, R1 1k, dmm1 in series, R2 1k down to the bottom wire with ground on it.
+    placeFromPanel(window, ComponentKind::VoltageSource, {0, 2});  // V1: (0,0), (0,4)
+    placeFromPanel(window, ComponentKind::Resistor, {4, 0});       // R1: (2,0), (6,0)
+    placeFromPanel(window, InstrumentKind::Multimeter, {9, -3});   // +: (8,-1), COM: (10,-1)
+    placeFromPanel(window, ComponentKind::Resistor, {14, 2}, 1);   // R2: (14,0), (14,4)
+    placeFromPanel(window, ComponentKind::Ground, {7, 6});
+    sheet.drawWire({0, 0}, {2, 0});
+    sheet.drawWire({6, 0}, {8, 0});
+    sheet.drawWire({8, 0}, {8, -1});
+    sheet.drawWire({10, -1}, {10, 0});
+    sheet.drawWire({10, 0}, {14, 0});
+    sheet.drawWire({0, 4}, {0, 6});
+    sheet.drawWire({0, 6}, {14, 6});
+    sheet.drawWire({14, 4}, {14, 6});
+    sheet.setTool(sheet::SchematicView::Tool::Select);
+    mouse(sheet.viewport(), QEvent::MouseButtonDblClick, sheet.viewPoint({9, -3}), Qt::LeftButton);
+    MultimeterPanel* meter = window.multimeterPanel(QStringLiteral("dmm1"));
+    const auto dials = meter != nullptr ? meter->findChildren<panel::SelectorWidget*>()
+                                        : QList<panel::SelectorWidget*>();
+    if (dials.isEmpty()) {
+        std::fprintf(stderr, "proton: dmm1's panel did not open from its symbol\n");
+        QApplication::exit(1);
+        return;
+    }
+    wheel(dials.front(), 1); // DC V to AC V
+    wheel(dials.front(), 1); // to DC A
+    if (meter->config().mode != instruments::Multimeter::Mode::DcCurrent) {
+        std::fprintf(stderr, "proton: the dial did not reach DC A\n");
+        QApplication::exit(1);
+        return;
+    }
+    pressRun(window);
+
+    auto* timer = new QTimer(&window);
+    auto clock = std::make_shared<QElapsedTimer>();
+    clock->start();
+    QObject::connect(timer, &QTimer::timeout, &window, [&window, meter, timer, clock] {
+        const QString shown = meter->displayText() + QLatin1Char(' ') + meter->displayUnit();
+        if (shown == QStringLiteral("2.500 mA")) {
+            std::printf("proton: dmm1 in series reads %s\n", shown.toStdString().c_str());            std::fflush(stdout);
+            timer->stop();
+            window.close();
+            return;
+        }
+        const bool late = clock->elapsed() > std::chrono::milliseconds(kExampleTimeout).count();
+        if (late || window.control().state() == bench::RunControl::State::Invalid ||
+            window.control().state() == bench::RunControl::State::Failed) {
+            std::fprintf(stderr, "proton: dmm1 in series shows '%s'; %s\n",
+                         shown.toStdString().c_str(), window.control().error().c_str());
+            timer->stop();
+            QApplication::exit(1);
+        }
+    });
+    timer->start(16);
+}
+
+} // namespace
+
+void smokeAmmeter(MainWindow& window)
+{
+    QTimer::singleShot(0, &window, [&window] { checkAmmeter(window); });
+}
+
 } // namespace proton::app

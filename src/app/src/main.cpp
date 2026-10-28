@@ -4,7 +4,7 @@
 //     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
 //             --smoke-editor | --smoke-undo | --smoke-menus | --smoke-session |
 //             --smoke-diagnostics | --smoke-selection | --smoke-files | --smoke-supply |
-//             --screenshot <file.png>]
+//             --smoke-ammeter | --screenshot <file.png>]
 //
 // Without an option the window opens maximised, on the start page.
 //
@@ -104,6 +104,9 @@ int main(int argc, char** argv)
     const QCommandLineOption smokeSupplyOption(QStringLiteral("smoke-supply"),
         QStringLiteral("Draw a supply into a resistor, check V/R and the limit flag, then exit."));
     parser.addOption(smokeSupplyOption);
+    const QCommandLineOption smokeAmmeterOption(QStringLiteral("smoke-ammeter"),
+        QStringLiteral("Draw a meter in series on DC A, check Ohm's law, then exit."));
+    parser.addOption(smokeAmmeterOption);
     parser.addOption(screenshot);
     parser.process(app);
 
@@ -112,7 +115,7 @@ int main(int argc, char** argv)
             &smokeTest, &smokeExamplesOption, &smokePanelOption, &smokeLatencyOption,
             &smokeEditorOption, &smokeUndoOption, &smokeMenusOption, &smokeSessionOption,
             &smokeDiagnosticsOption, &smokeSelectionOption, &smokeFilesOption,
-            &smokeSupplyOption, &screenshot},
+            &smokeSupplyOption, &smokeAmmeterOption, &screenshot},
         [&parser](const QCommandLineOption* option) { return parser.isSet(*option); });
     // The checks keep Proton's settings, the recent files among them, apart from the student's.
     QStandardPaths::setTestModeEnabled(!interactive);
@@ -157,6 +160,8 @@ int main(int argc, char** argv)
         proton::app::smokeFiles(window);
     } else if (parser.isSet(smokeSupplyOption)) {
         proton::app::smokeSupply(window);
+    } else if (parser.isSet(smokeAmmeterOption)) {
+        proton::app::smokeAmmeter(window);
     } else if (parser.isSet(screenshot)) {
         const QFileInfo start(parser.value(screenshot));
         window.showStartPage();
