@@ -126,7 +126,7 @@ An instrument is a class that:
 | Instrument | Role | Model |
 |---|---|---|
 | `Scope` | measures | 2 channels sharing timebase and trigger (section 6) |
-| `Multimeter` | measures | one probe voltage integrated over a gate of simulation time; DC V and true-RMS AC V |
+| `Multimeter` | measures | one signal integrated over a gate of simulation time; DC V and true-RMS AC V between `+` and `COM`, and DC A through a 0 V source it puts in series |
 | `FunctionGenerator` | sources | an ideal source behind a series output resistor, 0 ohm by default; amplitude and offset are open-circuit values |
 | `DcPowerSupply` | sources and measures | 2 ideal voltage sources; its displays read each channel's voltage and the source's branch current; the current limit flags, it does not regulate |
 | Bode plotter, spectrum analyzer, VNA | measures | after the MVP (ROADMAP) |
@@ -143,7 +143,8 @@ Qt-free library, `src/bench`, tested headlessly and shared by the app and the to
 - `Bench` owns a list of instrument **instances** (kind, unique name, settings) and their
   **connections**: a net per instrument terminal. Instruments are parts on the schematic, wired to
   the circuit like components (ADR 0009), so their terminals get nets the same way pins do: the
-  scope's `CH1` and `CH2` measure against ground; the multimeter reads between `+` and `COM`; a
+  scope's `CH1` and `CH2` measure against ground; the multimeter reads between `+` and `COM`, or
+  on DC A the branch current of the 0 V source it puts between them; a
   generator drives between its output terminals, and a supply between each channel's `+` and `-`,
   reading back the branch current of its own source.
 - Before a run, `Bench::contributeTo(Circuit&)` adds every source instrument's `Fragment` under a

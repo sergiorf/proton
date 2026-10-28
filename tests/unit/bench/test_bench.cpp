@@ -471,3 +471,51 @@ TEST(supply_names_share_the_name_space)
     config.supplies[0].name = "psu2";
     CHECK_EQ(Bench(config).check(circuit).size(), 1u);
 }
+
+TEST(an_ammeter_contributes_a_0_v_source_and_reads_its_branch_current)
+{
+    Bench::Config config;
+    config.multimeters = {meter("dmm1", "a", "b")};
+    config.multimeters[0].config.mode = Multimeter::Mode::DcCurrent;
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    CHECK_EQ(circuit.fragments.size(), 1u);
+    CHECK(!circuit.fragments.empty() && circuit.fragments[0].name == "dmm1");
+    const std::vector<std::string> signals = {"v(a)", "v(b)", "i(vdmm1)"};
+    CHECK(bench.attach(signals).empty());
+    SimChunk c;
+    c.signals.resize(3);
+    for (int i = 0; i <= 1100; ++i) {
+        c.time.push_back(static_cast<double>(i) * 1e-6);
+        c.signals[0].push_back(5.0);
+        c.signals[1].push_back(5.0);
+        c.signals[2].push_back(2.5e-3); // into + and out of COM
+    }
+    feedAll(bench, c);
+    const std::optional<DmmReading> reading = bench.popReading(0);
+    CHECK(reading && std::abs(reading->value - 2.5e-3) < 1e-15);
+    CHECK(reading && reading->display.unit == "mA");
+}
+
+TEST(an_ammeter_shorted_by_its_leads_reads_nothing_and_adds_nothing)
+{
+    Bench::Config config;
+    config.multimeters = {meter("dmm1", "a", "a")};
+    config.multimeters[0].config.mode = Multimeter::Mode::DcCurrent;
+    Bench bench(config);
+    Circuit circuit;
+    bench.contributeTo(circuit);
+    CHECK(circuit.fragments.empty());
+    const std::vector<std::string> signals = {"v(a)"};
+    CHECK(bench.attach(signals).empty());
+    SimChunk c;
+    c.signals.resize(1);
+    for (int i = 0; i <= 1100; ++i) {
+        c.time.push_back(static_cast<double>(i) * 1e-6);
+        c.signals[0].push_back(5.0);
+    }
+    feedAll(bench, c);
+    const std::optional<DmmReading> reading = bench.popReading(0);
+    CHECK(reading && reading->value == 0.0);
+}

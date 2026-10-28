@@ -21,10 +21,12 @@ class SelectorWidget;
 // on top (4.5 digits, the AUTO, DC and AC annunciators and the unit), the mode dial, the RANGE and
 // AUTO buttons, and the input jacks with the net each is on.
 //
-// - Mode dial: DC V and AC V. Current and resistance positions arrive with those modes (M5.2,
-//   M5.3).
-// - RANGE: from auto range it holds the range the meter is on; then each press goes up one range,
-//   wrapping round (Multimeter::nextRange). AUTO goes back to auto range; it is lit while auto.
+// - Mode dial: DC V, AC V and DC A. In DC A the meter is in series with the circuit, so turning
+//   the dial to or from it changes the circuit and restarts the run (PLAN.md M5.2). Resistance
+//   arrives with M5.3.
+// - RANGE: from auto range it holds the range the meter is on; then each press goes up one range
+//   of the mode, wrapping round (Multimeter::nextRange). AUTO goes back to auto range; it is lit
+//   while auto. Turning the dial between V and A goes back to auto range.
 //
 // The display shows each reading as the meter formats it (DmmReading::display), so it reads the
 // same as proton-spike for the same circuit. Before the first reading of a run it shows dashes.

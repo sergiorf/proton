@@ -11,6 +11,7 @@ namespace {
 
 using instruments::DcPowerSupply;
 using instruments::FunctionGenerator;
+using instruments::Multimeter;
 using instruments::Scope;
 using instruments::SpiceFragment;
 
@@ -82,6 +83,12 @@ void Bench::contributeTo(schematic::Circuit& circuit)
             {generator.name, FunctionGenerator(generator.config)
                                  .toSpice(generator.name, generator.plus, generator.com)
                                  .lines});
+    }
+    for (const MultimeterSettings& meter : config_.multimeters) {
+        SpiceFragment fragment = Multimeter(meter.config).toSpice(meter.name, meter.plus, meter.com);
+        if (!fragment.lines.empty()) {
+            circuit.fragments.push_back({meter.name, std::move(fragment.lines)});
+        }
     }
     for (const SupplySettings& supply : config_.supplies) {
         SpiceFragment fragment = DcPowerSupply(supply.config).toSpice(supply.name, supply.channels);
@@ -313,8 +320,28 @@ void Bench::resolveAll()
     }
     for (std::size_t i = 0; i < config_.multimeters.size(); ++i) {
         const MultimeterSettings& multimeter = config_.multimeters[i];
-        check(multimeterSources_[i][0], multimeter.name + " +", multimeter.plus);
-        check(multimeterSources_[i][1], multimeter.name + " COM", multimeter.com);
+        if (multimeter.config.mode != Multimeter::Mode::DcCurrent) {
+            check(multimeterSources_[i][0], multimeter.name + " +", multimeter.plus);
+            check(multimeterSources_[i][1], multimeter.name + " COM", multimeter.com);
+            continue;
+        }
+        // An ammeter reads its own source's branch current, fed as `+` against a COM of zero. A
+        // meter that adds no source (open, or shorted by its leads) has nothing through it.
+        if (Multimeter(multimeter.config)
+                .toSpice(multimeter.name, multimeter.plus, multimeter.com)
+                .lines.empty()) {
+            continue;
+        }
+        const std::string source = Multimeter::sourceName(multimeter.name);
+        if (const std::optional<std::size_t> index =
+                sim::indexOfSignal(signalNames_, "i(" + source + ")")) {
+            multimeterSources_[i][0] = {Source::Kind::Signal, *index};
+        } else {
+            multimeterSources_[i][0] = {Source::Kind::Missing, 0};
+            errors_.push_back({multimeter.name, {},
+                               "The simulator gives no current for " + multimeter.name +
+                                   ", so it cannot read the current through it."});
+        }
     }
     for (std::size_t i = 0; i < config_.supplies.size(); ++i) {
         const SupplySettings& supply = config_.supplies[i];

@@ -453,7 +453,7 @@ current drawn and flags when it exceeds the limit (CC/CV behaviour comes after t
 branch current.
 *Done when:* a resistor load shows V/R on the supply's display; exceeding the limit shows the flag.
 
-**M5.2 Multimeter DC current.** The meter in current mode is a two-terminal series element that
+**M5.2 Multimeter DC current.** *(done locally 2026-10-29, CI pending: Actions billing)* The meter in current mode is a two-terminal series element that
 contributes a 0 V source; the reading is that source's branch current. It is wired in series on the
 sheet: the circuit must be broken to insert it, as on a real bench.
 *Done when:* current in a series circuit matches Ohm's law, and the voltage across the meter is

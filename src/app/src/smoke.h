@@ -89,4 +89,9 @@ void smokeSession(MainWindow& window);
 // with CH1's Output switched off the current display reads 0.0000 A.
 void smokeSupply(MainWindow& window);
 
+// The multimeter on DC current (PLAN.md M5.2), drawn by hand: V1 5 V, R1 1k, dmm1 wired in series
+// between them and R2 1k, its dial turned to DC A with the wheel, Run. Passes when the display
+// shows Ohm's law, 2.500 mA.
+void smokeAmmeter(MainWindow& window);
+
 } // namespace proton::app

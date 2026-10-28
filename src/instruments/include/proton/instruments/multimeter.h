@@ -2,9 +2,12 @@
 #pragma once
 
 #include "proton/core/format.h"
+#include "proton/instruments/spice_fragment.h"
 
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 
 namespace proton::instruments {
 
@@ -12,37 +15,45 @@ namespace proton::instruments {
 struct DmmReading
 {
     double time = 0.0;          // simulation time at the end of the gate, s
-    double value = 0.0;         // the measured value, unrounded, V
-    double range = 0.0;         // full scale of the range it was read on, V
+    double value = 0.0;         // the measured value, unrounded, V or A
+    double range = 0.0;         // full scale of the range it was read on, V or A
     core::MeterDisplay display; // what the 4.5-digit display shows
 };
 
-// A 4.5-digit (19999-count) bench multimeter measuring the voltage of one probe against ground.
-// It is ideal (ARCHITECTURE.md section 6): no input loading, no noise.
+// A 4.5-digit (19999-count) bench multimeter, ideal (ARCHITECTURE.md section 6): no input
+// loading, no burden voltage, no noise. It is fed one signal: the voltage between its `+` and
+// `COM` in the voltage modes, the current through it from `+` to `COM` in the current mode.
 //
 // The meter integrates the signal over a gate of `gateTime` seconds of simulation time and gives
 // one reading per gate. The signal is taken as linear between the points it is fed, so the
 // integrals are exact for any time grid, regular or not:
 //
-// - DC V is the mean over the gate.
+// - DC V and DC A are the mean over the gate.
 // - AC V is the true RMS with the mean removed (an AC-coupled true-RMS meter): a sine of
 //   amplitude A reads A/sqrt(2) and a square A, whatever their offset. Gates that hold a whole
 //   number of periods read exactly; others read close.
 //
-// Gates are counted from the first point fed after configure(); a segment that crosses the end of
-// a gate is split there. Ranges are 200 mV, 2 V, 20 V and 200 V. On a fixed range a reading beyond
-// 19999 counts shows the overload. Auto-range picks the range for each reading: up while the
-// reading overloads the range, down while it is below kDownrangeCounts of the range, so a reading
-// between the two thresholds stays on the range it was on.
+// In DC A the meter is an ammeter, wired in series: toSpice() puts a 0 V source between its
+// terminals, whose branch current is what it reads (PLAN.md M5.2). In the voltage modes it adds
+// nothing to the circuit.
 //
-// Settings are sanitised: an unknown mode or range becomes the default, and the gate time is
-// clamped to [kMinGateTime, kMaxGateTime] (the default when not finite).
+// Gates are counted from the first point fed after configure(); a segment that crosses the end of
+// a gate is split there. Voltage ranges are 200 mV, 2 V, 20 V and 200 V; current ranges 2 mA,
+// 20 mA, 200 mA and 2 A. On a fixed range a reading beyond 19999 counts shows the overload.
+// Auto-range picks the range of the mode for each reading: up while the reading overloads the
+// range, down while it is below kDownrangeCounts of the range, so a reading between the two
+// thresholds stays on the range it was on.
+//
+// Settings are sanitised: an unknown mode becomes the default, a range that is unknown or belongs
+// to the other quantity becomes Auto, and the gate time is clamped to [kMinGateTime,
+// kMaxGateTime] (the default when not finite).
 class Multimeter
 {
 public:
     enum class Mode {
         DcVoltage,
         AcVoltage,
+        DcCurrent,
     };
 
     enum class Range {
@@ -51,6 +62,10 @@ public:
         Volts2,
         Volts20,
         Volts200,
+        Milliamps2,
+        Milliamps20,
+        Milliamps200,
+        Amps2,
     };
 
     static constexpr double kMinGateTime = 1e-3; // s
@@ -71,13 +86,17 @@ public:
     // The settings as the meter would apply them.
     static Config sanitise(const Config& config);
 
-    // Full scale of a fixed range in volts: 0.2, 2, 20 or 200. Auto has none (0).
+    // Full scale of a fixed range in volts (0.2, 2, 20 or 200) or amps (0.002, 0.02, 0.2 or 2).
+    // Auto has none (0).
     static double fullScale(Range range);
 
-    // What a meter's RANGE button does: from Auto it holds the range the last reading was on
-    // (`readingRange`, its full scale in volts; the highest range when there is none), and on a
-    // fixed range it goes to the next one up, wrapping from the highest to the lowest.
-    static Range nextRange(Range current, double readingRange);
+    // The unit of what `mode` measures: "V" or "A".
+    static std::string_view unit(Mode mode);
+
+    // What a meter's RANGE button does in `mode`: from Auto it holds the range the last reading
+    // was on (`readingRange`, its full scale; the highest range of the mode when there is none),
+    // and on a fixed range it goes to the next one up, wrapping from the highest to the lowest.
+    static Range nextRange(Mode mode, Range current, double readingRange);
 
     Multimeter() = default;
     explicit Multimeter(const Config& config) { configure(config); }
@@ -87,7 +106,21 @@ public:
     void configure(const Config& config);
     const Config& config() const { return config_; }
 
-    // Feeds simulation output: `values[i]` is the probe voltage at `time[i]`. Both spans have the
+    // The meter as SPICE elements named after the instance name `name` ("dmm1"), between the nets
+    // of its `+` and `COM`. In DC A, a 0 V source from + to COM, so its branch current, "i(vdmm1)",
+    // is the current through the meter from + to COM:
+    //
+    //     * multimeter dmm1, DC current
+    //     Vdmm1 a b DC 0
+    //
+    // Nothing in the voltage modes, or when the two terminals are on the same net (ignoring case):
+    // a meter shorted by its own leads reads 0 A. Deterministic.
+    SpiceFragment toSpice(std::string_view name, std::string_view plus, std::string_view com) const;
+
+    // The SPICE name of instance `name`'s ammeter source: "Vdmm1".
+    static std::string sourceName(std::string_view name);
+
+    // Feeds simulation output: `values[i]` is the measured voltage or current at `time[i]`. Both spans have the
     // same length (extra elements of the longer one are ignored), and time continues from the
     // previous call. Points that do not move time forward are skipped.
     void feed(std::span<const double> time, std::span<const double> values);

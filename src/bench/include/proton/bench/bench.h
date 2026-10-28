@@ -45,7 +45,9 @@ struct ProbeError
 //   negative of its source's branch current; a channel not connected reads its open output: the
 //   set voltage while on, and no current.
 // - A scope's CH1 and CH2 each measure their net against ground (single-ended).
-// - A multimeter reads `v(+) - v(COM)`: it floats, as a handheld meter does.
+// - A multimeter reads `v(+) - v(COM)`: it floats, as a handheld meter does. In DC A it is in
+//   series instead: it contributes a 0 V source from + to COM ("Vdmm1") and reads its branch
+//   current; open, or with both leads on one net, it reads 0 A.
 //
 // A terminal with no net, or on ground (node 0 or a net a Ground component sits on), is at 0 V. A
 // terminal on a net the simulation does not have is a ProbeError, and its instrument is not fed
@@ -124,8 +126,8 @@ public:
     // The engine's longest step: maxStepFor() the fastest scope, or kMaxStepWithoutScope.
     double maxStep() const;
 
-    // Adds the fragment of every connected generator and supply under its instance name, and
-    // remembers which of the circuit's nets are ground.
+    // Adds the fragment of every connected generator, supply and ammeter under its instance name,
+    // and remembers which of the circuit's nets are ground.
     void contributeTo(schematic::Circuit& circuit);
 
     // Diagnostics for the instance names: empty, not unique (ignoring case), or the designator of
