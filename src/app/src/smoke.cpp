@@ -2128,6 +2128,13 @@ void dragOnSheet(sheet::SchematicView& sheet, Point from, Point to)
     mouse(viewport, QEvent::MouseButtonRelease, sheet.viewPoint(to), Qt::NoButton);
 }
 
+// A click without moving at grid point `at`.
+void clickOnSheet(sheet::SchematicView& sheet, Point at)
+{
+    mouse(sheet.viewport(), QEvent::MouseButtonPress, sheet.viewPoint(at), Qt::LeftButton);
+    mouse(sheet.viewport(), QEvent::MouseButtonRelease, sheet.viewPoint(at), Qt::NoButton);
+}
+
 bool square(const schematic::Scene& scene)
 {
     return std::ranges::all_of(scene.wires, [](const schematic::Wire& wire) {
@@ -2241,7 +2248,9 @@ void checkWiring(MainWindow& window)
         case 1:
             done = ch1 && peak(extent(scope, 1), out);
             if (done) {
-                // Select CH2's lead, then drag its end from out to the generator's + (in).
+                // Select CH2's lead, then drag its end from out to the generator's + (in),
+                // through the label naming out there.
+                sheet.addLabel("out", {3, -1});
                 Point far;
                 const std::optional<std::size_t> lead = leadEnd(sheet.scene(), {11, 1}, far);
                 if (!lead || far != Point{3, -1}) {
@@ -2265,6 +2274,26 @@ void checkWiring(MainWindow& window)
             done = ch1 && peak(extent(scope, 1), 1.0);
             if (done) {
                 std::printf("proton: wiring: CH2 on in reads the generator's 1 V\n");
+                // Unselected, CH2's lead dragged off its terminal by its end; then a click on
+                // CH1's wired terminal starts a wire, and a click on CH2 ends it there.
+                const auto scopeNets = [&sheet] {
+                    return schematic::convert(sheet.scene()).instruments[1].nets;
+                };
+                sheet.select({});
+                dragOnSheet(sheet, {11, 1}, {8, 6});
+                if (!scopeNets()[1].empty() || !square(sheet.scene())) {
+                    fail("CH2's lead was not dragged off its terminal");
+                    timer->stop();
+                    return;
+                }
+                clickOnSheet(sheet, {11, -1});
+                clickOnSheet(sheet, {11, 1});
+                if (scopeNets()[0].empty() || scopeNets()[1] != scopeNets()[0]) {
+                    fail("a click on CH1's wired terminal did not start a wire to CH2");
+                    timer->stop();
+                    return;
+                }
+                std::printf("proton: wiring: CH2's lead dragged off, CH2 wired again from CH1\n");
                 std::fflush(stdout);
                 timer->stop();
                 window.close();

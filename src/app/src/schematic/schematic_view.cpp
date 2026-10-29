@@ -65,7 +65,7 @@ const QColor kWireInk(20, 90, 160);
 const QColor kSelected(230, 120, 20);
 const QColor kBand(230, 120, 20, 30); // inside the selection box
 const QColor kGhost(30, 34, 40, 90);
-const QColor kLabelInk(150, 40, 40);
+const QColor kLabelInk(25, 115, 60); // not red, which marks errors
 const QColor kErrorMark(220, 40, 40, 80);    // under what an error is about
 const QColor kWarningMark(235, 160, 0, 100); // under what a warning is about
 const QColor kErrorBar(190, 35, 35);
@@ -477,7 +477,7 @@ void SchematicView::placeInstrument(InstrumentKind kind, Point where, Rotation r
 
 void SchematicView::drawWire(Point from, Point to)
 {
-    for (const Wire& wire : schematic::route(from, to)) {
+    for (const Wire& wire : schematic::wireToolRoute(scene_, from, to)) {
         scene_.wires.push_back(wire);
     }
     commit(tr("Draw wire"));
@@ -947,24 +947,7 @@ std::optional<std::size_t> SchematicView::draggableEndAt(Point p) const
             return i;
         }
     }
-    // A free end: one wire ending there and nothing else, not even another wire passing.
-    if (schematic::pinAt(scene_, p) || schematic::junctionAt(scene_, p) ||
-        schematic::labelAt(scene_, p)) {
-        return std::nullopt;
-    }
-    std::optional<std::size_t> found;
-    for (std::size_t i = 0; i < scene_.wires.size(); ++i) {
-        Scene one;
-        one.wires = {scene_.wires[i]};
-        if (!schematic::wireAt(one, p)) {
-            continue; // not on this wire
-        }
-        if (found || (scene_.wires[i].from != p && scene_.wires[i].to != p)) {
-            return std::nullopt;
-        }
-        found = i;
-    }
-    return found;
+    return schematic::wireEndAt(scene_, p);
 }
 
 Scene SchematicView::withPinWire() const
@@ -1011,11 +994,11 @@ void SchematicView::updateCursor()
         }
     } else if (drag_ != Drag::None || boxFrom_) {
         shape = cursor().shape();
-    } else if (schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p)) {
-        shape = Qt::ArrowCursor;
     } else if (draggableEndAt(p)) {
         shape = Qt::SizeAllCursor;
         ring = p;
+    } else if (schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p)) {
+        shape = Qt::ArrowCursor;
     } else if (schematic::pinAt(scene_, p)) {
         shape = Qt::CrossCursor;
         ring = p;
@@ -1072,7 +1055,7 @@ void SchematicView::refresh()
         }
     }
     if (tool_ == Tool::Wire && wireStart_) {
-        sheet_->wirePreview = schematic::route(*wireStart_, cursor_);
+        sheet_->wirePreview = schematic::wireToolRoute(scene_, *wireStart_, cursor_);
     }
     if (pinWire_) {
         sheet_->wirePreview = pinWire_->fixed;
@@ -1219,19 +1202,20 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
             return;
         }
         // Wiring before selecting: a wire's end, a pin, a wire's middle. Junctions and labels sit
-        // on wires and are picked as before.
-        if (!add && !schematic::junctionAt(scene_, p) && !schematic::labelAt(scene_, p)) {
-            if (const auto wire = draggableEndAt(p)) {
-                clearSelection();
-                selectedWires_.insert(*wire);
-                drag_ = Drag::End;
-                dragWire_ = *wire;
-                dragEnd_ = p;
-                dragFrom_ = p;
-                dragBase_ = scene_;
-                refresh();
-                return;
-            }
+        // on wires and are picked as before, unless a selected wire's end is there.
+        if (const auto wire = add ? std::nullopt : draggableEndAt(p)) {
+            clearSelection();
+            selectedWires_.insert(*wire);
+            drag_ = Drag::End;
+            dragWire_ = *wire;
+            dragEnd_ = p;
+            dragMoved_ = false;
+            dragFrom_ = p;
+            dragBase_ = scene_;
+            refresh();
+            return;
+        }
+        if (!add &&!schematic::junctionAt(scene_, p) && !schematic::labelAt(scene_, p)) {
             if (schematic::pinAt(scene_, p)) {
                 clearSelection();
                 pinWire_ = PinWire{{}, p, true};
@@ -1347,12 +1331,20 @@ void SchematicView::mouseMoveEvent(QMouseEvent* event)
         case Drag::Segment: {
             Scene moved = dragBase_;
             schematic::dragSegment(moved, dragWire_, offset);
-            if (schematic::sameNets(dragBase_, moved)) { // else it stays where it last fitted
+            // Else it stays where it last fitted.
+            const auto throughSymbols = [](const Scene& scene) {
+                return std::ranges::count_if(scene.wires, [&scene](const Wire& wire) {
+                    return schematic::crossesSymbol(scene, wire);
+                });
+            };
+            if (schematic::sameNets(dragBase_, moved) &&
+                throughSymbols(moved) <= throughSymbols(dragBase_)) {
                 scene_ = std::move(moved);
             }
             break;
         }
         case Drag::End:
+            dragMoved_ = true;
             scene_ = dragBase_;
             schematic::dragWireEnd(scene_, dragWire_, dragEnd_, p);
             selectedWires_.clear();
@@ -1411,6 +1403,13 @@ void SchematicView::mouseReleaseEvent(QMouseEvent* event)
     const Drag drag = drag_;
     drag_ = Drag::None;
     dragFrom_.reset();
+    if (drag == Drag::End && !dragMoved_ && schematic::pinAt(scene_, p)) {
+        // A click on a wired pin: a new wire from it, following the mouse until a click.
+        clearSelection();
+        pinWire_ = PinWire{{}, p, false};
+        refresh();
+        return;
+    }
     commit(drag == Drag::Selection ? tr("Move") : tr("Move wire"));
 }
 

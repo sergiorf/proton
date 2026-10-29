@@ -50,10 +50,16 @@ class SheetItem;
 //   clicked again, it connects to the pin, terminal or wire there (ending on a wire's middle taps
 //   it); a click on empty sheet fixes a bend. Escape or right-click drops it. A wire dragged by
 //   its middle moves sideways, its neighbours stretching (schematic::dragSegment), unless that
-//   would join it to another net; the ends of a selected wire, and free wire ends, drag to another
-//   pin, terminal or wire, or off into empty sheet to disconnect (schematic::dragWireEnd).
+//   would join it to another net or run it through a symbol (schematic::crossesSymbol). A wire's
+//   end drags to another pin, terminal or wire, or off into empty sheet to disconnect
+//   (schematic::dragWireEnd): a selected wire's ends, drawn as small squares, even where a label
+//   or junction is too, and any end that is the only one at its point (schematic::wireEndAt), on
+//   a pin or terminal too. There a press and drag moves the end, and a click without moving starts
+//   a new wire from the pin, which follows the mouse.
 // - Wire: click where a wire starts, then where it bends or ends; each click adds the route there
-//   (horizontal, then vertical) and goes on from it. Double-click, right-click or Escape ends it.
+//   (horizontal, then vertical, joining what it passes over; round a symbol it would cross,
+//   schematic::wireToolRoute) and goes on from it.
+//   Double-click, right-click or Escape ends it.
 // - Label: click on a net to name it.
 // - Junction: click to put a junction dot there, connecting wires that cross at it.
 // - Place a part or an instrument: it follows the mouse; R turns it; each click places one, a part
@@ -283,7 +289,7 @@ private:
     void reselectWires(const std::vector<schematic::Wire>& selected);
     // Whether a wire ending at `p` would connect there: a pin, a terminal, a wire, a junction.
     bool connectsAt(schematic::Point p) const;
-    // The wire whose end at `p` a press there drags: a selected wire's, or a free end's.
+    // The wire whose end at `p` a press there drags: a selected wire's, or schematic::wireEndAt().
     std::optional<std::size_t> draggableEndAt(schematic::Point p) const;
     // The drawing with the fixed part of the wire being drawn from a pin.
     schematic::Scene withPinWire() const;
@@ -297,6 +303,7 @@ private:
     std::vector<std::size_t> dragWires_; // the wires selected when a Selection drag began
     std::size_t dragWire_ = 0;      // the wire a Segment or End drag holds
     schematic::Point dragEnd_;      // the end an End drag holds
+    bool dragMoved_ = false;        // the mouse left the point an End drag began at
     std::optional<PinWire> pinWire_;
     std::optional<schematic::Point> boxFrom_;   // Select: where a selection box began
     QList<QAction*> itemActions_;

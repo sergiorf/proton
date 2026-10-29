@@ -219,7 +219,7 @@ Chain chainFrom(const Scene& scene, Point start, std::size_t first, std::set<std
 // ---- Routing --------------------------------------------------------------------------------
 
 constexpr int kBendCost = 3;   // a bend costs as much as this many grid steps
-constexpr int kSymbolCost = 8; // extra for each step inside a symbol's box
+constexpr int kSymbolCost = 1000; // extra for each step inside a symbol's box: a last resort
 constexpr int kNearCost = 1;   // extra for each step on its edge or a unit round it, where its
                                // name and value are drawn
 constexpr std::array<Point, 4> kSteps = {{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
@@ -556,6 +556,42 @@ bool pinAt(const Scene& scene, Point p)
 {
     const std::vector<Point> pins = allPins(scene);
     return std::ranges::find(pins, p) != pins.end();
+}
+
+std::optional<std::size_t> wireEndAt(const Scene& scene, Point p)
+{
+    const std::vector<std::size_t> ends = wiresEndingAt(scene, p);
+    if (ends.size() != 1 || labelOrJunctionAt(scene, p) || wireThrough(scene, p)) {
+        return std::nullopt;
+    }
+    return ends.front();
+}
+
+bool crossesSymbol(const Scene& scene, const Wire& wire)
+{
+    // The points of the wire strictly inside the box; a slanted wire, from an older drawing, by
+    // the box round it.
+    const auto crosses = [&wire](const Box& box) {
+        const int left = std::max(std::min(wire.from.x, wire.to.x), box.left + 1);
+        const int right = std::min(std::max(wire.from.x, wire.to.x), box.right - 1);
+        const int top = std::max(std::min(wire.from.y, wire.to.y), box.top + 1);
+        const int bottom = std::min(std::max(wire.from.y, wire.to.y), box.bottom - 1);
+        return left <= right && top <= bottom;
+    };
+    return std::ranges::any_of(scene.parts,
+                               [&](const PlacedPart& part) { return crosses(bounds(part)); }) ||
+           std::ranges::any_of(scene.instruments, [&](const PlacedInstrument& instrument) {
+               return crosses(bounds(instrument));
+           });
+}
+
+std::vector<Wire> wireToolRoute(const Scene& scene, Point from, Point to)
+{
+    std::vector<Wire> wires = route(from, to);
+    if (std::ranges::any_of(wires, [&](const Wire& wire) { return crossesSymbol(scene, wire); })) {
+        return routeAround(scene, from, to);
+    }
+    return wires;
 }
 
 std::vector<Wire> routeAround(const Scene& scene, Point from, Point to)

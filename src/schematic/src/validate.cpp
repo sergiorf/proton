@@ -148,6 +148,7 @@ public:
         checkValues();
         checkFragmentLines();
         checkConnectivity();
+        checkShorts();
         return std::move(diagnostics_);
     }
 
@@ -409,6 +410,23 @@ private:
         }
     }
 
+    void checkShorts()
+    {
+        for (const Component& component : circuit_.components) {
+            if (component.kind == ComponentKind::Ground || component.nets.size() != 2 ||
+                component.nets[0].empty() || lower(component.nets[0]) != lower(component.nets[1])) {
+                continue;
+            }
+            const bool source = component.kind == ComponentKind::VoltageSource;
+            report(source ? Severity::Error : Severity::Warning, DiagnosticCode::ShortedComponent,
+                   component.designator, {},
+                   component.designator + " is shorted: both its terminals are on net " +
+                       component.nets[0] +
+                       (source ? ", which the simulator cannot solve."
+                               : ", so no current flows through it."));
+        }
+    }
+
     const Circuit& circuit_;
     std::vector<Element> elements_;
     std::vector<std::string> groundNets_;
@@ -443,6 +461,8 @@ std::string_view codeName(DiagnosticCode code)
         return "SingleConnectionNet";
     case DiagnosticCode::NoDcPathToGround:
         return "NoDcPathToGround";
+    case DiagnosticCode::ShortedComponent:
+        return "ShortedComponent";
     case DiagnosticCode::UnconnectedTerminal:
         return "UnconnectedTerminal";
     case DiagnosticCode::ConflictingLabels:

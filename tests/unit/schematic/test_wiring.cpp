@@ -265,6 +265,73 @@ TEST(dragging_a_wire_end_moves_it_to_another_net_or_off_it)
     CHECK(convert(off).instruments[0].nets[0].empty()); // not connected
 }
 
+// A press grabs a wire by its end where that end is the only thing wired there, a terminal or pin
+// included: the scope's CH1 lead is moved off CH1 onto CH2 without redrawing it.
+TEST(a_press_grabs_the_only_wire_end_at_a_point_on_a_pin_or_terminal_too)
+{
+    Scene scene = divider();
+    scene.instruments = {{InstrumentKind::Scope, "scope1", {{20, -1}, Rotation::R0, false}}};
+    // CH1 at (17,-2) to R1's right pin (6,0), bending at (6,-2); CH2 is at (17,0).
+    scene.wires.push_back({{17, -2}, {6, -2}});
+    const std::size_t lead = scene.wires.size() - 1;
+    scene.wires.push_back({{6, -2}, {6, 0}});
+    CHECK(wireEndAt(scene, {17, -2}) == lead);  // on a terminal
+    CHECK(!wireEndAt(scene, {6, 0}));           // R1's pin, where two wires end
+    CHECK(!wireEndAt(scene, {6, -2}));          // a bend: two wire ends
+    CHECK(!wireEndAt(scene, {10, -2}));         // a wire's middle
+    CHECK(!wireEndAt(scene, {12, 12}));         // nothing
+
+    dragWireEnd(scene, lead, {17, -2}, {17, 0});
+    const Conversion after = convert(scene);
+    CHECK(after.instruments[0].nets[0].empty()); // CH1 not connected
+    CHECK_EQ(after.instruments[0].nets[1], netOf(after, 1, 1));
+
+    // A free end, unless a label, a junction or another wire is there.
+    Scene free;
+    free.wires = {{{0, 0}, {4, 0}}};
+    CHECK(wireEndAt(free, {4, 0}) == std::size_t{0});
+    free.labels = {{"out", {4, 0}}};
+    CHECK(!wireEndAt(free, {4, 0}));
+    free.labels.clear();
+    free.junctions = {{4, 0}};
+    CHECK(!wireEndAt(free, {4, 0}));
+    free.junctions.clear();
+    free.wires.push_back({{4, -2}, {4, 2}});
+    CHECK(!wireEndAt(free, {4, 0}));
+}
+
+// A wire across a symbol's inside: straight through R1 from pin to pin, which shorts it, or across
+// its body or the scope's; one along the edge or ending on a pin does not cross.
+TEST(a_wire_crosses_a_symbol_through_its_inside_only)
+{
+    Scene scene = divider();
+    scene.instruments = {{InstrumentKind::Scope, "scope1", {{20, -1}, Rotation::R0, false}}};
+    CHECK(std::ranges::none_of(scene.wires,
+                               [&](const Wire& wire) { return crossesSymbol(scene, wire); }));
+    CHECK(crossesSymbol(scene, {{2, 0}, {6, 0}}));   // R1 pin to pin
+    CHECK(crossesSymbol(scene, {{4, -5}, {4, 5}}));  // across R1's body
+    CHECK(!crossesSymbol(scene, {{4, -5}, {4, -1}})); // up to its edge
+    CHECK(!crossesSymbol(scene, {{0, -1}, {7, -1}})); // along its edge
+    const Box box = bounds(scene.instruments[0]);
+    const int middle = (box.top + box.bottom) / 2;
+    CHECK(crossesSymbol(scene, {{box.left - 2, middle}, {box.right + 2, middle}}));
+    CHECK(!crossesSymbol(scene, {{box.left - 2, middle}, {box.left, middle}}));
+}
+
+// The Wire tool draws what was clicked, over pins and wires to join them, but not through a
+// symbol.
+TEST(the_wire_tool_draws_straight_but_round_a_symbol)
+{
+    const Scene scene = divider();
+    // Along the bottom wire, over ground's pin: as clicked.
+    CHECK(wireToolRoute(scene, {-2, 6}, {10, 6}) == route({-2, 6}, {10, 6}));
+    CHECK(wireToolRoute(scene, {10, -4}, {12, 2}) == route({10, -4}, {12, 2}));
+    // Down through R1's body: round it.
+    const std::vector<Wire> round = wireToolRoute(scene, {4, -4}, {4, 3});
+    CHECK(path(round, {4, -4}, {4, 3}));
+    CHECK(std::ranges::none_of(round, [&](const Wire& wire) { return crossesSymbol(scene, wire); }));
+}
+
 TEST(a_wire_end_dragged_onto_a_wires_middle_taps_it)
 {
     Scene scene;

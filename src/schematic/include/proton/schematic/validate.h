@@ -26,6 +26,7 @@ enum class DiagnosticCode {
     InvalidFragmentLine, // a fragment line validate() cannot read (see validate)
     SingleConnectionNet, // a net only one terminal connects to (warning)
     NoDcPathToGround,    // a net with no DC path to ground: SPICE's "singular matrix"
+    ShortedComponent,    // both terminals on one net (warning; an error for a voltage source)
     // From the scene conversion (scene.h), not validate():
     UnconnectedTerminal, // an instrument terminal wired to nothing in the circuit (warning)
     ConflictingLabels,   // one net with two different labels
@@ -62,6 +63,11 @@ struct Diagnostic
 // For the DC path, resistors, inductors and voltage sources conduct; capacitors are open and
 // current sources ideal, so neither does. Without any ground, only NoGround is reported for
 // connectivity, since every net would lack a path.
+//
+// A component with both terminals on one net is shorted, as a wire drawn across it does: nothing
+// flows through it, so it is a warning, except for a voltage source, which the simulator cannot
+// solve (its equation reads 0 = V). Fragments are not checked: an instrument may short itself on
+// purpose (a current meter with both leads on one net adds nothing).
 std::vector<Diagnostic> validate(const Circuit& circuit);
 
 // True if any diagnostic is an Error: the circuit must not be simulated.

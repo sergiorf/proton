@@ -139,6 +139,20 @@ bool instrumentNameTaken(const Scene& scene, const std::string& name,
 // Whether a part's pin or an instrument's terminal is at `p`.
 bool pinAt(const Scene& scene, Point p);
 
+// The wire a press at `p` grabs by its end: the only wire that ends at `p`, when no other wire
+// runs through `p` and no junction or label is there. A pin or terminal may be: that is how a
+// wire's end is moved off one, onto another.
+std::optional<std::size_t> wireEndAt(const Scene& scene, Point p);
+
+// Whether `wire` runs through the inside of a part's or instrument's symbol, its edge, where the
+// pins are, excluded: drawn over the symbol, it would look connected where it is not, or short the
+// part where it passes over both its pins.
+bool crossesSymbol(const Scene& scene, const Wire& wire);
+
+// The wires the Wire tool draws from `from` to `to`: route()'s, which join what they pass over,
+// unless one of them runs through a symbol; then routeAround()'s, round it.
+std::vector<Wire> wireToolRoute(const Scene& scene, Point from, Point to);
+
 // A wire from `from` to `to` through the scene as it is: horizontal and vertical segments, as
 // short as it can be with as few bends as it can, around the symbols in its way when there is
 // room (a route may go through a symbol when there is no other way), and touching nothing of the

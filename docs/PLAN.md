@@ -454,14 +454,22 @@ mouse:
   is one undo step.
 - Grab a wire: dragging a segment moves it sideways, its neighbours stretching to stay connected;
   dragging a wire's end moves it to another pin, terminal or wire, or off into empty sheet, which
-  disconnects it.
+  disconnects it. An end that is alone at its point drags straight away, off a pin or terminal
+  too (a click there without moving starts a new wire instead); where more meet, the selected
+  wire's end drags, even through a label or junction there.
+- No wire through a symbol: a segment drag stops where it would cross one, and a Wire tool route
+  that would cross one goes round it. A part with both pins on one net, as a wire across it
+  makes, is flagged as shorted (a warning; an error for a voltage source).
+- Net labels in a colour of their own, not the red that marks errors.
 - After every edit, collinear segments that meet end to end with nothing else there merge into one.
 *Done when:* scene tests show that after any move, rotation, segment drag or end drag every wire
 is horizontal or vertical, the nets are the same as before unless an end was moved, and a route
-avoids the symbols in its way when there is room; a tap splits a wire and joins its net; and the
-app smoke checks draw the RC low-pass with presses on pins only (no Wire tool), drag R1 with its
-wires following, move the scope's CH2 wire end from `out` to `in` by dragging it, and the circuit
-still simulates with the expected readings.
+avoids the symbols in its way when there is room; a tap splits a wire and joins its net; a wire
+end alone on a terminal is grabbed by a press there; and the app smoke checks draw the RC low-pass
+with presses on pins only (no Wire tool), drag R1 with its wires following, move the scope's CH2
+wire end from `out` to `in` by dragging it through the `out` label, drag it off its terminal
+unselected and wire CH2 again with a click on CH1's wired terminal, and the circuit still
+simulates with the expected readings.
 
 **M4.13 Connecting instruments.** Making and changing an instrument's connections as easy as
 probing on a bench, on top of M4.12:
