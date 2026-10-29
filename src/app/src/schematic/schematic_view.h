@@ -38,13 +38,28 @@ class SheetItem;
 //
 // Tools:
 // - Select: click a part, instrument, wire or label to select it (Shift adds); drag selected parts
-//   and instruments to move them, their wire ends following; a drag that starts on empty sheet
-//   draws a box and selects what lies wholly inside it (schematic::within; Shift adds);
-//   double-click a part to edit its designator and value, a label to rename it, or an instrument
-//   to open its front panel (instrumentOpened()). R turns the selected parts and instruments,
-//   Delete removes the selection, Escape clears it. Right-click opens contextMenu() there.
+//   and instruments to move them, their wires routed again square at every step of the drag
+//   (schematic::moveSelection, PLAN.md M4.12); a drag that starts on empty sheet draws a box and
+//   selects what lies wholly inside it (schematic::within; Shift adds); double-click a part to
+//   edit its designator and value, a label to rename it, or an instrument to open its front panel
+//   (instrumentOpened()). R turns the selected parts and instruments, Delete removes the
+//   selection, Escape clears it. Right-click opens contextMenu() there.
+//   Wiring with the same tool, as desktop circuit simulators do: a pin or terminal under the mouse
+//   is ringed and the cursor is a crosshair; a press there starts a wire that follows the mouse on
+//   a route round the symbols (schematic::routeAround). Released elsewhere after a drag, or
+//   clicked again, it connects to the pin, terminal or wire there (ending on a wire's middle taps
+//   it); a click on empty sheet fixes a bend. Escape or right-click drops it. A wire dragged by
+//   its middle moves sideways, its neighbours stretching (schematic::dragSegment), unless that
+//   would join it to another net or run it through a symbol (schematic::crossesSymbol). A wire's
+//   end drags to another pin, terminal or wire, or off into empty sheet to disconnect
+//   (schematic::dragWireEnd): a selected wire's ends, drawn as small squares, even where a label
+//   or junction is too, and any end that is the only one at its point (schematic::wireEndAt), on
+//   a pin or terminal too. There a press and drag moves the end, and a click without moving starts
+//   a new wire from the pin, which follows the mouse.
 // - Wire: click where a wire starts, then where it bends or ends; each click adds the route there
-//   (horizontal, then vertical) and goes on from it. Double-click, right-click or Escape ends it.
+//   (horizontal, then vertical, joining what it passes over; round a symbol it would cross,
+//   schematic::wireToolRoute) and goes on from it.
+//   Double-click, right-click or Escape ends it.
 // - Label: click on a net to name it.
 // - Junction: click to put a junction dot there, connecting wires that cross at it.
 // - Place a part or an instrument: it follows the mouse; R turns it; each click places one, a part
@@ -58,7 +73,8 @@ class SheetItem;
 // the grid. The menus' keys (R, Del) reach the view as those operations, not as key presses.
 //
 // Every edit emits edited(), after which scene() is the new drawing, and is one step on
-// undoStack() (PLAN.md M4.3): a drag, a turn of the selection or one wire click is one step. A step
+// undoStack() (PLAN.md M4.3): a drag, a turn of the selection, a wire drawn from a pin or one
+// Wire tool click is one step, its wires tidied first (schematic::tidyWires). A step
 // holds the scene before and after it, so undo restores the earlier drawing exactly, whatever the
 // edit was; a scene is small, so a copy per step costs little. An edit that changes nothing is no
 // step. Undo and redo emit edited() too, and clear the selection, whose indices may no longer fit.
@@ -254,8 +270,41 @@ private:
     int pastes_ = 0;                       // pastes since the copy, each a step further
     bool gridShown_ = true;
 
+    // What a press with the Select tool started, until its release.
+    enum class Drag {
+        None,
+        Selection, // the selected items
+        Segment,   // a wire, sideways
+        End,       // a wire's end
+    };
+    // A wire drawn from a pin with the Select tool: what is fixed of it, and where it goes on from.
+    struct PinWire
+    {
+        std::vector<schematic::Wire> fixed;
+        schematic::Point last;
+        bool pressed = false; // the button is still down from the press that started it
+    };
+
+    // The wires a drag moved, found again in scene_ after tidying.
+    void reselectWires(const std::vector<schematic::Wire>& selected);
+    // Whether a wire ending at `p` would connect there: a pin, a terminal, a wire, a junction.
+    bool connectsAt(schematic::Point p) const;
+    // The wire whose end at `p` a press there drags: a selected wire's, or schematic::wireEndAt().
+    std::optional<std::size_t> draggableEndAt(schematic::Point p) const;
+    // The drawing with the fixed part of the wire being drawn from a pin.
+    schematic::Scene withPinWire() const;
+    void finishPinWire(schematic::Point at);
+    void updateCursor();
+
     std::optional<schematic::Point> wireStart_; // the Wire tool's current start
-    std::optional<schematic::Point> dragFrom_;  // Select: where a drag of the selection began
+    std::optional<schematic::Point> dragFrom_;  // Select: where a drag began
+    Drag drag_ = Drag::None;
+    schematic::Scene dragBase_;     // the drawing when the drag began
+    std::vector<std::size_t> dragWires_; // the wires selected when a Selection drag began
+    std::size_t dragWire_ = 0;      // the wire a Segment or End drag holds
+    schematic::Point dragEnd_;      // the end an End drag holds
+    bool dragMoved_ = false;        // the mouse left the point an End drag began at
+    std::optional<PinWire> pinWire_;
     std::optional<schematic::Point> boxFrom_;   // Select: where a selection box began
     QList<QAction*> itemActions_;
     QList<QAction*> sheetActions_;

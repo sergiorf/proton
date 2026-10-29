@@ -235,9 +235,41 @@ TEST(ground_net_with_one_connection_is_fine)
     Circuit circuit;
     circuit.components = {
         {ComponentKind::VoltageSource, "V1", {"a", "gnd"}, "1"},
-        {ComponentKind::Resistor, "R1", {"a", "a"}, "1k"},
+        {ComponentKind::Resistor, "R1", {"a", "b"}, "1k"},
+        {ComponentKind::Resistor, "R2", {"b", "a"}, "1k"},
         {ComponentKind::Ground, "GND1", {"gnd"}, ""},
     };
+    CHECK_EQ(codes(circuit), "");
+}
+
+TEST(shorted_component)
+{
+    // A wire across C1, as drawn straight through it: both its terminals on out, ignoring case.
+    Circuit circuit = lowPass();
+    circuit.components[2].nets = {"out", "OUT"};
+    circuit.components.push_back({ComponentKind::Resistor, "R2", {"out", "gnd"}, "1k"});
+    const std::vector<Diagnostic> diagnostics = validate(circuit);
+    CHECK_EQ(codes(diagnostics), "ShortedComponent");
+    CHECK_EQ(diagnostics.front().element, "C1");
+    CHECK_EQ(diagnostics.front().net, "");
+    CHECK(diagnostics.front().severity == Severity::Warning);
+    CHECK(!hasErrors(diagnostics));
+}
+
+TEST(shorted_voltage_source_is_an_error)
+{
+    Circuit circuit = lowPass();
+    circuit.components.push_back({ComponentKind::VoltageSource, "V2", {"in", "in"}, "1"});
+    const std::vector<Diagnostic> diagnostics = validate(circuit);
+    CHECK_EQ(codes(diagnostics), "ShortedComponent");
+    CHECK(diagnostics.front().severity == Severity::Error);
+}
+
+TEST(shorted_fragment_elements_are_not_checked)
+{
+    // A current meter with both leads on one net contributes a 0 V source across nothing.
+    Circuit circuit = lowPass();
+    circuit.fragments = {{"dmm1", {"Vdmm1 out out 0"}}};
     CHECK_EQ(codes(circuit), "");
 }
 

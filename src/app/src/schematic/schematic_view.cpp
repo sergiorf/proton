@@ -65,7 +65,7 @@ const QColor kWireInk(20, 90, 160);
 const QColor kSelected(230, 120, 20);
 const QColor kBand(230, 120, 20, 30); // inside the selection box
 const QColor kGhost(30, 34, 40, 90);
-const QColor kLabelInk(150, 40, 40);
+const QColor kLabelInk(25, 115, 60); // not red, which marks errors
 const QColor kErrorMark(220, 40, 40, 80);    // under what an error is about
 const QColor kWarningMark(235, 160, 0, 100); // under what a warning is about
 const QColor kErrorBar(190, 35, 35);
@@ -130,12 +130,12 @@ public:
         }
         for (std::size_t i = 0; i < scene.parts.size(); ++i) {
             drawPart(*painter, scene.parts[i], pen(selectedParts.contains(i) ? kSelected : kInk),
-                     dragOffset && selectedParts.contains(i) ? *dragOffset : Point{0, 0});
+                     {0, 0});
         }
         for (std::size_t i = 0; i < scene.instruments.size(); ++i) {
             const bool selected = selectedInstruments.contains(i);
             drawInstrument(*painter, scene.instruments[i], pen(selected ? kSelected : kInk),
-                           dragOffset && selected ? *dragOffset : Point{0, 0});
+                           {0, 0});
         }
         painter->setPen(Qt::NoPen);
         painter->setBrush(kWireInk);
@@ -164,6 +164,22 @@ public:
         for (const Wire& wire : wirePreview) {
             painter->drawLine(at(wire.from), at(wire.to));
         }
+        // A selected wire's ends can be dragged: small squares on them.
+        painter->setPen(QPen(kSelected, kLine / 2.0));
+        painter->setBrush(kPaper);
+        for (const std::size_t i : selectedWires) {
+            if (i < scene.wires.size()) {
+                for (const Point end : {scene.wires[i].from, scene.wires[i].to}) {
+                    painter->drawRect(QRectF(end.x - 0.25, end.y - 0.25, 0.5, 0.5));
+                }
+            }
+        }
+        // The pin a press would start a wire from, or the wire being drawn would end on.
+        if (hoverPin) {
+            painter->setPen(QPen(kSelected, kLine));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawEllipse(at(*hoverPin), 0.5, 0.5);
+        }
         if (band) {
             QPen dashed(kSelected, kLine / 2.0, Qt::DashLine);
             painter->setPen(dashed);
@@ -181,7 +197,7 @@ public:
     std::optional<PlacedPart> ghost;     // the part being placed
     std::optional<PlacedInstrument> ghostInstrument; // the instrument being placed
     std::vector<Wire> wirePreview;        // the wire being drawn
-    std::optional<Point> dragOffset;      // how far the selected parts are being dragged
+    std::optional<Point> hoverPin;        // the pin or wire end under the mouse, ringed
     std::optional<schematic::Box> band;   // the selection box being drawn
 
 private:
@@ -389,6 +405,8 @@ void SchematicView::setScene(const Scene& scene)
     undo_->clear();
     clearSelection();
     wireStart_.reset();
+    pinWire_.reset();
+    drag_ = Drag::None;
     refresh();
     // Centre the drawing, instruments included.
     std::vector<schematic::Box> boxes;
@@ -413,6 +431,8 @@ void SchematicView::setTool(Tool tool)
     tool_ = tool;
     wireStart_.reset();
     dragFrom_.reset();
+    drag_ = Drag::None;
+    pinWire_.reset();
     if (tool != Tool::Select) {
         clearSelection();
     }
@@ -457,7 +477,7 @@ void SchematicView::placeInstrument(InstrumentKind kind, Point where, Rotation r
 
 void SchematicView::drawWire(Point from, Point to)
 {
-    for (const Wire& wire : schematic::route(from, to)) {
+    for (const Wire& wire : schematic::wireToolRoute(scene_, from, to)) {
         scene_.wires.push_back(wire);
     }
     commit(tr("Draw wire"));
@@ -472,30 +492,20 @@ void SchematicView::addLabel(const std::string& name, Point where)
 void SchematicView::moveItems(const std::vector<std::size_t>& parts,
                               const std::vector<std::size_t>& instruments, Point offset)
 {
-    for (const std::size_t i : parts) {
-        if (i < scene_.parts.size()) {
-            const Point position = scene_.parts[i].placement.position;
-            schematic::movePart(scene_, i, {position.x + offset.x, position.y + offset.y});
-        }
-    }
-    for (const std::size_t i : instruments) {
-        if (i < scene_.instruments.size()) {
-            const Point position = scene_.instruments[i].placement.position;
-            schematic::moveInstrument(scene_, i, {position.x + offset.x, position.y + offset.y});
-        }
-    }
+    schematic::Selection items;
+    items.parts = parts;
+    items.instruments = instruments;
+    schematic::moveSelection(scene_, items, offset);
     commit(tr("Move"));
 }
 
 void SchematicView::rotateItems(const std::vector<std::size_t>& parts,
                                 const std::vector<std::size_t>& instruments)
 {
-    for (const std::size_t i : parts) {
-        schematic::rotatePart(scene_, i);
-    }
-    for (const std::size_t i : instruments) {
-        schematic::rotateInstrument(scene_, i);
-    }
+    schematic::Selection items;
+    items.parts = parts;
+    items.instruments = instruments;
+    schematic::rotateSelection(scene_, items);
     commit(tr("Rotate"));
 }
 
@@ -587,12 +597,10 @@ void SchematicView::mirror()
     if (tool_ != Tool::Select || (selectedParts_.empty() && selectedInstruments_.empty())) {
         return;
     }
-    for (const std::size_t i : selectedParts_) {
-        schematic::mirrorPart(scene_, i);
-    }
-    for (const std::size_t i : selectedInstruments_) {
-        schematic::mirrorInstrument(scene_, i);
-    }
+    schematic::Selection items;
+    items.parts = {selectedParts_.begin(), selectedParts_.end()};
+    items.instruments = {selectedInstruments_.begin(), selectedInstruments_.end()};
+    schematic::mirrorSelection(scene_, items);
     commit(tr("Mirror"));
 }
 
@@ -863,6 +871,7 @@ void SchematicView::clearSheet()
     scene_ = Scene{};
     clearSelection();
     wireStart_.reset();
+    pinWire_.reset();
     commit(tr("New sheet"));
 }
 
@@ -874,6 +883,18 @@ Point SchematicView::gridPoint(const QPoint& viewPosition) const
 
 void SchematicView::commit(const QString& text)
 {
+    // Tidied, the wires may be fewer and in another order: the selected ones are found again.
+    std::vector<Wire> selected;
+    for (const std::size_t i : selectedWires_) {
+        if (i < scene_.wires.size()) {
+            selected.push_back(scene_.wires[i]);
+        }
+    }
+    const std::vector<Wire> untidy = scene_.wires;
+    schematic::tidyWires(scene_);
+    if (scene_.wires != untidy) {
+        reselectWires(selected);
+    }
     refresh();
     if (scene_ == committed_) {
         return;
@@ -889,9 +910,106 @@ void SchematicView::restore(const Scene& scene)
     committed_ = scene;
     clearSelection();
     dragFrom_.reset();
-    sheet_->dragOffset.reset();
+    drag_ = Drag::None;
+    pinWire_.reset();
     refresh();
     Q_EMIT edited();
+}
+
+void SchematicView::reselectWires(const std::vector<Wire>& selected)
+{
+    // A tidied wire holds the pieces it was made of: it is selected when one of them lies on it.
+    const auto lies = [](Point p, const Wire& wire) {
+        return p.x >= std::min(wire.from.x, wire.to.x) && p.x <= std::max(wire.from.x, wire.to.x) &&
+               p.y >= std::min(wire.from.y, wire.to.y) && p.y <= std::max(wire.from.y, wire.to.y) &&
+               (wire.from.x == wire.to.x || wire.from.y == wire.to.y);
+    };
+    selectedWires_.clear();
+    for (std::size_t i = 0; i < scene_.wires.size(); ++i) {
+        for (const Wire& piece : selected) {
+            if (lies(piece.from, scene_.wires[i]) && lies(piece.to, scene_.wires[i])) {
+                selectedWires_.insert(i);
+            }
+        }
+    }
+}
+
+bool SchematicView::connectsAt(Point p) const
+{
+    return schematic::pinAt(scene_, p) || schematic::wireAt(scene_, p) ||
+           schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p);
+}
+
+std::optional<std::size_t> SchematicView::draggableEndAt(Point p) const
+{
+    for (const std::size_t i : selectedWires_) {
+        if (i < scene_.wires.size() && (scene_.wires[i].from == p || scene_.wires[i].to == p)) {
+            return i;
+        }
+    }
+    return schematic::wireEndAt(scene_, p);
+}
+
+Scene SchematicView::withPinWire() const
+{
+    Scene scene = scene_;
+    if (pinWire_) {
+        scene.wires.insert(scene.wires.end(), pinWire_->fixed.begin(), pinWire_->fixed.end());
+    }
+    return scene;
+}
+
+void SchematicView::finishPinWire(Point at)
+{
+    if (!pinWire_) {
+        return;
+    }
+    std::vector<Wire> wires = pinWire_->fixed;
+    for (const Wire& wire : schematic::routeAround(withPinWire(), pinWire_->last, at)) {
+        wires.push_back(wire);
+    }
+    pinWire_.reset();
+    if (wires.empty()) {
+        refresh();
+        return;
+    }
+    schematic::tapWire(scene_, at);
+    scene_.wires.insert(scene_.wires.end(), wires.begin(), wires.end());
+    commit(tr("Draw wire"));
+}
+
+void SchematicView::updateCursor()
+{
+    if (tool_ != Tool::Select) {
+        sheet_->hoverPin.reset();
+        return;
+    }
+    const Point p = cursor_;
+    std::optional<Point> ring;
+    Qt::CursorShape shape = Qt::ArrowCursor;
+    if (pinWire_) {
+        shape = Qt::CrossCursor;
+        if (connectsAt(p)) {
+            ring = p;
+        }
+    } else if (drag_ != Drag::None || boxFrom_) {
+        shape = cursor().shape();
+    } else if (draggableEndAt(p)) {
+        shape = Qt::SizeAllCursor;
+        ring = p;
+    } else if (schematic::junctionAt(scene_, p) || schematic::labelAt(scene_, p)) {
+        shape = Qt::ArrowCursor;
+    } else if (schematic::pinAt(scene_, p)) {
+        shape = Qt::CrossCursor;
+        ring = p;
+    } else if (const auto wire = schematic::wireAt(scene_, p)) {
+        const Wire& w = scene_.wires[*wire];
+        shape = w.from.y == w.to.y   ? Qt::SizeVerCursor
+                : w.from.x == w.to.x ? Qt::SizeHorCursor
+                                     : Qt::SizeAllCursor;
+    }
+    setCursor(shape);
+    sheet_->hoverPin = ring;
 }
 
 void SchematicView::clearSelection()
@@ -937,8 +1055,15 @@ void SchematicView::refresh()
         }
     }
     if (tool_ == Tool::Wire && wireStart_) {
-        sheet_->wirePreview = schematic::route(*wireStart_, cursor_);
+        sheet_->wirePreview = schematic::wireToolRoute(scene_, *wireStart_, cursor_);
     }
+    if (pinWire_) {
+        sheet_->wirePreview = pinWire_->fixed;
+        for (const Wire& wire : schematic::routeAround(withPinWire(), pinWire_->last, cursor_)) {
+            sheet_->wirePreview.push_back(wire);
+        }
+    }
+    updateCursor();
     sheet_->update();
     if (changed) {
         Q_EMIT selectionChanged();
@@ -1041,7 +1166,10 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
     const Point p = gridPoint(event->position().toPoint());
     cursor_ = p;
     if (event->button() == Qt::RightButton) {
-        if (tool_ == Tool::Wire && wireStart_) {
+        if (pinWire_) {
+            pinWire_.reset(); // dropped
+            refresh();
+        } else if (tool_ == Tool::Wire && wireStart_) {
             finishWire();
         } else if (tool_ != Tool::Select) {
             setTool(Tool::Select);
@@ -1056,6 +1184,56 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
     switch (tool_) {
     case Tool::Select: {
         const bool add = (event->modifiers() & Qt::ShiftModifier) != 0;
+        // A wire being drawn from a pin: connect where it can, else fix a bend.
+        if (pinWire_) {
+            pinWire_->pressed = true;
+            if (p == pinWire_->last) {
+                return;
+            }
+            if (connectsAt(p)) {
+                finishPinWire(p);
+            } else {
+                for (const Wire& wire : schematic::routeAround(withPinWire(), pinWire_->last, p)) {
+                    pinWire_->fixed.push_back(wire);
+                }
+                pinWire_->last = p;
+                refresh();
+            }
+            return;
+        }
+        // Wiring before selecting: a wire's end, a pin, a wire's middle. Junctions and labels sit
+        // on wires and are picked as before, unless a selected wire's end is there.
+        if (const auto wire = add ? std::nullopt : draggableEndAt(p)) {
+            clearSelection();
+            selectedWires_.insert(*wire);
+            drag_ = Drag::End;
+            dragWire_ = *wire;
+            dragEnd_ = p;
+            dragMoved_ = false;
+            dragFrom_ = p;
+            dragBase_ = scene_;
+            refresh();
+            return;
+        }
+        if (!add &&!schematic::junctionAt(scene_, p) && !schematic::labelAt(scene_, p)) {
+            if (schematic::pinAt(scene_, p)) {
+                clearSelection();
+                pinWire_ = PinWire{{}, p, true};
+                dragFrom_ = p;
+                refresh();
+                return;
+            }
+            if (const auto wire = schematic::wireAt(scene_, p)) {
+                clearSelection();
+                selectedWires_.insert(*wire);
+                drag_ = Drag::Segment;
+                dragWire_ = *wire;
+                dragFrom_ = p;
+                dragBase_ = scene_;
+                refresh();
+                return;
+            }
+        }
         if (!itemAt(p)) {
             // Empty sheet: a selection box from here.
             if (!add) {
@@ -1081,7 +1259,10 @@ void SchematicView::mousePressEvent(QMouseEvent* event)
             selectAt(p, add);
         }
         if (onSelection()) {
+            drag_ = Drag::Selection;
             dragFrom_ = p;
+            dragBase_ = scene_;
+            dragWires_ = {selectedWires_.begin(), selectedWires_.end()};
         }
         refresh();
         break;
@@ -1129,10 +1310,48 @@ void SchematicView::mouseMoveEvent(QMouseEvent* event)
         sheet_->update();
         return;
     }
-    if (tool_ == Tool::Select && dragFrom_) {
-        sheet_->dragOffset = Point{p.x - dragFrom_->x, p.y - dragFrom_->y};
-        sheet_->update();
-        return;
+    if (tool_ == Tool::Select && dragFrom_ && drag_ != Drag::None) {
+        // The drag shown as it will be: the drawing as it was, edited by the drag so far.
+        const Point offset{p.x - dragFrom_->x, p.y - dragFrom_->y};
+        switch (drag_) {
+        case Drag::Selection: {
+            scene_ = dragBase_;
+            const schematic::Selection moved = schematic::moveSelection(
+                scene_,
+                {{selectedParts_.begin(), selectedParts_.end()},
+                 // The wires as selected when the drag began, in the drawing it began from.
+                 {dragWires_.begin(), dragWires_.end()},
+                 {selectedLabels_.begin(), selectedLabels_.end()},
+                 {selectedInstruments_.begin(), selectedInstruments_.end()},
+                 {selectedJunctions_.begin(), selectedJunctions_.end()}},
+                offset);
+            selectedWires_ = {moved.wires.begin(), moved.wires.end()};
+            break;
+        }
+        case Drag::Segment: {
+            Scene moved = dragBase_;
+            schematic::dragSegment(moved, dragWire_, offset);
+            // Else it stays where it last fitted.
+            const auto throughSymbols = [](const Scene& scene) {
+                return std::ranges::count_if(scene.wires, [&scene](const Wire& wire) {
+                    return schematic::crossesSymbol(scene, wire);
+                });
+            };
+            if (schematic::sameNets(dragBase_, moved) &&
+                throughSymbols(moved) <= throughSymbols(dragBase_)) {
+                scene_ = std::move(moved);
+            }
+            break;
+        }
+        case Drag::End:
+            dragMoved_ = true;
+            scene_ = dragBase_;
+            schematic::dragWireEnd(scene_, dragWire_, dragEnd_, p);
+            selectedWires_.clear();
+            break;
+        case Drag::None:
+            break;
+        }
     }
     refresh();
 }
@@ -1156,18 +1375,42 @@ void SchematicView::mouseReleaseEvent(QMouseEvent* event)
         refresh();
         return;
     }
-    if (tool_ != Tool::Select || !dragFrom_) {
+    if (tool_ != Tool::Select) {
         return;
     }
-    const Point offset{p.x - dragFrom_->x, p.y - dragFrom_->y};
+    if (pinWire_ && pinWire_->pressed) {
+        // A wire dragged out of a pin and let go: it ends there if it can connect, otherwise it
+        // goes on from a bend there. Let go where it started, it follows the mouse until a click.
+        pinWire_->pressed = false;
+        if (p != pinWire_->last) {
+            if (connectsAt(p)) {
+                finishPinWire(p);
+            } else {
+                for (const Wire& wire : schematic::routeAround(withPinWire(), pinWire_->last, p)) {
+                    pinWire_->fixed.push_back(wire);
+                }
+                pinWire_->last = p;
+                refresh();
+            }
+        }
+        dragFrom_.reset();
+        return;
+    }
+    if (!dragFrom_ || drag_ == Drag::None) {
+        dragFrom_.reset();
+        return;
+    }
+    const Drag drag = drag_;
+    drag_ = Drag::None;
     dragFrom_.reset();
-    sheet_->dragOffset.reset();
-    if (offset == Point{0, 0}) {
+    if (drag == Drag::End && !dragMoved_ && schematic::pinAt(scene_, p)) {
+        // A click on a wired pin: a new wire from it, following the mouse until a click.
+        clearSelection();
+        pinWire_ = PinWire{{}, p, false};
         refresh();
         return;
     }
-    moveItems({selectedParts_.begin(), selectedParts_.end()},
-              {selectedInstruments_.begin(), selectedInstruments_.end()}, offset);
+    commit(drag == Drag::Selection ? tr("Move") : tr("Move wire"));
 }
 
 void SchematicView::mouseDoubleClickEvent(QMouseEvent* event)
@@ -1175,6 +1418,10 @@ void SchematicView::mouseDoubleClickEvent(QMouseEvent* event)
     const Point p = gridPoint(event->position().toPoint());
     if (tool_ == Tool::Wire) {
         finishWire();
+        return;
+    }
+    if (pinWire_) {
+        finishPinWire(p); // ends where it is
         return;
     }
     if (tool_ != Tool::Select) {
@@ -1193,7 +1440,16 @@ void SchematicView::keyPressEvent(QKeyEvent* event)
 {
     switch (event->key()) {
     case Qt::Key_Escape:
-        if (tool_ == Tool::Wire && wireStart_) {
+        if (pinWire_) {
+            pinWire_.reset(); // dropped
+            refresh();
+        } else if (drag_ != Drag::None) {
+            scene_ = dragBase_; // the drag undone
+            drag_ = Drag::None;
+            dragFrom_.reset();
+            clearSelection();
+            refresh();
+        } else if (tool_ == Tool::Wire && wireStart_) {
             finishWire();
         } else if (tool_ == Tool::Select) {
             boxFrom_.reset();

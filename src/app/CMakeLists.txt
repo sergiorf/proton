@@ -99,4 +99,6 @@ if(PROTON_NGSPICE_FOUND)
     add_test(NAME app_power_supply COMMAND proton --smoke-supply)
     # A multimeter wired in series on DC A reads Ohm's law (M5.2).
     add_test(NAME app_ammeter COMMAND proton --smoke-ammeter)
+    # A circuit wired from its pins, a part and a probe lead dragged, still measuring (M4.12).
+    add_test(NAME app_wiring COMMAND proton --smoke-wiring)
 endif()
