@@ -11,7 +11,9 @@ are.
 reasons for them. It is not a record of how each class works (that is the class's header
 comment), of measurements and the choices they support (the ADRs in [adr/](adr/)), of what each
 test checks (the tests), or of what was built when ([PLAN.md](PLAN.md)). Update it when a layer, a
-dependency, a thread, a contract or an invariant changes, not after every task.
+dependency, a thread, a contract or an invariant changes, not after every task. For a guided tour
+with class and sequence diagrams, what happens on a UI tick and on an edit, and what each test and
+app smoke check proves, see [ARCHITECTURE-GUIDE.md](ARCHITECTURE-GUIDE.md).
 
 ## 1. Principles
 

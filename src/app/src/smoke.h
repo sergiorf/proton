@@ -97,8 +97,10 @@ void smokeAmmeter(MainWindow& window);
 // Wiring as a desktop simulator does it (PLAN.md M4.12), with real mouse events: the RC low-pass
 // with the generator and the scope drawn with the Select tool alone, every wire by a press on one
 // pin let go on another; R1 dragged up by its body, its wires routed square and its connections
-// kept; then scope1's CH2 lead selected and its end dragged from out to in. The circuit runs
-// throughout: CH2 shows out (0.847 of the generator's 1 V at 1 kHz) until the lead moves, then 1 V.
+// kept; then scope1's CH2 lead selected and its end dragged from out to in, through a label naming
+// out there. The circuit runs throughout: CH2 shows out (0.847 of the generator's 1 V at 1 kHz)
+// until the lead moves, then 1 V. Last, unselected, the lead's end is dragged off CH2's terminal,
+// and CH2 is wired again with a click on CH1's wired terminal and one on CH2.
 void smokeWiring(MainWindow& window);
 
 } // namespace proton::app
