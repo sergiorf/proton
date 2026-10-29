@@ -6,6 +6,7 @@ add_executable(proton_schematic_tests
     test_scene.cpp
     test_scene_edit.cpp
     test_validate.cpp
+    test_wiring.cpp
 )
 target_link_libraries(proton_schematic_tests
     PRIVATE proton::schematic proton::test_support proton_warnings)

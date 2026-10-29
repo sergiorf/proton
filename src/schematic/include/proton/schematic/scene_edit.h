@@ -10,9 +10,10 @@
 
 namespace proton::schematic {
 
-// The editing the schematic editor does (PLAN.md M4.2, M4.4), on the Qt-free scene so it is tested
-// here: what lies under a point, new parts' and instruments' names and values, wire routes,
-// junction dots, and moving, turning and deleting parts and instruments with their wires following.
+// The editing the schematic editor does (PLAN.md M4.2, M4.4, M4.12), on the Qt-free scene so it is
+// tested here: what lies under a point, new parts' and instruments' names and values, wire routes,
+// junction dots, moving, turning and deleting parts and instruments with their wires following,
+// and wiring.
 
 // A rectangle on the grid, edges included.
 struct Box
@@ -126,5 +127,67 @@ Selection paste(Scene& scene, const Scene& clip, Point offset);
 // Whether an instrument other than `except` is called `name`, ignoring case.
 bool instrumentNameTaken(const Scene& scene, const std::string& name,
                          std::optional<std::size_t> except = std::nullopt);
+
+// ---- Wiring as a desktop circuit simulator does it (PLAN.md M4.12) ----------------------------
+//
+// Wires stay horizontal and vertical: moving, turning or mirroring a part routes its wires again
+// instead of stretching them, a wire can be dragged sideways or by its end, and a wire can be
+// drawn from any pin. The routes never change what is connected to what: a route may cross a wire
+// (a crossing does not connect), but never bends on one, runs along one, or passes over a pin,
+// terminal, wire end, label or junction, any of which would join it to that net.
+
+// Whether a part's pin or an instrument's terminal is at `p`.
+bool pinAt(const Scene& scene, Point p);
+
+// A wire from `from` to `to` through the scene as it is: horizontal and vertical segments, as
+// short as it can be with as few bends as it can, around the symbols in its way when there is
+// room (a route may go through a symbol when there is no other way), and touching nothing of the
+// drawing except at its two ends (above). None if the points are the same; route()'s two
+// segments if no such route exists near them.
+std::vector<Wire> routeAround(const Scene& scene, Point from, Point to);
+
+// Moves the parts, instruments, wires, labels and junctions of `selection` by `offset`, as a drag
+// does. A selected wire moves whole. Every other wire chain that ends on something that moves (a
+// pin, a terminal, the end of a selected wire, a selected junction or label) is routed again, with
+// routeAround(), from where that end is now to where the chain first meets something else (a pin,
+// a junction, a third wire or a label): its far end. A chain whose far end moves too moves with it.
+// Whatever stayed where a moving pin was (another pin, a label, a wire passing by) is joined to
+// it again by a route of its own, so no connection is lost. Returns where the selection's items
+// are now: parts, instruments, labels and junctions keep their indices, wires may not.
+Selection moveSelection(Scene& scene, const Selection& selection, Point offset);
+
+// Turns each part and instrument of `selection` a quarter turn clockwise, or mirrors it left to
+// right, about its own position (rotatePart(), mirrorPart()), its wires routed again as
+// moveSelection() routes them. Selected wires, labels and junctions stay.
+void rotateSelection(Scene& scene, const Selection& selection);
+void mirrorSelection(Scene& scene, const Selection& selection);
+
+// Drags wire `index` sideways by `offset`: a horizontal wire up or down by offset.y, a vertical
+// one left or right by offset.x (a slanted one, from an older drawing, by both). At each of its
+// ends, a single wire across it, with nothing else there, stretches to follow; anything else at
+// the end (a pin, a junction, more wires) is joined to the moved end by a new straight wire, as is
+// anything that lay along its middle.
+void dragSegment(Scene& scene, std::size_t index, Point offset);
+
+// Moves the end of wire `index` that is at `end` to `to`, as dragging a wire's end does: the chain
+// from that end to its far end (moveSelection()) is routed again from `to`, ending on a wire's
+// middle taps it (tapWire()). Whatever was at `end` stays and is no longer joined to the wire: a
+// wire end dragged off a pin into empty sheet disconnects it. Nothing if `end` is not an end of
+// the wire.
+void dragWireEnd(Scene& scene, std::size_t index, Point end, Point to);
+
+// Splits the wire whose middle `p` lies on into two at `p`, so a wire ending there meets ends.
+// Returns whether a wire was split.
+bool tapWire(Scene& scene, Point p);
+
+// Tidies the wires after an edit: drops wires of no length and wires drawn twice, and merges two
+// wires that continue each other in a straight line when nothing but the two of them is at the
+// point where they meet. Connections are unchanged.
+void tidyWires(Scene& scene);
+
+// Whether `a` and `b` have the same parts and instruments, in the same order, connected to one
+// another in the same groups: their pins and terminals fall into the same nets, whatever those
+// nets are called and however their wires run.
+bool sameNets(const Scene& a, const Scene& b);
 
 } // namespace proton::schematic

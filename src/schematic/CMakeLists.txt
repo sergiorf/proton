@@ -6,6 +6,7 @@ add_library(proton_schematic
     src/scene.cpp
     src/scene_edit.cpp
     src/validate.cpp
+    src/wiring.cpp
 )
 add_library(proton::schematic ALIAS proton_schematic)
 

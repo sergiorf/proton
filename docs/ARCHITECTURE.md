@@ -265,7 +265,10 @@ failure and reports the engine's message. A failing simulation never takes down 
   ADR 0004). QML or `QRhi` can be revisited if rendering becomes a bottleneck.
 - **Schematic editor**: `QGraphicsScene`/`QGraphicsView` with its own scene model, converted to a
   `Circuit` for simulation. Components and instruments are placed from a parts panel beside it and
-  wired like parts (ADR 0009). Undo/redo with `QUndoStack`.
+  wired like parts (ADR 0009). Undo/redo with `QUndoStack`. Wiring follows desktop simulators:
+  wires drawn from pins, routed square round the symbols, and routed again live as parts move.
+  The router, in the Qt-free scene editing, never changes what is connected: a route may cross a
+  wire but never touches one or any other connection point.
 - **Bench**: instrument front panels (faceplate widget + display widget) in windows of their own
   floating over the sheet, opened by double-clicking the instrument on the schematic, each
   bound to one instrument instance of the `Bench` model (section 5.1). The app owns the UI timer

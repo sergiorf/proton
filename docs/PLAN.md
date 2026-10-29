@@ -439,6 +439,47 @@ File gets Open, Save, Save As and Recent files, and the toolbar Open and Save (M
 *Done when:* save then load reproduces the same scene, netlist and instrument settings
 (round-trip test), and the examples load from the menu and from the start page.
 
+**M4.12 Wiring like a desktop simulator.** *(done locally 2026-10-29, CI pending: Actions billing)* Added after M5.2, from using the editor: wiring needs
+a tool of its own, wires stay behind while a part is dragged and go diagonal when it lands, and a
+wire cannot be grabbed. Wiring as in common desktop circuit simulators (generic conventions, no
+product's look), the logic in `schematic/scene_edit.h` with tests and the view only forwarding the
+mouse:
+- Wire from any pin: with the Select tool, hovering a pin or instrument terminal lights it and
+  shows a crosshair; a press there starts a wire that follows the mouse on an automatic route
+  (horizontal and vertical, around symbols), a click adds a bend, and a release or click on a pin,
+  terminal or wire connects it. Ending on the middle of a wire taps it: the wire is split there and
+  gets a junction. Escape or right-click drops the wire being drawn. The Wire tool stays.
+- Live rubber-banding: while parts and instruments are dragged, every wire attached to them is
+  routed again at each mouse move, horizontal and vertical, around symbols where it can; the drag
+  is one undo step.
+- Grab a wire: dragging a segment moves it sideways, its neighbours stretching to stay connected;
+  dragging a wire's end moves it to another pin, terminal or wire, or off into empty sheet, which
+  disconnects it.
+- After every edit, collinear segments that meet end to end with nothing else there merge into one.
+*Done when:* scene tests show that after any move, rotation, segment drag or end drag every wire
+is horizontal or vertical, the nets are the same as before unless an end was moved, and a route
+avoids the symbols in its way when there is room; a tap splits a wire and joins its net; and the
+app smoke checks draw the RC low-pass with presses on pins only (no Wire tool), drag R1 with its
+wires following, move the scope's CH2 wire end from `out` to `in` by dragging it, and the circuit
+still simulates with the expected readings.
+
+**M4.13 Connecting instruments.** Making and changing an instrument's connections as easy as
+probing on a bench, on top of M4.12:
+- Instrument terminals get a larger hit area than their dot, and light up while a wire end being
+  drawn or dragged comes near; within a few pixels a wire end snaps to the nearest pin or
+  terminal.
+- Wires take the colour of the instrument channel they are wired to, as probe leads do: the scope's
+  CH1 and CH2 in its trace colours (`panel::kChannel1`, `kChannel2`), a supply's or meter's `+` red
+  and `-` / `COM` black; a net wired to two colours keeps plain ink. The colour is worked out from
+  the drawing, not stored.
+- A right-click on a terminal offers Disconnect, which removes the wires from that terminal up to
+  the first junction, pin or other terminal.
+- Hovering a wire highlights its whole net and shows the net's name in a tooltip.
+*Done when:* scene tests give the colour of each wire of a drawing with a scope, a supply and a
+meter wired to it, and show which wires Disconnect removes; and the app smoke checks snap a wire
+end to a terminal released a few pixels off it, disconnect a scope channel from its menu (its
+terminal then warns it is not connected), and show the net name on hover.
+
 **M4 exit check:** draw the RC low-pass from an empty sheet, wire the generator and scope, save,
 reopen, and measure the corner frequency.
 

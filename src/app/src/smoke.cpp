@@ -2113,4 +2113,186 @@ void smokeAmmeter(MainWindow& window)
     QTimer::singleShot(0, &window, [&window] { checkAmmeter(window); });
 }
 
+namespace {
+
+// Presses at grid point `from`, moves the mouse to `to` in a few steps and lets go there, as a
+// hand drags on the sheet.
+void dragOnSheet(sheet::SchematicView& sheet, Point from, Point to)
+{
+    QWidget* viewport = sheet.viewport();
+    mouse(viewport, QEvent::MouseButtonPress, sheet.viewPoint(from), Qt::LeftButton);
+    for (int i = 1; i <= 4; ++i) {
+        const Point step{from.x + (to.x - from.x) * i / 4, from.y + (to.y - from.y) * i / 4};
+        mouse(viewport, QEvent::MouseMove, sheet.viewPoint(step), Qt::LeftButton);
+    }
+    mouse(viewport, QEvent::MouseButtonRelease, sheet.viewPoint(to), Qt::NoButton);
+}
+
+bool square(const schematic::Scene& scene)
+{
+    return std::ranges::all_of(scene.wires, [](const schematic::Wire& wire) {
+        return wire.from.x == wire.to.x || wire.from.y == wire.to.y;
+    });
+}
+
+// The last wire of the chain from `start` (an instrument's terminal) to where it first meets
+// something other than a bend; nothing if no wire ends at `start`.
+std::optional<std::size_t> leadEnd(const schematic::Scene& scene, Point start, Point& far)
+{
+    std::optional<std::size_t> wire;
+    Point at = start;
+    for (int guard = 0; guard < 100; ++guard) {
+        std::vector<std::size_t> ends;
+        for (std::size_t i = 0; i < scene.wires.size(); ++i) {
+            if ((scene.wires[i].from == at || scene.wires[i].to == at) && wire != i) {
+                ends.push_back(i);
+            }
+        }
+        if (ends.size() != 1 || (wire && schematic::pinAt(scene, at))) {
+            break;
+        }
+        wire = ends[0];
+        at = scene.wires[*wire].from == at ? scene.wires[*wire].to : scene.wires[*wire].from;
+        if (schematic::pinAt(scene, at)) {
+            break;
+        }
+    }
+    far = at;
+    return wire;
+}
+
+// The body of smokeWiring().
+void checkWiring(MainWindow& window)
+{
+    sheet::SchematicView& sheet = window.sheet();
+    sheet.setScene({});
+    placeFromPanel(window, InstrumentKind::Generator, {-10, 0});  // +: (-8,-1), COM: (-8,1)
+    placeFromPanel(window, ComponentKind::Resistor, {-3, -1});     // R1: (-5,-1), (-1,-1)
+    placeFromPanel(window, ComponentKind::Capacitor, {3, 1}, 1);   // C1: (3,-1), (3,3)
+    placeFromPanel(window, ComponentKind::Ground, {-8, 5});
+    placeFromPanel(window, ComponentKind::Ground, {3, 6});
+    placeFromPanel(window, InstrumentKind::Scope, {14, 0});        // CH1: (11,-1), CH2: (11,1)
+    sheet.setTool(sheet::SchematicView::Tool::Select);
+    // Every wire drawn from a pin with the Select tool: press on one pin, let go on the other.
+    dragOnSheet(sheet, {-8, -1}, {-5, -1});
+    dragOnSheet(sheet, {-1, -1}, {3, -1});
+    dragOnSheet(sheet, {3, 3}, {3, 6});
+    dragOnSheet(sheet, {-8, 1}, {-8, 5});
+    dragOnSheet(sheet, {11, 1}, {3, -1});  // CH2 on out
+    dragOnSheet(sheet, {11, -1}, {-5, -1}); // CH1 on in
+    const auto fail = [](const std::string& why) {
+        std::fprintf(stderr, "proton: wiring: %s\n", why.c_str());
+        QApplication::exit(1);
+    };
+    const auto connected = [&sheet] {
+        // Parts: R1, C1 and the grounds; instruments: gen1, scope1.
+        const schematic::Conversion c = schematic::convert(sheet.scene());
+        const auto& r1 = c.circuit.components[0].nets;
+        const auto& scope = c.instruments[1].nets;
+        return std::pair{scope[0] == r1[0] && !r1[0].empty(),
+                         scope[1] == r1[1] && c.circuit.components[1].nets[0] == r1[1]};
+    };
+    if (sheet.tool() != sheet::SchematicView::Tool::Select || !square(sheet.scene()) ||
+        connected() != std::pair{true, true}) {
+        fail("drawing from the pins did not wire the RC low-pass and the scope");
+        return;
+    }
+    window.openPanel(QStringLiteral("scope1"));
+    pressRun(window);
+
+    // 0: the scope shows in and out; 1: R1 dragged with its wires; 2: CH2's lead moved to in.
+    auto* timer = new QTimer(&window);
+    auto clock = std::make_shared<QElapsedTimer>();
+    auto stage = std::make_shared<int>(0);
+    clock->start();
+    QObject::connect(timer, &QTimer::timeout, &window, [&window, &sheet, timer, clock, stage,
+                                                        fail, connected] {
+        const ScopePanel* scope = window.scopePanel(QStringLiteral("scope1"));
+        const auto peak = [](std::optional<std::pair<double, double>> e, double v) {
+            return e && std::abs(e->second - v) < 0.03 && std::abs(e->first + v) < 0.03;
+        };
+        // 1 V at 1 kHz into 1k and 100n: out is 1 / sqrt(1 + (f / fc)^2) of in.
+        const double fc = 1.0 / (2.0 * std::numbers::pi * 1e3 * 100e-9);
+        const double out = 1.0 / std::sqrt(1.0 + (1e3 / fc) * (1e3 / fc));
+        const bool ch1 = peak(extent(scope, 0), 1.0);
+        bool done = false;
+        switch (*stage) {
+        case 0:
+            done = ch1 && peak(extent(scope, 1), out);
+            if (done) {
+                const schematic::Scene before = sheet.scene();
+                if (schematic::wireAt(before, {-3, -1})) {
+                    fail("a wire runs over R1's middle");
+                    timer->stop();
+                    return;
+                }
+                dragOnSheet(sheet, {-3, -1}, {-3, -5});
+                const schematic::Scene& after = sheet.scene();
+                if (after.parts[0].placement.position != Point{-3, -5} || !square(after) ||
+                    !schematic::sameNets(before, after)) {
+                    fail("R1 did not move with its wires square and its connections kept");
+                    timer->stop();
+                    return;
+                }
+                std::printf("proton: wiring: drawn from pins, R1 dragged with %zu wires square\n",
+                            after.wires.size());
+            }
+            break;
+        case 1:
+            done = ch1 && peak(extent(scope, 1), out);
+            if (done) {
+                // Select CH2's lead, then drag its end from out to the generator's + (in).
+                Point far;
+                const std::optional<std::size_t> lead = leadEnd(sheet.scene(), {11, 1}, far);
+                if (!lead || far != Point{3, -1}) {
+                    fail("CH2's lead does not end on C1");
+                    timer->stop();
+                    return;
+                }
+                sheet.select({{}, {*lead}, {}, {}, {}});
+                dragOnSheet(sheet, {3, -1}, {-8, -1});
+                if (!square(sheet.scene()) || connected().second ||
+                    schematic::convert(sheet.scene()).instruments[1].nets[1] !=
+                        schematic::convert(sheet.scene()).circuit.components[0].nets[0]) {
+                    fail("CH2's lead did not move from out to in");
+                    timer->stop();
+                    return;
+                }
+                std::printf("proton: wiring: CH2's lead dragged from out to in\n");
+            }
+            break;
+        default:
+            done = ch1 && peak(extent(scope, 1), 1.0);
+            if (done) {
+                std::printf("proton: wiring: CH2 on in reads the generator's 1 V\n");
+                std::fflush(stdout);
+                timer->stop();
+                window.close();
+                return;
+            }
+            break;
+        }
+        if (done) {
+            ++*stage;
+            clock->restart();
+            return;
+        }
+        const bool late = clock->elapsed() > std::chrono::milliseconds(kExampleTimeout).count();
+        if (late || window.control().state() == bench::RunControl::State::Invalid ||
+            window.control().state() == bench::RunControl::State::Failed) {
+            fail("stage " + std::to_string(*stage) + ": the scope does not show what it should; " +
+                 window.control().error());
+            timer->stop();
+        }
+    });
+    timer->start(16);
+}
+
+} // namespace
+
+void smokeWiring(MainWindow& window)
+{
+    QTimer::singleShot(0, &window, [&window] { checkWiring(window); });
+}
+
 } // namespace proton::app

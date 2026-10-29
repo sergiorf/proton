@@ -94,4 +94,11 @@ void smokeSupply(MainWindow& window);
 // shows Ohm's law, 2.500 mA.
 void smokeAmmeter(MainWindow& window);
 
+// Wiring as a desktop simulator does it (PLAN.md M4.12), with real mouse events: the RC low-pass
+// with the generator and the scope drawn with the Select tool alone, every wire by a press on one
+// pin let go on another; R1 dragged up by its body, its wires routed square and its connections
+// kept; then scope1's CH2 lead selected and its end dragged from out to in. The circuit runs
+// throughout: CH2 shows out (0.847 of the generator's 1 V at 1 kHz) until the lead moves, then 1 V.
+void smokeWiring(MainWindow& window);
+
 } // namespace proton::app

@@ -4,7 +4,7 @@
 //     proton [--smoke-test | --smoke-examples | --smoke-panel | --smoke-latency |
 //             --smoke-editor | --smoke-undo | --smoke-menus | --smoke-session |
 //             --smoke-diagnostics | --smoke-selection | --smoke-files | --smoke-supply |
-//             --smoke-ammeter | --screenshot <file.png>]
+//             --smoke-ammeter | --smoke-wiring | --screenshot <file.png>]
 //
 // Without an option the window opens maximised, on the start page.
 //
@@ -107,6 +107,9 @@ int main(int argc, char** argv)
     const QCommandLineOption smokeAmmeterOption(QStringLiteral("smoke-ammeter"),
         QStringLiteral("Draw a meter in series on DC A, check Ohm's law, then exit."));
     parser.addOption(smokeAmmeterOption);
+    const QCommandLineOption smokeWiringOption(QStringLiteral("smoke-wiring"),
+        QStringLiteral("Wire a circuit from its pins, drag a part and a lead, check, then exit."));
+    parser.addOption(smokeWiringOption);
     parser.addOption(screenshot);
     parser.process(app);
 
@@ -115,7 +118,7 @@ int main(int argc, char** argv)
             &smokeTest, &smokeExamplesOption, &smokePanelOption, &smokeLatencyOption,
             &smokeEditorOption, &smokeUndoOption, &smokeMenusOption, &smokeSessionOption,
             &smokeDiagnosticsOption, &smokeSelectionOption, &smokeFilesOption,
-            &smokeSupplyOption, &smokeAmmeterOption, &screenshot},
+            &smokeSupplyOption, &smokeAmmeterOption, &smokeWiringOption, &screenshot},
         [&parser](const QCommandLineOption* option) { return parser.isSet(*option); });
     // The checks keep Proton's settings, the recent files among them, apart from the student's.
     QStandardPaths::setTestModeEnabled(!interactive);
@@ -162,6 +165,8 @@ int main(int argc, char** argv)
         proton::app::smokeSupply(window);
     } else if (parser.isSet(smokeAmmeterOption)) {
         proton::app::smokeAmmeter(window);
+    } else if (parser.isSet(smokeWiringOption)) {
+        proton::app::smokeWiring(window);
     } else if (parser.isSet(screenshot)) {
         const QFileInfo start(parser.value(screenshot));
         window.showStartPage();
