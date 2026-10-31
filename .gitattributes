@@ -3,3 +3,5 @@
 tests/golden/** text eol=lf
 # Shell scripts run on Linux: keep LF.
 *.sh text eol=lf
+# Example projects are compared byte for byte with what Proton writes: keep LF.
+examples/*.proton text eol=lf
